@@ -247,45 +247,46 @@ jobs:
 
           # Mirror local → remote. lftp deletes files on the server that
           # no longer exist in the source tree (true mirror).
+          # Note: lftp's --exclude patterns are interpreted as POSIX regex,
+          # so we anchor with backslashes where needed (e.g. \.sqlite instead
+          # of *.sqlite* — the trailing * in `*.sqlite*` is invalid regex).
           lftp -u "$FTP_USERNAME","$FTP_PASSWORD" "$FTP_HOST" <<'EOF'
           set ssl:verify-certificate no
-          set mirror:use-get no
-          # Try to detect the home dir. Many FTP servers use /home/<user>.
-          # We mirror into the current working directory; if it's wrong,
-          # configure FTP_DIR secret to set an absolute path.
           mirror --reverse \
                  --verbose \
                  --no-perms \
-                 --exclude '.git/' \
-                 --exclude '.github/' \
-                 --exclude 'node_modules/' \
-                 --exclude 'vendor/' \
-                 --exclude '.env' \
-                 --exclude '*.sqlite*' \
-                 --exclude '.gitignore' \
-                 --exclude 'CHANGELOG.md' \
-                 --exclude 'README.md' \
-                 --exclude '*.md' \
-                 --exclude 'draft_*' \
-                 --exclude 'plan_*' \
-                 --exclude 'phases_*' \
-                 --exclude 'success-phase-*' \
-                 --exclude 'test_*.php' \
-                 --exclude 'verify_*.php' \
-                 --exclude 'debug_*.php' \
-                 --exclude 'push_*.php' \
-                 --exclude 'audit_*.php' \
-                 --exclude 'cloudstorage_*.php' \
-                 --exclude 'routing_middleware_*.php' \
-                 --exclude 'run_csrf_*.php' \
-                 --exclude 'setup_test_db.php' \
-                 --exclude 'test_db_count.php' \
-                 --exclude 'test_runner.php' \
-                 --exclude 'test.php' \
-                 --exclude 'db_test.php' \
-                 --exclude 'validator_test.php' \
-                 --exclude 'swagger_test.php' \
-                 --exclude 'public/storage/' \
+                 --exclude-glob '.git/' \
+                 --exclude-glob '.github/' \
+                 --exclude-glob 'node_modules/' \
+                 --exclude-glob 'vendor/' \
+                 --exclude-glob '.env' \
+                 --exclude-glob '*.sqlite' \
+                 --exclude-glob '*.sqlite-shm' \
+                 --exclude-glob '*.sqlite-wal' \
+                 --exclude-glob '.gitignore' \
+                 --exclude-glob 'CHANGELOG.md' \
+                 --exclude-glob 'README.md' \
+                 --exclude-glob '*.md' \
+                 --exclude-glob 'draft_*' \
+                 --exclude-glob 'plan_*' \
+                 --exclude-glob 'phases_*' \
+                 --exclude-glob 'success-phase-*' \
+                 --exclude-glob 'test_*.php' \
+                 --exclude-glob 'verify_*.php' \
+                 --exclude-glob 'debug_*.php' \
+                 --exclude-glob 'push_*.php' \
+                 --exclude-glob 'audit_*.php' \
+                 --exclude-glob 'cloudstorage_*.php' \
+                 --exclude-glob 'routing_middleware_*.php' \
+                 --exclude-glob 'run_csrf_*.php' \
+                 --exclude-glob 'setup_test_db.php' \
+                 --exclude-glob 'test_db_count.php' \
+                 --exclude-glob 'test_runner.php' \
+                 --exclude-glob 'test.php' \
+                 --exclude-glob 'db_test.php' \
+                 --exclude-glob 'validator_test.php' \
+                 --exclude-glob 'swagger_test.php' \
+                 --exclude-glob 'public/storage/' \
                  . ./
           bye
           EOF
