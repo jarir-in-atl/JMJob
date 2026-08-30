@@ -252,6 +252,10 @@ jobs:
           # of *.sqlite* — the trailing * in `*.sqlite*` is invalid regex).
           lftp -u "$FTP_USERNAME","$FTP_PASSWORD" "$FTP_HOST" <<'EOF'
           set ssl:verify-certificate no
+          # The FTP home is /home/jmjobxyz/ (the user's $HOME). The web
+          # root that Apache serves is public_html/. Mirror into there
+          # so the deployed files are reachable at https://jmjob.xyz/.
+          cd public_html
           mirror --reverse \
                  --verbose \
                  --no-perms \
