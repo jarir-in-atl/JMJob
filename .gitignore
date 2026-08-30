@@ -65,3 +65,4 @@ validator_test.php
 
 # Don't track the docs/ folder (it's a self-hosted rendered viewer)
 docs/
+
