@@ -1,0 +1,17 @@
+{
+  "name": "earnap-client",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "ghost dev --port 5173",
+    "build": "ghost build",
+    "start": "ghost start"
+  },
+  "dependencies": {
+    "@ghost-js/core": "0.2.0",
+    "@ghost-js/paradigms": "0.2.0",
+    "@ghost-js/router": "0.2.0",
+    "esbuild": "^0.21.5"
+  }
+}

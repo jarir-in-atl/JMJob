@@ -1,0 +1,39 @@
+// Hash-based router. Watches `window.location.hash` and the `route`
+// signal in state.js. Routes are matched left-to-right, most specific
+// first. Unknown routes fall through to the catch-all.
+
+import { effect } from '@ghost-js/core';
+import { route, isAuthenticated, navigate } from './state.js';
+
+const ROUTES = [
+    { path: '/',               requireAuth: true,  render: () => import('./views/HomePage.js') },
+    { path: '/refer',          requireAuth: true,  render: () => import('./views/ReferPage.js') },
+    { path: '/webtask',        requireAuth: true,  render: () => import('./views/WebTaskPage.js') },
+    { path: '/earn',           requireAuth: true,  render: () => import('./views/EarnPage.js') },
+    { path: '/tg-tasks',       requireAuth: true,  render: () => import('./views/TgTasksPage.js') },
+    { path: '/withdraw',       requireAuth: true,  render: () => import('./views/WithdrawPage.js') },
+    { path: '/profile',        requireAuth: true,  render: () => import('./views/ProfilePage.js') },
+    { path: '/admin',          requireAuth: true,  requireAdmin: true, render: () => import('./views/AdminPage.js') },
+    { path: '/login',          requireAuth: false, render: () => import('./views/LoginPage.js') },
+    { path: '/register',       requireAuth: false, render: () => import('./views/RegisterPage.js') },
+];
+
+// Reactive route resolver
+export const currentRoute = effect(() => {
+    const path = route.get();
+    return ROUTES.find(r => r.path === path) || ROUTES[0];
+});
+
+// Lazy-load helper that returns a Promise<module>
+export async function loadRouteModule(routeEntry) {
+    const mod = await routeEntry.render();
+    return mod;
+}
+
+// Watch window hashchange and update the signal
+window.addEventListener('hashchange', () => {
+    const h = window.location.hash.replace(/^#/, '') || '/';
+    route.set(h);
+});
+
+export { ROUTES, navigate };

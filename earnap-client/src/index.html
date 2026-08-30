@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EarnApp — Watch Ads & Earn</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+</head>
+<body>
+    <script>
+        window.EARNAPP_CONFIG = {
+            apiBase: '/api',
+            referralCode: new URLSearchParams(window.location.search).get('ref') || ''
+        };
+    </script>
+    <script type="module">
+        const candidates = ['/dist/dev/bundle.js', '/dist/build/bundle.js'];
+        for (const source of candidates) {
+            try { await import(source); break; } catch {}
+        }
+    </script>
+</body>
+</html>
