@@ -1,13 +1,10 @@
 // Application entry — boot the shell, mount it, and start the router.
 
-import { mount, effect } from '@ghost-js/core';
-import { initDevTools } from '@ghost-js/core';
+import { mount } from '@ghost-js/core';
 
 import { AppShell } from './components/AppShell.js';
 import { startRouter } from './route-loader.js';
 import { authToken, refreshUser } from './state.js';
-
-initDevTools();
 
 // Render the shell
 const app = document.getElementById('app') || (() => {
