@@ -5,10 +5,14 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Cancel any in-progress runs when a new commit is pushed
+# Serialize deploys per branch but DO NOT cancel an in-progress deploy
+# when a new commit arrives. lftp's mirror is incremental, so the new
+# deploy can run after the current one finishes. Cancelling mid-upload
+# (as we learned the hard way) leaves the server in a half-uploaded
+# state.
 concurrency:
   group: deploy-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -127,13 +131,35 @@ jobs:
         # We need vendor/ in the artifact so the server can run PHP
         # without needing shell access. --no-scripts avoids running
         # the framework's post-install hooks.
+        #
+        # Performance: aws/aws-sdk-php is ~60 MB and 25,000+ files,
+        # making every deploy very slow. We exclude it (and its
+        # flysystem adapter) because the app doesn't use S3 — the
+        # default filesystem driver is 'local'. If the operator ever
+        # wants S3, they can re-add it manually.
         run: |
+          # Install the bulk of dependencies (incl. lockfile respect)
           composer install \
             --no-interaction \
             --no-scripts \
             --no-dev \
             --prefer-dist \
             --optimize-autoloader
+
+          # Strip the heavy S3 stack — not needed for the EarnApp clone.
+          # Don't use --no-update (that flag would skip the actual removal).
+          composer remove --no-interaction --no-scripts \
+            aws/aws-sdk-php \
+            league/flysystem-aws-s3-v3 \
+            2>&1 | tail -5 || true
+
+          # Regenerate the autoloader after removing packages
+          composer dump-autoload --no-scripts --optimize 2>&1 | tail -3
+
+          # Report the size so we can see the improvement
+          echo "---"
+          echo "vendor/ size: $(du -sh vendor | cut -f1)"
+          echo "vendor/ file count: $(find vendor -type f -name '*.php' | wc -l)"
 
       - name: Verify outputs
         run: |
