@@ -1,7 +1,6 @@
-// API wrapper — ghostFetch helper. Auth header is auto-injected from
-// the current `authToken` signal.
-
-import { ghostFetch } from '@ghost-js/core';
+// API wrapper. The browser fetch response is kept intact here so callers can
+// inspect HTTP status codes and receive the JSON error payload from Nemesis.
+// (Ghost's `ghostFetch` helper resolves the response body before returning.)
 
 const cfg = window.EARNAPP_CONFIG || { apiBase: '/api' };
 
@@ -10,9 +9,6 @@ let _onUnauthorized = null;
 
 export function setAuthToken(token) {
     _token = token;
-    if (!token) {
-        delete ghostFetch.defaults?.headers?.Authorization;
-    }
 }
 
 export function getAuthToken() {
@@ -43,13 +39,21 @@ async function request(path, { method = 'GET', body, headers = {}, signal } = {}
         opts.signal = signal;
     }
 
-    const res = await ghostFetch(url, opts);
+    const res = await fetch(url, opts);
     if (res.status === 401) {
         if (_onUnauthorized) _onUnauthorized();
         throw new ApiError('Unauthorized', 401, null);
     }
     let data = null;
-    try { data = await res.json(); } catch { /* not JSON */ }
+    const contentType = res.headers.get('content-type') || '';
+    try {
+        if (contentType.includes('application/json')) {
+            data = await res.json();
+        } else {
+            const text = await res.text();
+            data = text ? { message: text } : null;
+        }
+    } catch { /* empty or malformed response body */ }
     if (!res.ok) {
         const message = (data && data.message) || `HTTP ${res.status}`;
         throw new ApiError(message, res.status, data);

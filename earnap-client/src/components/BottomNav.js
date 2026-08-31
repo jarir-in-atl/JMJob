@@ -1,4 +1,4 @@
-import { route, isAuthenticated, currentUser, navigate } from '../state.js';
+import { route, isAuthenticated } from '../state.js';
 
 const TABS = [
     { path: '/',         label: 'Home',     icon: 'bi-house-door' },
@@ -9,32 +9,28 @@ const TABS = [
     { path: '/profile',   label: 'Profile',  icon: 'bi-person' },
 ];
 
-export function BottomNav() {
-    return () => {
-        if (!isAuthenticated.get()) {
-            return { tag: 'div', props: { class: 'bottomnav-spacer' }, children: [] };
-        }
-        return {
-            tag: 'nav',
-            props: { class: 'bottomnav' },
-            children: TABS.map(tab => NavItem(tab)),
-        };
+function NavItem(tab) {
+    const isActive = route.get() === tab.path;
+    return {
+        tag: 'a',
+        props: {
+            class: 'bottomnav__item' + (isActive ? ' bottomnav__item--active' : ''),
+            href: '#' + tab.path,
+        },
+        children: [
+            { tag: 'i', props: { class: 'bi ' + tab.icon + ' bottomnav__icon' }, children: [] },
+            { tag: 'span', props: { class: 'bottomnav__label' }, children: [tab.label] },
+        ],
     };
 }
 
-function NavItem(tab) {
-    return () => {
-        const isActive = route.get() === tab.path;
-        return {
-            tag: 'a',
-            props: {
-                class: 'bottomnav__item' + (isActive ? ' bottomnav__item--active' : ''),
-                href: '#' + tab.path,
-            },
-            children: [
-                { tag: 'i', props: { class: 'bi ' + tab.icon + ' bottomnav__icon' }, children: [] },
-                { tag: 'span', props: { class: 'bottomnav__label' }, children: [tab.label] },
-            ],
-        };
+export function BottomNav() {
+    if (!isAuthenticated.get()) {
+        return { tag: 'div', props: { class: 'bottomnav-spacer' }, children: [] };
+    }
+    return {
+        tag: 'nav',
+        props: { class: 'bottomnav' },
+        children: TABS.map(NavItem),
     };
 }

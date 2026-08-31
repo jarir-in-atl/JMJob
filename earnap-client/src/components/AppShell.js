@@ -6,16 +6,16 @@ import { TopBar } from './TopBar.js';
 import { Toast } from './Toast.js';
 
 export function AppShell() {
-    return () => ({
+    return {
         tag: 'div',
         props: { class: 'app-shell' },
         children: [
-            { tag: TopBar(), props: {} },
-            { tag: 'main', props: { class: 'app-main' }, children: [() => renderRoute()] },
-            { tag: BottomNav(), props: {} },
-            { tag: Toast(), props: {} },
+            TopBar(),
+            { tag: 'main', props: { class: 'app-main' }, children: [renderRoute()] },
+            BottomNav(),
+            Toast(),
         ],
-    });
+    };
 }
 
 function renderRoute() {
