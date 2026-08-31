@@ -13,7 +13,8 @@ class TestMiddleware implements MiddlewareInterface
 {
     public function handle(Request $request, callable $next): Response
     {
-        $logFile = __DIR__ . '/../../../../storage/framework/middleware_test.log';
+        // Use base_path() — see CheckForMaintenanceMode for the same fix.
+        $logFile = base_path('storage/framework/middleware_test.log');
         @file_put_contents($logFile, "Passed through TestMiddleware at " . date('Y-m-d H:i:s') . "\n", FILE_APPEND);
 
         $response = $next($request);
