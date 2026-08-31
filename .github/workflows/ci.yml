@@ -116,14 +116,37 @@ jobs:
           mkdir -p public/css
           cp earnap-client/src/css/app.css public/css/app.css
 
+      - name: Setup PHP (for composer install)
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer
+          coverage: none
+
+      - name: Composer install (production, no dev, no scripts)
+        # We need vendor/ in the artifact so the server can run PHP
+        # without needing shell access. --no-scripts avoids running
+        # the framework's post-install hooks.
+        run: |
+          composer install \
+            --no-interaction \
+            --no-scripts \
+            --no-dev \
+            --prefer-dist \
+            --optimize-autoloader
+
       - name: Verify outputs
         run: |
           test -f public/js/app.js || (echo "❌ public/js/app.js missing"; exit 1)
           test -f public/css/app.css || (echo "❌ public/css/app.css missing"; exit 1)
+          test -d vendor || (echo "❌ vendor/ missing"; exit 1)
+          test -f vendor/autoload.php || (echo "❌ vendor/autoload.php missing"; exit 1)
           JS_SIZE=$(stat -c '%s' public/js/app.js)
           CSS_SIZE=$(stat -c '%s' public/css/app.css)
+          VENDOR_SIZE=$(du -sh vendor | cut -f1)
           echo "✅ public/js/app.js  = $JS_SIZE bytes"
           echo "✅ public/css/app.css = $CSS_SIZE bytes"
+          echo "✅ vendor/           = $VENDOR_SIZE"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -138,6 +161,7 @@ jobs:
             views/
             src/
             routes/
+            vendor/
             index.php
             composer.json
             composer.lock
@@ -242,7 +266,8 @@ jobs:
           echo "Files to upload:"
           find . -type f -not -path './node_modules/*' \
             -not -path './.git/*' -not -name '.git' \
-            -not -path './vendor/*' -not -name 'composer.lock' \
+            -not -path './vendor/*/tests/*' \
+            -not -path './vendor/*/Tests/*' \
             | wc -l
 
           # Mirror local → remote. lftp deletes files on the server that
@@ -262,7 +287,14 @@ jobs:
                  --exclude-glob '.git/' \
                  --exclude-glob '.github/' \
                  --exclude-glob 'node_modules/' \
-                 --exclude-glob 'vendor/' \
+                 --exclude-glob 'vendor/*/tests/' \
+                 --exclude-glob 'vendor/*/Tests/' \
+                 --exclude-glob 'vendor/*/.git/' \
+                 --exclude-glob 'vendor/*/phpunit.xml*' \
+                 --exclude-glob 'vendor/*/README.md' \
+                 --exclude-glob 'vendor/*/CHANGELOG.md' \
+                 --exclude-glob 'vendor/*/.github/' \
+                 --exclude-glob 'vendor/composer/installed.json' \
                  --exclude-glob '.env' \
                  --exclude-glob '*.sqlite' \
                  --exclude-glob '*.sqlite-shm' \
