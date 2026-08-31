@@ -1,4 +1,5 @@
 import { route, isAuthenticated } from '../state.js';
+import { when } from '@ghost-js/core';
 
 const TABS = [
     { path: '/',         label: 'Home',     icon: 'bi-house-door' },
@@ -25,12 +26,13 @@ function NavItem(tab) {
 }
 
 export function BottomNav() {
-    if (!isAuthenticated.get()) {
-        return { tag: 'div', props: { class: 'bottomnav-spacer' }, children: [] };
-    }
-    return {
-        tag: 'nav',
-        props: { class: 'bottomnav' },
-        children: TABS.map(NavItem),
-    };
+    return when(
+        () => isAuthenticated.get(),
+        () => ({
+            tag: 'nav',
+            props: { class: 'bottomnav' },
+            children: TABS.map(NavItem),
+        }),
+        () => ({ tag: 'div', props: { class: 'bottomnav-spacer' }, children: [] }),
+    );
 }

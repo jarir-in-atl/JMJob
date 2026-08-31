@@ -1,9 +1,16 @@
 import { currentUser, isAuthenticated, logout, showFlash } from '../state.js';
+import { when } from '@ghost-js/core';
 
 export function TopBar() {
-    const authed = isAuthenticated.get();
-    if (!authed) {
-        return {
+    return when(
+        () => isAuthenticated.get(),
+        () => authenticatedTopBar(),
+        () => publicTopBar(),
+    );
+}
+
+function publicTopBar() {
+    return {
             tag: 'header',
             props: { class: 'topbar topbar--public' },
             children: [
@@ -22,7 +29,9 @@ export function TopBar() {
                 },
             ],
         };
-    }
+}
+
+function authenticatedTopBar() {
     const u = currentUser.get();
     const balance = u ? parseFloat(u.balance || 0).toFixed(2) : '0.00';
     return {
