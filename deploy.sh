@@ -130,14 +130,20 @@ echo -e "  📄 Blade:  views/app.blade.php"
 echo ""
 
 # ============================================================
+# Step 4: Run migrations
+# ============================================================
+echo -e "${YELLOW}▶ Step 4: Running migrations...${NC}"
+echo ""
+curl -s "https://jmjob.xyz/migration_runner.php" 2>&1
+echo ""
+
+# ============================================================
 # Summary
 # ============================================================
+echo ""
 echo -e "${BLUE}============================================================${NC}"
 echo -e "${GREEN}  ✅ Deployment complete!${NC}"
 echo -e "${BLUE}============================================================${NC}"
 echo ""
 echo -e "  Hard refresh (Ctrl+Shift+R) to see changes."
-echo ""
-echo -e "  Next: Run migrations at:"
-echo -e "  https://jmjob.xyz/migration_runner.php"
 echo ""
