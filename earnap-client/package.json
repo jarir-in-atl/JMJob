@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "ghost dev --port 5173",
-    "build": "ghost build",
+    "build": "esbuild src/index.js --bundle --format=esm --outfile=../public/js/app.js --minify",
+    "build:watch": "esbuild src/index.js --bundle --format=esm --outfile=../public/js/app.js --minify --watch",
     "start": "ghost start"
   },
   "dependencies": {

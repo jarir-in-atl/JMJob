@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\AdController;
 use App\Http\Controllers\Api\WebTaskController;
 use App\Http\Controllers\Api\TgTaskController;
 use App\Http\Controllers\Api\AdminController;
+use App\Http\Controllers\Api\DailyBonusController;
 
 /** @var Router $router */
 
@@ -19,11 +20,14 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
     // Public auth
     $r->add('POST', '/auth/register', [AuthController::class, 'register']);
     $r->add('POST', '/auth/login',    [AuthController::class, 'login']);
+    $r->add('POST', '/auth/forgot-password', [AuthController::class, 'forgotPassword']);
+    $r->add('POST', '/auth/reset-password',  [AuthController::class, 'resetPassword']);
 
     // Authenticated routes
     $r->group(['middleware' => 'auth.api'], function (Router $r) {
         $r->add('POST', '/auth/logout', [AuthController::class, 'logout']);
         $r->get('/auth/me', [AuthController::class, 'me'], 'auth.me');
+        $r->add('POST', '/auth/change-password', [AuthController::class, 'changePassword']);
 
         $r->get('/user',            [UserController::class, 'show']);
         $r->add('POST', '/user/reward',     [UserController::class, 'reward']);
@@ -31,6 +35,10 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
         $r->get('/user/withdrawals', [UserController::class, 'withdrawals'], 'user.withdrawals');
         $r->get('/user/referrals',   [UserController::class, 'referrals'],   'user.referrals');
         $r->get('/user/ads',         [UserController::class, 'ads'],         'user.ads');
+
+        // Daily Bonus
+        $r->add('POST', '/user/claim-daily-bonus', [DailyBonusController::class, 'claim']);
+        $r->get('/user/daily-bonus-status', [DailyBonusController::class, 'status']);
 
         $r->get('/ads/config',       [AdController::class, 'config']);
         $r->get('/ads/next',         [AdController::class, 'next']);
@@ -52,6 +60,9 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
             $r->get('/admin/stats',                 [AdminController::class, 'stats'],     'admin.stats');
             $r->get('/admin/ad-providers',          [AdminController::class, 'adProviders'], 'admin.providers');
             $r->add('POST', '/admin/ad-providers/{id}', [AdminController::class, 'updateAdProvider']);
+
+            // Daily Bonus Admin
+            $r->add('POST', '/admin/reset-daily-counters', [DailyBonusController::class, 'resetCounters']);
         });
     });
 });
