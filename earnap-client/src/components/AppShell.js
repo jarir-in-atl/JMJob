@@ -4,6 +4,7 @@ import { effect, when } from '@ghost-js/core';
 import { Sidebar, SidebarOverlay } from './Sidebar.js';
 import { TopBar } from './TopBar.js';
 import { Toast } from './Toast.js';
+import { Footer } from './Footer.js';
 
 export function AppShell() {
     return {
@@ -27,6 +28,7 @@ export function AppShell() {
                 children: [
                     TopBar(),
                     { tag: 'main', props: { class: 'app-main' }, children: [renderRoute()] },
+                    Footer(),
                 ],
             },
             Toast(),
