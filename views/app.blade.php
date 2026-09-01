@@ -22,6 +22,6 @@
             referralCode: new URLSearchParams(window.location.search).get('ref') || ''
         };
     </script>
-    <script type="module" src="/js/app-v2.js"></script>
+    <script type="module" src="/js/app.js"></script>
 </body>
 </html>
