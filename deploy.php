@@ -2,17 +2,11 @@
 declare(strict_types=1);
 
 /**
- * deploy.php — One-click deployment script
+ * deploy.php — One-click deployment script (no shell_exec needed)
  *
- * Visit https://jmjob.xyz/deploy.php to pull latest code and update assets.
+ * Visit https://jmjob.xyz/deploy.php?token=YOUR_SECRET
  *
  * SECURITY: DELETE this file after deployment!
- * Or set DEPLOY_TOKEN in .env to require ?token=...
- *
- * Usage:
- *   - Visit https://jmjob.xyz/deploy.php in browser
- *   - curl -X POST https://jmjob.xyz/deploy.php
- *   - curl -X POST https://jmjob.xyz/deploy.php?token=YOUR_SECRET
  */
 
 error_reporting(E_ALL);
@@ -20,33 +14,12 @@ ini_set('display_errors', '1');
 
 $ROOT = __DIR__;
 
-// Find project root
-$candidateRoots = [
-    $ROOT,
-    dirname($ROOT),
-];
-$projectRoot = null;
-foreach ($candidateRoots as $c) {
-    if (is_file($c . '/vendor/autoload.php') && is_dir($c . '/.git')) {
-        $projectRoot = $c;
-        break;
-    }
-}
-if ($projectRoot === null) {
-    $projectRoot = $ROOT;
-}
-
 // Load .env for token check
-if (is_file($projectRoot . '/.env')) {
-    foreach (file($projectRoot . '/.env', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
-        if (str_starts_with($line, '#')) continue;
-        if (!str_contains($line, '=')) continue;
+if (is_file($ROOT . '/.env')) {
+    foreach (file($ROOT . '/.env', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+        if (str_starts_with(trim($line), '#') || !str_contains($line, '=')) continue;
         [$key, $value] = explode('=', $line, 2);
-        $key = trim($key);
-        $value = trim($value, " \t\"'");
-        if (getenv($key) === false || getenv($key) === '') {
-            putenv("$key=$value");
-        }
+        putenv(trim($key) . '=' . trim($value, " \t\"'"));
     }
 }
 
@@ -65,77 +38,136 @@ header('Content-Type: text/plain; charset=utf-8');
 echo "============================================================\n";
 echo "  JMJob — Deployment Script\n";
 echo "============================================================\n\n";
-echo "Project root:  $projectRoot\n";
+echo "Project root:  $ROOT\n";
 echo "Timestamp:     " . date('Y-m-d H:i:s T') . "\n\n";
 
-// Helper to run shell commands
-function run(string $cmd, string $cwd): string {
-    $output = [];
-    $exitCode = 0;
-    exec("cd " . escapeshellarg($cwd) . " && $cmd 2>&1", $output, $exitCode);
-    return implode("\n", $output) . ($exitCode !== 0 ? "\n[exit code: $exitCode]" : "");
+// Helper: copy a file from source to destination, creating dirs as needed
+function deployCopy(string $src, string $dest): bool {
+    $destDir = dirname($dest);
+    if (!is_dir($destDir)) {
+        mkdir($destDir, 0755, true);
+    }
+    return copy($src, $dest);
 }
 
-// 1. Pull latest code
-echo "▶ Step 1: Pulling latest code from git...\n\n";
-echo run("git pull origin main", $projectRoot);
-echo "\n\n";
+// Helper: check file status
+function checkFile(string $path, string $label): void {
+    if (is_file($path)) {
+        $size = filesize($path);
+        $modified = date('Y-m-d H:i:s', filemtime($path));
+        echo "  ✅ {$label} — {$size} bytes (modified: {$modified})\n";
+    } else {
+        echo "  ❌ {$label} — MISSING\n";
+    }
+}
 
-// 2. Build frontend assets
-echo "▶ Step 2: Building frontend assets...\n\n";
-if (is_dir($projectRoot . '/earnap-client/node_modules')) {
-    echo run("npm run build", $projectRoot . '/earnap-client');
+// ============================================================
+// Step 1: Update static assets from git working tree
+// ============================================================
+echo "▶ Step 1: Updating static assets...\n\n";
+
+// Check if we're in a git repo
+$isGitRepo = is_dir($ROOT . '/.git');
+
+if ($isGitRepo) {
+    // Try to use git to checkout the latest files
+    // Since exec() is disabled, we check if files exist in the working tree
+    // and the user needs to run git pull manually or via SSH
+
+    echo "  ℹ Git repo detected. To update files, run:\n";
+    echo "     cd $ROOT && git pull origin main\n\n";
+    echo "  ⚠ If you don't have SSH access, upload these files manually:\n";
 } else {
-    echo "⚠ Skipping build — node_modules not found. Run 'npm install' in earnap-client/ first.\n";
+    echo "  ℹ No git repo found. Upload files manually to:\n";
+    echo "     $ROOT/public/css/app.css\n";
+    echo "     $ROOT/public/js/app.js\n\n";
 }
-echo "\n\n";
 
-// 3. Run migrations
-echo "▶ Step 3: Running database migrations...\n\n";
-if (is_file($projectRoot . '/migration_runner.php')) {
-    // Migrations are run via CLI to avoid HTTP output issues
-    echo run("php migration_runner.php", $projectRoot);
-} else {
-    echo "⚠ migration_runner.php not found, skipping.\n";
-}
-echo "\n\n";
-
-// 4. Verify deployment
-echo "▶ Step 4: Verifying deployment...\n\n";
+// ============================================================
+// Step 2: Verify critical files
+// ============================================================
+echo "▶ Step 2: Checking files...\n\n";
 
 $checks = [
-    ['public/css/app.css', 'CSS file'],
+    ['public/css/app.css', 'CSS (dark theme)'],
     ['public/js/app.js', 'JS bundle'],
     ['views/app.blade.php', 'Blade template'],
     ['app/Http/Controllers/Api/DailyBonusController.php', 'DailyBonusController'],
     ['app/Http/Controllers/Api/AuthController.php', 'AuthController'],
+    ['app/Http/Controllers/Api/UserController.php', 'UserController'],
+    ['routes/api.php', 'API routes'],
 ];
 
-$allPassed = true;
+$missingFiles = [];
 foreach ($checks as [$file, $label]) {
-    $fullPath = $projectRoot . '/' . $file;
+    $fullPath = $ROOT . '/' . $file;
     if (is_file($fullPath)) {
         $size = filesize($fullPath);
         $modified = date('Y-m-d H:i:s', filemtime($fullPath));
-        echo "  ✅ {$label} — {$size} bytes (modified: {$modified})\n";
+        $content = file_get_contents($fullPath, false, null, 0, 100);
+
+        // Check if CSS has dark theme
+        if ($file === 'public/css/app.css') {
+            if (str_contains($content, '--bg-main')) {
+                echo "  ✅ {$label} — Dark theme detected\n";
+            } else {
+                echo "  ⚠ {$label} — OLD version (light theme). Upload new CSS!\n";
+                $missingFiles[] = $file;
+            }
+        }
+        // Check if JS has sidebar
+        elseif ($file === 'public/js/app.js') {
+            if (str_contains(file_get_contents($fullPath) ?: '', 'sidebar__item')) {
+                echo "  ✅ {$label} — New sidebar detected\n";
+            } else {
+                echo "  ⚠ {$label} — OLD version. Upload new JS!\n";
+                $missingFiles[] = $file;
+            }
+        }
+        else {
+            echo "  ✅ {$label} — {$size} bytes (modified: {$modified})\n";
+        }
     } else {
         echo "  ❌ {$label} — MISSING\n";
-        $allPassed = false;
+        $missingFiles[] = $file;
     }
 }
 
 echo "\n";
 
-if ($allPassed) {
-    echo "============================================================\n";
-    echo "  ✅ Deployment complete!\n";
-    echo "============================================================\n";
+// ============================================================
+// Step 3: Run migrations (if possible)
+// ============================================================
+echo "▶ Step 3: Database migrations\n\n";
+
+// Check if migration_runner.php exists
+if (is_file($ROOT . '/migration_runner.php')) {
+    echo "  ℹ migration_runner.php exists.\n";
+    echo "  → Run it at: https://jmjob.xyz/migration_runner.php\n";
 } else {
-    echo "============================================================\n";
-    echo "  ⚠ Deployment completed with warnings.\n";
-    echo "============================================================\n";
+    echo "  ⚠ migration_runner.php not found\n";
 }
 
-echo "\nIMPORTANT: DELETE this file from the server now:\n";
+echo "\n";
+
+// ============================================================
+// Step 4: Summary
+// ============================================================
+echo "============================================================\n";
+
+if (!empty($missingFiles)) {
+    echo "  ⚠ ACTION REQUIRED — Upload updated files:\n\n";
+    foreach ($missingFiles as $f) {
+        echo "    📁 $ROOT/$f\n";
+    }
+    echo "\n  Download from your local machine:\n";
+    echo "    /home/jarir-ahmed/Downloads/JMJob/public/css/app.css\n";
+    echo "    /home/jarir-ahmed/Downloads/JMJob/public/js/app.js\n";
+} else {
+    echo "  ✅ All files look good!\n";
+}
+
+echo "============================================================\n";
+
+echo "\n⚠ DELETE this file after deployment:\n";
 echo "  rm " . realpath(__FILE__) . "\n";
-echo "\nOr set DEPLOY_TOKEN in .env to require ?token=...\n";
