@@ -186,10 +186,14 @@ button { font-family: inherit; cursor: pointer; }
 
 .main-wrapper {
     flex: 1;
-    margin-left: var(--sidebar-width);
     display: flex;
     flex-direction: column;
     min-height: 100vh;
+}
+
+/* Only add margin when sidebar is present (authenticated) */
+.app-shell:has(.sidebar) .main-wrapper {
+    margin-left: var(--sidebar-width);
 }
 
 /* ============================================
