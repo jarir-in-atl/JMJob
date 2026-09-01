@@ -1,6 +1,6 @@
 import { currentUser, route, isAuthenticated, navigate, logout, showFlash } from '../state.js';
 import { ROUTES } from '../router.js';
-import { effect } from '@ghost-js/core';
+import { effect, when } from '@ghost-js/core';
 import { Sidebar, SidebarOverlay } from './Sidebar.js';
 import { TopBar } from './TopBar.js';
 import { Toast } from './Toast.js';
@@ -10,8 +10,17 @@ export function AppShell() {
         tag: 'div',
         props: { class: 'app-shell' },
         children: [
-            Sidebar(),
-            SidebarOverlay(),
+            // Only show sidebar when authenticated
+            when(
+                () => isAuthenticated.get(),
+                () => Sidebar(),
+                () => null
+            ),
+            when(
+                () => isAuthenticated.get(),
+                () => SidebarOverlay(),
+                () => null
+            ),
             {
                 tag: 'div',
                 props: { class: 'main-wrapper' },
