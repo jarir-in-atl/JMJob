@@ -73,12 +73,11 @@ set ftp:passive-mode yes
 
 open ftp://$FTP_USER:$FTP_PASS@$FTP_HOST:$FTP_PORT
 
-# Upload CSS (with cache-busting filename)
+# Upload CSS
 put $LOCAL_ROOT/public/css/app-v2.css -o $SERVER_ROOT/css/app-v2.css
 put $LOCAL_ROOT/public/css/app.css -o $SERVER_ROOT/css/app.css
 
-# Upload JS (with cache-busting filename)
-put $LOCAL_ROOT/public/js/app-v2.js -o $SERVER_ROOT/js/app-v2.js
+# Upload JS
 put $LOCAL_ROOT/public/js/app.js -o $SERVER_ROOT/js/app.js
 
 # Upload Blade template
@@ -104,7 +103,7 @@ put $LOCAL_ROOT/database/migrations/2026_09_01_000002_create_password_reset_toke
 
 # Verify uploads
 ls -l $SERVER_ROOT/css/app-v2.css
-ls -l $SERVER_ROOT/js/app-v2.js
+ls -l $SERVER_ROOT/js/app.js
 ls -l views/app.blade.php
 
 quit
@@ -125,7 +124,7 @@ echo -e "${YELLOW}▶ Step 3: Verifying deployment...${NC}"
 echo ""
 echo -e "  📁 Server: $FTP_HOST"
 echo -e "  🎨 CSS:    $SERVER_ROOT/css/app-v2.css"
-echo -e "  📜 JS:     $SERVER_ROOT/js/app-v2.js"
+echo -e "  📜 JS:     $SERVER_ROOT/js/app.js"
 echo -e "  📄 Blade:  views/app.blade.php"
 echo ""
 

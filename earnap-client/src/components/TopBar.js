@@ -12,27 +12,21 @@ export function TopBar() {
 }
 
 function themeToggle() {
-    return when(
-        () => theme.get() === 'dark',
-        () => ({
-            tag: 'button',
-            props: {
-                class: 'topbar__icon-btn',
-                title: 'Switch to light mode',
-                onclick: () => toggleTheme(),
-            },
-            children: [{ tag: 'i', props: { class: 'bi bi-sun' }, children: [] }],
-        }),
-        () => ({
-            tag: 'button',
-            props: {
-                class: 'topbar__icon-btn',
-                title: 'Switch to dark mode',
-                onclick: () => toggleTheme(),
-            },
-            children: [{ tag: 'i', props: { class: 'bi bi-moon' }, children: [] }],
-        }),
-    );
+    const isDark = () => theme.get() === 'dark';
+    return {
+        tag: 'button',
+        props: {
+            class: 'topbar__icon-btn theme-toggle',
+            title: isDark() ? 'Switch to light mode' : 'Switch to dark mode',
+            onclick: () => toggleTheme(),
+            'data-theme': () => theme.get(),
+        },
+        children: [{
+            tag: 'i',
+            props: { class: () => `bi ${isDark() ? 'bi-sun' : 'bi-moon'}` },
+            children: [],
+        }],
+    };
 }
 
 function publicTopBar() {
