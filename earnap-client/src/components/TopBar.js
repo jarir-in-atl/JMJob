@@ -1,6 +1,7 @@
 import { currentUser, isAuthenticated, logout, showFlash } from '../state.js';
 import { when } from '@ghost-js/core';
 import { openSidebar } from './Sidebar.js';
+import { theme, toggleTheme } from '../theme.js';
 
 export function TopBar() {
     return when(
@@ -8,6 +9,23 @@ export function TopBar() {
         () => authenticatedTopBar(),
         () => publicTopBar(),
     );
+}
+
+function themeToggle() {
+    const isDark = theme.get() === 'dark';
+    return {
+        tag: 'button',
+        props: {
+            class: 'topbar__icon-btn',
+            title: isDark ? 'Switch to light mode' : 'Switch to dark mode',
+            onclick: () => toggleTheme(),
+        },
+        children: [{
+            tag: 'i',
+            props: { class: `bi ${isDark ? 'bi-sun' : 'bi-moon'}` },
+            children: [],
+        }],
+    };
 }
 
 function publicTopBar() {
@@ -30,6 +48,7 @@ function publicTopBar() {
                 tag: 'div',
                 props: { class: 'topbar__right' },
                 children: [
+                    themeToggle(),
                     { tag: 'a', props: { class: 'topbar__link', href: '#/login' }, children: ['Log in'] },
                     { tag: 'a', props: { class: 'topbar__link topbar__link--cta', href: '#/register' }, children: ['Sign up'] },
                 ],
@@ -66,6 +85,8 @@ function authenticatedTopBar() {
                 tag: 'div',
                 props: { class: 'topbar__right' },
                 children: [
+                    // Theme toggle
+                    themeToggle(),
                     // Notifications bell
                     {
                         tag: 'button',
