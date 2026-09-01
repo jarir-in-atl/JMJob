@@ -1,4 +1,5 @@
 import { route, navigate, isAuthenticated } from '../state.js';
+import { signal } from '@ghost-js/core';
 
 const NAV_ITEMS = [
     { path: '/', label: 'Dashboard', icon: 'bi-house-door' },
@@ -13,12 +14,26 @@ const NAV_ITEMS = [
     { path: '/settings', label: 'Settings', icon: 'bi-gear' },
 ];
 
+// Collapsed state signal (persisted to localStorage)
+const STORAGE_KEY = 'sidebar_collapsed';
+const isCollapsed = signal(localStorage.getItem(STORAGE_KEY) === 'true');
+
+function toggleCollapse() {
+    const next = !isCollapsed.get();
+    isCollapsed.set(next);
+    localStorage.setItem(STORAGE_KEY, String(next));
+}
+
 export function Sidebar() {
     return {
         tag: 'aside',
-        props: { class: 'sidebar', id: 'sidebar' },
+        props: {
+            class: () => `sidebar ${isCollapsed.get() ? 'sidebar--collapsed' : ''}`,
+            id: 'sidebar',
+        },
         children: [
             Brand(),
+            CollapseButton(),
             NavList(),
         ],
     };
@@ -30,8 +45,24 @@ function Brand() {
         props: { class: 'sidebar__brand' },
         children: [
             { tag: 'span', props: {}, children: ['JM'] },
-            { tag: 'span', props: {}, children: ['JOB'] },
+            { tag: 'span', props: { class: () => isCollapsed.get() ? '' : '' }, children: ['JOB'] },
         ],
+    };
+}
+
+function CollapseButton() {
+    return {
+        tag: 'button',
+        props: {
+            class: 'sidebar__collapse-btn',
+            onclick: () => toggleCollapse(),
+            title: () => isCollapsed.get() ? 'Expand sidebar' : 'Collapse sidebar',
+        },
+        children: [{
+            tag: 'i',
+            props: { class: () => `bi ${isCollapsed.get() ? 'bi-chevron-right' : 'bi-chevron-left'}` },
+            children: [],
+        }],
     };
 }
 
@@ -51,6 +82,7 @@ function NavItem({ path, label, icon }) {
         props: {
             class: `sidebar__item${isActive ? ' sidebar__item--active' : ''}`,
             href: `#${path}`,
+            title: () => isCollapsed.get() ? label : '',
             onclick: (e) => {
                 e.preventDefault();
                 navigate(path);
