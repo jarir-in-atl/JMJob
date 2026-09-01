@@ -60,9 +60,14 @@ validator_test.php
 /test/database/
 /test/response/
 /test/js/
+/public/data/
 /public/docs.html
 /.scannerwork
+/examples/
 
 # Don't track the docs/ folder (it's a self-hosted rendered viewer)
 docs/
 
+PLAN.md
+nemesis.webp
+nemesis2024.webp
