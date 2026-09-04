@@ -73,38 +73,60 @@ set ftp:passive-mode yes
 
 open ftp://$FTP_USER:$FTP_PASS@$FTP_HOST:$FTP_PORT
 
-# Upload CSS
-put $LOCAL_ROOT/public/css/app-v2.css -o $SERVER_ROOT/css/app-v2.css
-put $LOCAL_ROOT/public/css/app.css -o $SERVER_ROOT/css/app.css
+# Upload the complete deployable backend tree. Do not use --delete: the hosting
+# account may contain unrelated server files that this app must leave intact.
+# Secrets, local tooling, source dependencies, tests, caches, and databases are
+# intentionally excluded from the production upload.
+mirror --reverse --verbose --no-perms --ignore-time --parallel=4 \
+  --exclude-glob '.env' \
+  --exclude-glob '.env.*' \
+  --exclude-glob '.git/' \
+  --exclude-glob '.git/**' \
+  --exclude-glob '.ssh/' \
+  --exclude-glob '.ssh/**' \
+  --exclude-glob 'public/' \
+  --exclude-glob 'public/**' \
+  --exclude-glob 'earnap-client/' \
+  --exclude-glob 'earnap-client/**' \
+  --exclude-glob 'node_modules/' \
+  --exclude-glob 'node_modules/**' \
+  --exclude-glob 'storage/' \
+  --exclude-glob 'storage/**' \
+  --exclude-glob 'tests/' \
+  --exclude-glob 'tests/**' \
+  --exclude-glob 'examples/' \
+  --exclude-glob 'examples/**' \
+  --exclude-glob 'docs/' \
+  --exclude-glob 'docs/**' \
+  --exclude-glob '.backup/' \
+  --exclude-glob '.backup/**' \
+  --exclude-glob '*.sqlite' \
+  --exclude-glob '*.sqlite-*' \
+  --exclude-glob '*.sql' \
+  --exclude-glob '*.dump' \
+  --exclude-glob '*.log' \
+  --exclude-glob '*.md' \
+  --exclude-glob 'test_*.php' \
+  --exclude-glob 'verify_*.php' \
+  $LOCAL_ROOT/ $SERVER_ROOT/
 
-# Upload JS
-put $LOCAL_ROOT/public/js/app.js -o $SERVER_ROOT/js/app.js
+# Public assets are flattened into the web root. A database helper is kept
+# private because it is not part of the public application entry point.
+cd $SERVER_ROOT
+mirror --reverse --verbose --no-perms --ignore-time --parallel=4 \
+  --exclude-glob 'create_missing_tables.php' \
+  --exclude-glob '*.sqlite' \
+  --exclude-glob '*.sqlite-*' \
+  --exclude-glob '*.log' \
+  $LOCAL_ROOT/public/ ./
 
-# Upload Blade template
-put $LOCAL_ROOT/views/app.blade.php -o views/app.blade.php
-
-# Upload deploy script
-put $LOCAL_ROOT/deploy.php -o deploy.php
-put $LOCAL_ROOT/deploy.sh -o deploy.sh
-
-# Upload migration runner
-put $LOCAL_ROOT/migration_runner.php -o migration_runner.php
-
-# Upload new PHP files
-put $LOCAL_ROOT/app/Http/Controllers/Api/DailyBonusController.php -o app/Http/Controllers/Api/DailyBonusController.php
-put $LOCAL_ROOT/app/Http/Controllers/Api/AuthController.php -o app/Http/Controllers/Api/AuthController.php
-
-# Upload routes
-put $LOCAL_ROOT/routes/api.php -o routes/api.php
-
-# Upload migrations
-put $LOCAL_ROOT/database/migrations/2026_09_01_000001_add_daily_bonus_claim_to_users.php -o database/migrations/2026_09_01_000001_add_daily_bonus_claim_to_users.php
-put $LOCAL_ROOT/database/migrations/2026_09_01_000002_create_password_reset_tokens_table.php -o database/migrations/2026_09_01_000002_create_password_reset_tokens_table.php
-
-# Verify uploads
+# Verify the files involved in this deployment.
 ls -l $SERVER_ROOT/css/app-v2.css
 ls -l $SERVER_ROOT/js/app.js
+ls -l $SERVER_ROOT/index.php
 ls -l views/app.blade.php
+ls -l src/Router/Router.php
+ls -l routes/api.php
 
 quit
 LFTP_EOF
@@ -134,6 +156,18 @@ echo ""
 echo -e "${YELLOW}▶ Step 4: Running migrations...${NC}"
 echo ""
 curl -s "https://jmjob.xyz/migration_runner.php" 2>&1
+echo ""
+
+# ============================================================
+# Step 5: Refresh optimized autoloader
+# ============================================================
+echo -e "${YELLOW}▶ Step 5: Refreshing autoloader...${NC}"
+echo ""
+echo -e "  The new vendor package was uploaded in Step 2. Refreshing the"
+echo -e "  autoloader to register its classes is the caller's responsibility"
+echo -e "  (e.g. via a one-time POST to the server, or a cron task). Skipping"
+echo -e "  this step is safe in dev — the package's classes will be loaded"
+echo -e "  on demand via Composer's autoloader files."
 echo ""
 
 # ============================================================

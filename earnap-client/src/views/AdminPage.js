@@ -18,6 +18,7 @@ export function AdminPage() {
             <div class="admin-tabs">
                 <button class="admin-tab admin-tab--active" data-tab="stats">Stats</button>
                 <button class="admin-tab" data-tab="withdrawals">Withdrawals</button>
+                <button class="admin-tab" data-tab="payments">Payments</button>
                 <button class="admin-tab" data-tab="users">Users</button>
                 <button class="admin-tab" data-tab="providers">Ad Providers</button>
             </div>
@@ -40,15 +41,42 @@ async function renderTab(name, content) {
     content.innerHTML = 'Loading…';
     try {
         if (name === 'stats') {
-            const res = await api.adminStats();
-            const s = res.data;
+            const [statsResponse, revenueResponse] = await Promise.all([
+                api.adminStats(),
+                api.adminRevenue(),
+            ]);
+            const s = statsResponse.data || {};
+            const r = revenueResponse.data || {};
+            const symbol = r.currency_symbol || '৳';
             content.innerHTML = `
-                <div class="stat-grid">
-                    <div class="stat-tile"><span class="muted">Total Users</span><strong>${s.total_users}</strong></div>
-                    <div class="stat-tile"><span class="muted">Total Withdrawals</span><strong>${s.total_withdrawals}</strong></div>
-                    <div class="stat-tile"><span class="muted">Pending</span><strong>${s.pending_withdrawals}</strong></div>
-                    <div class="stat-tile"><span class="muted">Total Ad Views</span><strong>${s.total_ad_views}</strong></div>
-                    <div class="stat-tile"><span class="muted">Lifetime Paid</span><strong>$${parseFloat(s.total_lifetime_paid).toFixed(2)}</strong></div>
+                <div class="stat-grid admin-revenue-grid">
+                    ${adminStatTile('bi-graph-up-arrow', 'Platform revenue', money(r.platform_revenue, symbol))}
+                    ${adminStatTile('bi-percent', 'Commission rate', `${(Number(r.commission_rate || 0) * 100).toFixed(2)}%`)}
+                    ${adminStatTile('bi-briefcase', 'Total jobs', number(r.total_jobs))}
+                    ${adminStatTile('bi-check2-circle', 'Completed jobs', number(r.completed_jobs))}
+                    ${adminStatTile('bi-lightning-charge', 'Active jobs', number(r.active_jobs))}
+                    ${adminStatTile('bi-people', 'Total users', number(r.total_users))}
+                    ${adminStatTile('bi-hourglass-split', 'Pending deposits', number(r.pending_payments))}
+                    ${adminStatTile('bi-lock', 'Held in escrow', money(r.escrow_total, symbol))}
+                </div>
+                <div class="card admin-operations-card">
+                    <div class="card__header">
+                        <div>
+                            <h3 class="card__title">Operations overview</h3>
+                            <p class="muted">Legacy earning activity alongside marketplace finance.</p>
+                        </div>
+                        <a class="btn btn--ghost btn--sm" href="#/admin/transactions">View ledger</a>
+                    </div>
+                    <div class="admin-operations-grid">
+                        <div><span class="muted">Withdrawals</span><strong>${number(s.total_withdrawals)}</strong></div>
+                        <div><span class="muted">Pending withdrawals</span><strong>${number(s.pending_withdrawals)}</strong></div>
+                        <div><span class="muted">Total ad views</span><strong>${number(s.total_ad_views)}</strong></div>
+                        <div><span class="muted">Lifetime paid</span><strong>${money(s.total_lifetime_paid, symbol)}</strong></div>
+                    </div>
+                </div>
+                <div class="card admin-config-card">
+                    <span class="muted">Current configuration</span>
+                    <div><strong>${escapeHtml(r.currency || 'BDT')}</strong> currency · <strong>${escapeHtml(r.escrow_mode || 'full_bid')}</strong> escrow</div>
                 </div>
             `;
         } else if (name === 'withdrawals') {
@@ -70,11 +98,16 @@ async function renderTab(name, content) {
                 list.innerHTML = '';
                 (r.data || []).forEach(w => list.appendChild(renderWithdrawal(w, list)));
             });
+        } else if (name === 'payments') {
+            // Redirect to the dedicated /admin/payments page for richer UX.
+            window.location.hash = '#/admin/payments';
+            return;
         } else if (name === 'users') {
             const res = await api.adminUsers();
             const items = res.data || [];
             content.innerHTML = `<div class="admin-list"></div>`;
             const list = content.querySelector('.admin-list');
+            const currentId = Number(currentUser.get()?.id || 0);
             items.forEach(u => {
                 const row = document.createElement('div');
                 row.className = 'admin-row';
@@ -82,10 +115,31 @@ async function renderTab(name, content) {
                     <div>
                         <strong>${escapeHtml(u.name)}</strong>
                         <span class="muted">${escapeHtml(u.email)}</span>
-                        ${u.is_admin ? '<span class="badge">ADMIN</span>' : ''}
+                        <span class="badge user-role-badge">${escapeHtml(u.role || (u.is_admin ? 'admin' : 'worker')).toUpperCase()}</span>
                     </div>
-                    <div>$${parseFloat(u.balance).toFixed(2)} / $${parseFloat(u.lifetime_earned).toFixed(2)}</div>
+                    <div class="admin-user-controls">
+                        <span class="muted">Balance: ৳${Number(u.balance || 0).toFixed(2)} · Earned: ৳${Number(u.lifetime_earned || 0).toFixed(2)}</span>
+                        <label class="admin-user-role-label">Role
+                            <select class="admin-select admin-user-role" ${Number(u.id) === currentId ? 'disabled' : ''}>
+                                ${['worker', 'poster', 'admin'].map(role => `<option value="${role}" ${(u.role || (u.is_admin ? 'admin' : 'worker')) === role ? 'selected' : ''}>${role[0].toUpperCase() + role.slice(1)}</option>`).join('')}
+                            </select>
+                        </label>
+                    </div>
                 `;
+                const select = row.querySelector('.admin-user-role');
+                select?.addEventListener('change', async () => {
+                    const previous = u.role || (u.is_admin ? 'admin' : 'worker');
+                    try {
+                        const updated = await api.adminUpdateUserRole(u.id, select.value);
+                        u.role = updated.data?.role || select.value;
+                        u.is_admin = !!updated.data?.is_admin;
+                        row.querySelector('.user-role-badge').textContent = u.role.toUpperCase();
+                        showFlash('User role updated', 'success');
+                    } catch (e) {
+                        select.value = previous;
+                        showFlash(e.message || 'Role update failed', 'error');
+                    }
+                });
                 list.appendChild(row);
             });
         } else if (name === 'providers') {
@@ -98,6 +152,26 @@ async function renderTab(name, content) {
     } catch (e) {
         content.innerHTML = '<p class="muted">Failed to load.</p>';
     }
+}
+
+function adminStatTile(icon, label, value) {
+    return `
+        <div class="stat-tile admin-stat-tile">
+            <i class="bi ${icon} admin-stat-tile__icon"></i>
+            <span class="muted">${escapeHtml(label)}</span>
+            <strong>${escapeHtml(String(value))}</strong>
+        </div>
+    `;
+}
+
+function number(value) {
+    const amount = Number(value || 0);
+    return Number.isFinite(amount) ? amount.toLocaleString() : '0';
+}
+
+function money(value, symbol) {
+    const amount = Number(value || 0);
+    return `${symbol}${Number.isFinite(amount) ? amount.toFixed(2) : '0.00'}`;
 }
 
 function renderWithdrawal(w, list) {

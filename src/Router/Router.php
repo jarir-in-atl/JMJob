@@ -659,7 +659,7 @@ class Router
         $uri        = '/' . trim($prefix . '/' . trim($uri, '/'), '/');
         $middleware = array_merge($groupMiddleware, $middleware);
 
-        $this->routes[] = [
+        $route = [
             'method'      => strtoupper($method),
             'uri'         => $uri,
             'action'      => $action,
@@ -669,6 +669,21 @@ class Router
             'domain'      => $domain,
             'meta'        => $groupMeta,
         ];
+
+        // A cached route table is loaded before the source route files. When
+        // a source route is registered again, replace the cached definition
+        // instead of appending a duplicate. Otherwise the stale cached route
+        // wins because dispatch uses the first matching route.
+        foreach ($this->routes as $index => $registered) {
+            if (($registered['method'] ?? null) === $route['method']
+                && ($registered['uri'] ?? null) === $route['uri']
+                && ($registered['domain'] ?? null) === $route['domain']) {
+                $this->routes[$index] = $route;
+                return $this;
+            }
+        }
+
+        $this->routes[] = $route;
 
         return $this;
     }

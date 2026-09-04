@@ -23,6 +23,8 @@ cp .env.example .env
 mysql -u root -p -e "CREATE DATABASE jmjobxyz_db"
 php nemesis migrate:run
 php nemesis db:seed EarnAppSeeder
+# Optional marketplace test accounts (local/staging only)
+php nemesis db:seed DemoAccountsSeeder
 
 # 3. Frontend build
 cd earnap-client
@@ -42,9 +44,16 @@ Open http://127.0.0.1:8080/.
 | Email | Password | Role | Balance |
 |---|---|---|---|
 | `admin@example.com` | `password` | Admin | $0.00 |
+| `admin-demo@example.com` | `JMJobDemo!2026` | Admin | 0.00 |
+| `worker@example.com` | `JMJobDemo!2026` | Worker | 100.00 |
+| `worker2@example.com` | `JMJobDemo!2026` | Worker | 100.00 |
+| `poster@example.com` | `JMJobDemo!2026` | Poster | 1000.00 wallet |
+| `poster2@example.com` | `JMJobDemo!2026` | Poster | 1000.00 wallet |
 | `alice@example.com` | `password` | User (referrer) | $1.234 |
 | `bob@example.com` | `password` | User (referred by Alice) | $0.42 |
 | `carol@example.com` | `password` | User (referred by Alice) | $0.10 |
+
+The marketplace demo accounts are created by `DemoAccountsSeeder` and are for local/staging testing only. Change or disable them before exposing a seeded database publicly.
 
 ## Production deploy
 

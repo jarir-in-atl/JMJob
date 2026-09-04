@@ -8,7 +8,11 @@ use Nemesis\Http\Request;
 use Nemesis\Http\Response;
 use App\Models\Withdrawal;
 use App\Models\User;
+use App\Models\Job;
+use App\Services\JobService;
+use App\Services\NotificationService;
 use Nemesis\Core\Fluent;
+use Nemesis\Core\Database;
 use App\Models\AdProvider;
 
 /**
@@ -19,12 +23,17 @@ use App\Models\AdProvider;
  *   POST   /api/admin/withdrawals/{id}/reject
  *   POST   /api/admin/withdrawals/{id}/pay
  *   GET    /api/admin/users                — list all users
+ *   POST   /api/admin/users/{id}/role      — update a user's role
  *   GET    /api/admin/stats                — top-line counts
  *   GET    /api/admin/ad-providers         — list providers
  *   POST   /api/admin/ad-providers         — update a provider
  */
 class AdminController extends Controller
 {
+    public function __construct(
+        private JobService $jobService = new JobService()
+    ) {}
+
     public function withdrawals(Request $request): Response
     {
         $status = 'pending';
@@ -88,6 +97,7 @@ class AdminController extends Controller
 
         $body = $this->readJson($request);
         $note = $body['admin_note'] ?? null;
+        $user = User::find((int) $withdrawal->user_id);
 
         Fluent::table('withdrawals')
             ->where('id', '=', $withdrawal->id)
@@ -100,7 +110,6 @@ class AdminController extends Controller
 
         // If rejected, refund the user's balance
         if ($refund) {
-            $user = User::find((int) $withdrawal->user_id);
             if ($user) {
                 $newBalance = round(((float) $user->balance) + (float) $withdrawal->amount, 4);
                 Fluent::table('users')
@@ -113,6 +122,20 @@ class AdminController extends Controller
         }
 
         $withdrawal = Withdrawal::find((int) $id);
+        if ($user) {
+            $statusLabel = ucfirst(str_replace('_', ' ', $newStatus));
+            $message = "Your withdrawal of " . number_format((float) $withdrawal->amount, 2) . " BDT was marked as {$statusLabel}.";
+            if ($refund) $message .= ' The amount was returned to your balance.';
+            if (is_string($note) && trim($note) !== '') $message .= ' Note: ' . trim($note);
+            NotificationService::send(
+                $user,
+                "Withdrawal {$statusLabel}",
+                $message,
+                $refund ? 'warning' : 'success',
+                $refund ? 'bi-exclamation-circle' : 'bi-wallet2',
+                '/withdraw'
+            );
+        }
         return Response::json([
             'success' => true,
             'data'    => [
@@ -132,6 +155,7 @@ class AdminController extends Controller
 
         $items = [];
         foreach ($rows as $row) {
+            $isAdmin = (bool) $row['is_admin'];
             $items[] = [
                 'id'              => (int) $row['id'],
                 'name'            => $row['name'],
@@ -142,13 +166,172 @@ class AdminController extends Controller
                 'lifetime_earned' => (float) $row['lifetime_earned'],
                 'today_earned'    => (float) $row['today_earned'],
                 'today_ads'       => (int) $row['today_ads'],
-                'is_admin'        => (bool) $row['is_admin'],
+                'is_admin'        => $isAdmin,
+                'role'            => $isAdmin ? 'admin' : (string) ($row['role'] ?? 'worker'),
                 'created_at'      => $row['created_at'],
             ];
         }
         return Response::json([
             'success' => true,
             'data'    => $items,
+        ]);
+    }
+
+    public function updateRole(Request $request, string $id): Response
+    {
+        $userId = (int) $id;
+        $admin = $request->getMeta('auth.user');
+        if ($admin && (int) $admin->id === $userId) {
+            return Response::json([
+                'success' => false,
+                'message' => 'You cannot change your own admin role.',
+            ], 422);
+        }
+
+        $body = $this->readJson($request);
+        $role = strtolower(trim((string) ($body['role'] ?? '')));
+        if (!in_array($role, ['worker', 'poster', 'admin'], true)) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Role must be worker, poster, or admin.',
+            ], 422);
+        }
+
+        $user = User::find($userId);
+        if ($user === null) {
+            return Response::json(['success' => false, 'message' => 'User not found.'], 404);
+        }
+
+        $isAdmin = $role === 'admin' ? 1 : 0;
+        Fluent::table('users')
+            ->where('id', '=', $userId)
+            ->update([
+                'role'       => $role,
+                'is_admin'   => $isAdmin,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+
+        return Response::json([
+            'success' => true,
+            'message' => 'User role updated.',
+            'data'    => [
+                'id'       => $userId,
+                'role'     => $role,
+                'is_admin' => (bool) $isAdmin,
+            ],
+        ]);
+    }
+
+    public function jobs(Request $request): Response
+    {
+        $status = strtolower(trim((string) ($request->query('status') ?? '')));
+        $allowedStatuses = [
+            Job::STATUS_OPEN, Job::STATUS_IN_REVIEW, Job::STATUS_ASSIGNED,
+            Job::STATUS_SUBMITTED, Job::STATUS_REVISION, Job::STATUS_COMPLETED,
+            Job::STATUS_CANCELLED, Job::STATUS_DISPUTED, Job::STATUS_EXPIRED,
+        ];
+        $limit = max(1, min(200, (int) ($request->query('limit') ?? 100)));
+
+        $sql = "SELECT j.id, j.title, j.description, j.budget, j.currency, j.status,
+                    j.bid_count, j.view_count, j.deadline_at, j.bidding_closes_at,
+                    j.assigned_worker_id, j.created_at, j.updated_at,
+                    p.id AS poster_id, p.name AS poster_name, p.email AS poster_email,
+                    w.name AS worker_name, w.email AS worker_email,
+                    c.name AS category_name
+                FROM jobs j
+                LEFT JOIN users p ON p.id = j.poster_id
+                LEFT JOIN users w ON w.id = j.assigned_worker_id
+                LEFT JOIN categories c ON c.id = j.category_id
+                WHERE 1 = 1";
+        $params = [];
+        if (in_array($status, $allowedStatuses, true)) {
+            $sql .= " AND j.status = :status";
+            $params[':status'] = $status;
+        }
+        $sql .= " ORDER BY COALESCE(j.updated_at, j.created_at) DESC, j.id DESC LIMIT :limit";
+
+        $stmt = Database::connect()->prepare($sql);
+        foreach ($params as $key => $value) $stmt->bindValue($key, $value);
+        $stmt->bindValue(':limit', $limit, \PDO::PARAM_INT);
+        $stmt->execute();
+
+        $items = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $items[] = [
+                'id'                => (int) $row['id'],
+                'title'             => $row['title'],
+                'description'       => $row['description'],
+                'budget'            => (float) $row['budget'],
+                'currency'          => $row['currency'],
+                'status'            => $row['status'],
+                'bid_count'         => (int) $row['bid_count'],
+                'view_count'        => (int) $row['view_count'],
+                'deadline_at'       => $row['deadline_at'],
+                'bidding_closes_at' => $row['bidding_closes_at'],
+                'created_at'        => $row['created_at'],
+                'updated_at'        => $row['updated_at'],
+                'poster'            => [
+                    'id'    => (int) $row['poster_id'],
+                    'name'  => $row['poster_name'] ?: '(deleted)',
+                    'email' => $row['poster_email'],
+                ],
+                'worker'            => $row['assigned_worker_id'] ? [
+                    'id'    => (int) $row['assigned_worker_id'],
+                    'name'  => $row['worker_name'] ?: '(deleted)',
+                    'email' => $row['worker_email'],
+                ] : null,
+                'category_name'     => $row['category_name'],
+            ];
+        }
+
+        return Response::json(['success' => true, 'data' => $items]);
+    }
+
+    public function flagDispute(Request $request, string $id): Response
+    {
+        $job = Job::find((int) $id);
+        if ($job === null) return Response::json(['success' => false, 'message' => 'Job not found.'], 404);
+        if (in_array($job->status, [Job::STATUS_COMPLETED, Job::STATUS_CANCELLED], true)) {
+            return Response::json(['success' => false, 'message' => 'Closed jobs cannot be disputed.'], 422);
+        }
+        if ($job->status !== Job::STATUS_DISPUTED) {
+            Fluent::table('jobs')->where('id', '=', $job->id)->update([
+                'status'     => Job::STATUS_DISPUTED,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+        return Response::json([
+            'success' => true,
+            'message' => 'Job flagged for dispute review.',
+            'data'    => ['id' => (int) $job->id, 'status' => Job::STATUS_DISPUTED],
+        ]);
+    }
+
+    public function resolveJob(Request $request, string $id): Response
+    {
+        $body = $this->readJson($request);
+        $resolution = strtolower(trim((string) ($body['resolution'] ?? '')));
+        if (!in_array($resolution, ['release', 'cancel'], true)) {
+            return Response::json(['success' => false, 'message' => 'Resolution must be release or cancel.'], 422);
+        }
+
+        $job = Job::find((int) $id);
+        if ($job === null) return Response::json(['success' => false, 'message' => 'Job not found.'], 404);
+        if ($job->status !== Job::STATUS_DISPUTED) {
+            return Response::json(['success' => false, 'message' => 'Only disputed jobs can be resolved here.'], 422);
+        }
+        $poster = User::find((int) $job->poster_id);
+        if ($poster === null) return Response::json(['success' => false, 'message' => 'Poster not found.'], 422);
+
+        $result = $resolution === 'release'
+            ? $this->jobService->releasePayment($poster, (int) $job->id)
+            : $this->jobService->cancelJob($poster, (int) $job->id, (string) ($body['reason'] ?? 'Resolved by admin'));
+        if (!$result['success']) return Response::json($result, 422);
+
+        return Response::json([
+            'success' => true,
+            'message' => $result['message'],
+            'data'    => ['id' => (int) $job->id, 'resolution' => $resolution],
         ]);
     }
 

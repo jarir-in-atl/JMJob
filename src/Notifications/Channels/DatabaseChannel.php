@@ -28,6 +28,7 @@ class DatabaseChannel implements NotificationChannelInterface
 
     public function send(object $notifiable, Notification $notification): void
     {
+        static::resolveDb();
         $payload = $notification->toDatabase($notifiable);
         if (empty($payload)) return;
 
@@ -68,6 +69,7 @@ class DatabaseChannel implements NotificationChannelInterface
      */
     public static function forNotifiable(object $notifiable): array
     {
+        static::resolveDb();
         $type = get_class($notifiable);
         $id   = $notifiable->id ?? 0;
 
@@ -102,6 +104,7 @@ class DatabaseChannel implements NotificationChannelInterface
     /** Mark all notifications for a notifiable as read. */
     public static function markAllRead(object $notifiable): void
     {
+        static::resolveDb();
         $type = get_class($notifiable);
         $id   = $notifiable->id ?? 0;
         $now  = date('Y-m-d H:i:s');
@@ -122,6 +125,42 @@ class DatabaseChannel implements NotificationChannelInterface
                 );
             } catch (\Throwable) {}
         }
+    }
+
+    /** Mark one notification as read when it belongs to the notifiable. */
+    public static function markRead(object $notifiable, string $notificationId): bool
+    {
+        static::resolveDb();
+        $type = get_class($notifiable);
+        $id   = $notifiable->id ?? 0;
+        $found = false;
+
+        if (isset(static::$memory[$notificationId])) {
+            $row = static::$memory[$notificationId];
+            if ($row['notifiable_type'] === $type && (int) $row['notifiable_id'] === (int) $id) {
+                static::$memory[$notificationId]['read_at'] = date('Y-m-d H:i:s');
+                $found = true;
+            }
+        }
+
+        if (static::$db !== null) {
+            static::ensureTable();
+            try {
+                $rows = static::dbFetchAll(
+                    'SELECT id FROM ' . static::$table . ' WHERE id=? AND notifiable_type=? AND notifiable_id=? LIMIT 1',
+                    [$notificationId, $type, $id]
+                );
+                if (!empty($rows)) {
+                    $found = true;
+                    static::dbExecute(
+                        'UPDATE ' . static::$table . ' SET read_at=? WHERE id=? AND notifiable_type=? AND notifiable_id=?',
+                        [date('Y-m-d H:i:s'), $notificationId, $type, $id]
+                    );
+                }
+            } catch (\Throwable) {}
+        }
+
+        return $found;
     }
 
     // -------------------------------------------------------------------------
@@ -146,6 +185,19 @@ class DatabaseChannel implements NotificationChannelInterface
     // -------------------------------------------------------------------------
     // Internals
     // -------------------------------------------------------------------------
+
+    /** Resolve the application's PDO lazily while retaining the test fallback. */
+    private static function resolveDb(): void
+    {
+        if (static::$db !== null) return;
+
+        try {
+            static::$db = \Nemesis\Core\Database::connect();
+        } catch (\Throwable) {
+            // Tests and CLI tools without DB configuration use memory storage.
+            static::$db = null;
+        }
+    }
 
     private static function decodeRow(array $row): array
     {

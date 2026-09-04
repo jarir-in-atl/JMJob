@@ -6,8 +6,6 @@
         "php": ">=8.2",
         "phpmailer/phpmailer": "^6.8",
         "league/flysystem": "^3.31",
-        "league/flysystem-aws-s3-v3": "^3.31",
-        "aws/aws-sdk-php": "^3.372.0",
         "zircote/swagger-php": "^6.0",
         "jarir-ahmed/auth-token-maker": "^1.0",
         "jarir-ahmed/cache": "^1.0",
@@ -28,7 +26,8 @@
         "jarir-ahmed/universal-cors": "^1.0",
         "jarir-ahmed/universal-spa": "^1.0",
         "jarir-ahmed/user-info-capture": "^1.0",
-        "jarir-ahmed/auth-microservice": "dev-main@dev"
+        "jarir-ahmed/auth-microservice": "dev-main@dev",
+        "jarir-ahmed/manual-payment-gateway": "^1.0"
     },
     "license": "MIT",
     "autoload": {

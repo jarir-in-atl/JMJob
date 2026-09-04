@@ -1,0 +1,5 @@
+{
+    "require": {
+        "jarir-ahmed/manual-payment-gateway": "^1.0"
+    }
+}

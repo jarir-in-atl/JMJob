@@ -5,6 +5,8 @@ import { Sidebar, SidebarOverlay } from './Sidebar.js';
 import { TopBar } from './TopBar.js';
 import { Toast } from './Toast.js';
 import { Footer } from './Footer.js';
+import { MobileNav, MobileNavOverlay } from './MobileNav.js';
+import { HorizontalNav } from './HorizontalNav.js';
 
 export function AppShell() {
     return {
@@ -22,11 +24,29 @@ export function AppShell() {
                 () => SidebarOverlay(),
                 () => null
             ),
+            // Mobile slide-out (hamburger menu)
+            when(
+                () => isAuthenticated.get(),
+                () => MobileNav(),
+                () => null
+            ),
+            when(
+                () => isAuthenticated.get(),
+                () => MobileNavOverlay(),
+                () => null
+            ),
             {
                 tag: 'div',
                 props: { class: 'main-wrapper' },
                 children: [
                     TopBar(),
+                    // Horizontal icon+label nav, sits below the topbar.
+                    // Redundant with the sidebar (per client requirement).
+                    when(
+                        () => isAuthenticated.get(),
+                        () => HorizontalNav(),
+                        () => null
+                    ),
                     { tag: 'main', props: { class: 'app-main' }, children: [renderRoute()] },
                     Footer(),
                 ],

@@ -11,6 +11,7 @@ use App\Models\Session as UserSession;
 use Nemesis\Core\Fluent;
 use Nemesis\Core\Validator;
 use Nemesis\Exceptions\ValidationException;
+use App\Services\NotificationService;
 
 // For password reset OTP
 use PHPMailer\PHPMailer\PHPMailer;
@@ -92,6 +93,14 @@ class AuthController extends Controller
         ]);
 
         $user = User::find((int) $id);
+        NotificationService::send(
+            $user,
+            'Welcome to JMJob',
+            'Your account is ready. Explore available jobs and complete your profile.',
+            'success',
+            'bi-stars',
+            '/'
+        );
         $session = UserSession::createForUser(
             (int) $id,
             $_SERVER['REMOTE_ADDR'] ?? null,

@@ -31,9 +31,13 @@ CLAUDE.md
 /tests/**/*.md
 success-phase-*
 *_PLAN.*
+!MANUAL_TEST_PLAN.md
 PLANS_*
 plan_*
 draft_*
+
+# Don't track SSH keys
+.ssh/
 
 # JMJob-specific
 /node_modules/
@@ -71,3 +75,4 @@ docs/
 PLAN.md
 nemesis.webp
 nemesis2024.webp
+.backup/

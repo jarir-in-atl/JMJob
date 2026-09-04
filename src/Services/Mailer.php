@@ -18,12 +18,18 @@ class Mailer {
         $this->mail->isSMTP();
         $this->mail->Host       = Config::get('MAIL_HOST', 'smtp.gmail.com');
         $this->mail->SMTPAuth   = true;
-        $this->mail->Username   = Config::get('MAIL_USER');
-        $this->mail->Password   = Config::get('MAIL_PASS');
-        $this->mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+        $this->mail->Username   = Config::get('MAIL_USER') ?: Config::get('MAIL_USERNAME', '');
+        $this->mail->Password   = Config::get('MAIL_PASS') ?: Config::get('MAIL_PASSWORD', '');
+        $encryption = strtolower((string) Config::get('MAIL_ENCRYPTION', 'tls'));
+        $this->mail->SMTPSecure = $encryption === 'ssl'
+            ? PHPMailer::ENCRYPTION_SMTPS
+            : PHPMailer::ENCRYPTION_STARTTLS;
         $this->mail->Port       = Config::get('MAIL_PORT', 587);
 
-        $this->mail->setFrom(Config::get('MAIL_FROM'), Config::get('MAIL_FROM_NAME', 'Nemesis Mailer'));
+        $this->mail->setFrom(
+            Config::get('MAIL_FROM') ?: Config::get('MAIL_FROM_ADDRESS', ''),
+            Config::get('MAIL_FROM_NAME', 'JMJob')
+        );
     }
 
     public function send($to, $subject, $body, $altBody = '') {

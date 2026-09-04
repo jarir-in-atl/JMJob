@@ -6,6 +6,7 @@ namespace App\Models;
 use Nemesis\Core\Model;
 use Nemesis\Core\Fluent;
 use Nemesis\Core\Database;
+use Nemesis\Notifications\Notifiable;
 
 /**
  * User model — EarnApp clone.
@@ -19,6 +20,8 @@ use Nemesis\Core\Database;
  */
 class User extends Model
 {
+    use Notifiable;
+
     public function __construct(array $attributes = [])
     {
         $this->table = 'users';

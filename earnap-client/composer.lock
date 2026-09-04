@@ -1,0 +1,56 @@
+{
+    "_readme": [
+        "This file locks the dependencies of your project to a known state",
+        "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
+        "This file is @generated automatically"
+    ],
+    "content-hash": "2663c345dd6283e9b6364dead8da3456",
+    "packages": [
+        {
+            "name": "jarir-ahmed/manual-payment-gateway",
+            "version": "v1.0.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/jarir2020/manual-payment-gateway.git",
+                "reference": "8c4d6887a52aebe1ee321601c44215b0d04ac598"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/jarir2020/manual-payment-gateway/zipball/8c4d6887a52aebe1ee321601c44215b0d04ac598",
+                "reference": "8c4d6887a52aebe1ee321601c44215b0d04ac598",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=7.4 <9.0"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^9.6"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "JarirAhmed\\ManualPaymentGateway\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "description": "Reusable manual payment gateway package for send-money and review-based payment flows.",
+            "support": {
+                "issues": "https://github.com/jarir2020/manual-payment-gateway/issues",
+                "source": "https://github.com/jarir2020/manual-payment-gateway/tree/v1.0.0"
+            },
+            "time": "2026-07-13T01:48:47+00:00"
+        }
+    ],
+    "packages-dev": [],
+    "aliases": [],
+    "minimum-stability": "stable",
+    "stability-flags": {},
+    "prefer-stable": false,
+    "prefer-lowest": false,
+    "platform": {},
+    "platform-dev": {},
+    "plugin-api-version": "2.9.0"
+}

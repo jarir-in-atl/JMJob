@@ -316,3 +316,20 @@ button { font-family: inherit; cursor: pointer; }
     .auth-card { padding: 24px 18px; }
     .card { padding: 14px; }
 }
+
+/* ---------- Footer ---------- */
+.app-footer {
+    border-top: 1px solid var(--border);
+    background: var(--card);
+    padding: 16px 32px;
+    margin-top: auto;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 8px; font-size: 13px; color: var(--muted);
+}
+.app-footer__copy { font-weight: 500; }
+.app-footer__developed { display: flex; align-items: center; gap: 4px; }
+.app-footer__link { color: var(--primary); font-weight: 600; text-decoration: none; transition: opacity 0.2s ease; }
+.app-footer__link:hover { opacity: 0.8; text-decoration: underline; }
+@media (max-width: 540px) {
+    .app-footer { padding: 14px 16px; font-size: 12px; }
+}
