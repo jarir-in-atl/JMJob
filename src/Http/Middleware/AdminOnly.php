@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-// Nemesis 7.1.1 | EarnApp — admin-only API middleware (depends on AuthenticateApi)
+// Nemesis 7.1.1 | JMJob — admin-only API middleware (depends on AuthenticateApi)
 
 namespace Nemesis\Http\Middleware;
 

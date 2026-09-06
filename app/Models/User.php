@@ -9,7 +9,7 @@ use Nemesis\Core\Database;
 use Nemesis\Notifications\Notifiable;
 
 /**
- * User model — EarnApp clone.
+ * User model — JMJob application.
  *
  * Extends the Nemesis ActiveRecord base class and adds:
  *   - bcrypt password hashing
@@ -80,7 +80,7 @@ class User extends Model
 
     public function canWithdraw(): bool
     {
-        // EarnApp: must have at least the configured number of referrals.
+        // JMJob: must have at least the configured number of referrals.
         $minReferrals = (int) (getenv('WITHDRAW_MIN_REFERRALS') ?: 0);
         $count = $this->referralCount();
         return $count >= $minReferrals;

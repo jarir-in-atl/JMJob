@@ -32,11 +32,13 @@ const ROUTES = [
     { path: '/admin/reports', requireAuth: true, requireAdmin: true, render: () => import('./views/AdminReportsPage.js') },
     { path: '/login',          requireAuth: false, render: () => import('./views/LoginPage.js') },
     { path: '/register',       requireAuth: false, render: () => import('./views/RegisterPage.js') },
+    { path: '/forgot-password',requireAuth: false, render: () => import('./views/ForgotPasswordPage.js') },
+    { path: '/reset-password', requireAuth: false, render: () => import('./views/ResetPasswordPage.js') },
 ];
 
 // Reactive route resolver
 export const currentRoute = effect(() => {
-    const path = route.get();
+    const path = route.get().split('?')[0] || '/';
     return ROUTES.find(r => r.path === path) || ROUTES[0];
 });
 

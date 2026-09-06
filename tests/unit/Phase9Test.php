@@ -137,6 +137,7 @@ class Phase9ConfigTest extends TestCase
         $cfg = SessionConfig::fromEnv();
         $this->assertNotEmpty($cfg->driver);
         $this->assertIsInt($cfg->lifetime);
+        $this->assertNotEmpty($cfg->path);
     }
 
     // --- ConfigFactory ---

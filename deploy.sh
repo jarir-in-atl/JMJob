@@ -65,6 +65,7 @@ echo -e "${YELLOW}▶ Step 2: Uploading files to server...${NC}"
 
 # Create lftp script
 LFTP_SCRIPT=$(mktemp /tmp/deploy_XXXXXX.lftp)
+trap 'rm -f "$LFTP_SCRIPT"' EXIT
 cat > "$LFTP_SCRIPT" << LFTP_EOF
 set ftp:ssl-allow no
 set net:timeout 30
@@ -77,7 +78,7 @@ open ftp://$FTP_USER:$FTP_PASS@$FTP_HOST:$FTP_PORT
 # account may contain unrelated server files that this app must leave intact.
 # Secrets, local tooling, source dependencies, tests, caches, and databases are
 # intentionally excluded from the production upload.
-mirror --reverse --verbose --no-perms --ignore-time --parallel=4 \
+mirror --reverse --verbose --no-perms --only-newer --parallel=1 \
   --exclude-glob '.env' \
   --exclude-glob '.env.*' \
   --exclude-glob '.git/' \
@@ -88,6 +89,8 @@ mirror --reverse --verbose --no-perms --ignore-time --parallel=4 \
   --exclude-glob 'public/**' \
   --exclude-glob 'earnap-client/' \
   --exclude-glob 'earnap-client/**' \
+  --exclude-glob 'vendor/' \
+  --exclude-glob 'vendor/**' \
   --exclude-glob 'node_modules/' \
   --exclude-glob 'node_modules/**' \
   --exclude-glob 'storage/' \
@@ -113,8 +116,10 @@ mirror --reverse --verbose --no-perms --ignore-time --parallel=4 \
 # Public assets are flattened into the web root. A database helper is kept
 # private because it is not part of the public application entry point.
 cd $SERVER_ROOT
-mirror --reverse --verbose --no-perms --ignore-time --parallel=4 \
+mirror --reverse --verbose --no-perms --only-newer --parallel=1 \
   --exclude-glob 'create_missing_tables.php' \
+  --exclude-glob 'index.php' \
+  --exclude-glob 'index.html' \
   --exclude-glob '*.sqlite' \
   --exclude-glob '*.sqlite-*' \
   --exclude-glob '*.log' \

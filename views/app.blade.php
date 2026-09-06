@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <!-- JMJob shell: app-v2 stylesheet -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>JMJob — Work. Earn. Grow.</title>
@@ -17,7 +18,7 @@
         </div>
     </div>
     <script>
-        window.EARNAPP_CONFIG = {
+        window.JMJOB_CONFIG = {
             apiBase: '/api',
             referralCode: new URLSearchParams(window.location.search).get('ref') || ''
         };

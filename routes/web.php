@@ -1,6 +1,6 @@
 <?php
 // Nemesis 4.0.0 | Web routes — browser/session/CSRF | Created: 2026-04-02
-// EarnApp clone: serves a single Blade view that hosts the Ghost.js SPA.
+// JMJob application: serves a single Blade view that hosts the Ghost.js SPA.
 // Middleware group: 'web' (StartSession + VerifyCsrfToken)
 
 use Nemesis\Router\Router;

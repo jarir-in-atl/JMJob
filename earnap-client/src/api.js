@@ -2,7 +2,7 @@
 // inspect HTTP status codes and receive the JSON error payload from Nemesis.
 // (Ghost's `ghostFetch` helper resolves the response body before returning.)
 
-const cfg = window.EARNAPP_CONFIG || { apiBase: '/api' };
+const cfg = window.JMJOB_CONFIG || { apiBase: '/api' };
 
 let _token = null;
 let _onUnauthorized = null;
@@ -74,7 +74,11 @@ export const api = {
 
     // Auth
     register: (body) => request('/auth/register', { method: 'POST', body }),
+    requestRegistrationOtp: (body) => request('/auth/register/request-otp', { method: 'POST', body }),
+    verifyRegistrationOtp: (body) => request('/auth/register/verify-otp', { method: 'POST', body }),
     login:    (body) => request('/auth/login',    { method: 'POST', body }),
+    forgotPassword: (body) => request('/auth/forgot-password', { method: 'POST', body }),
+    resetPassword: (body) => request('/auth/reset-password', { method: 'POST', body }),
     logout:   ()    => request('/auth/logout',   { method: 'POST' }),
     me:       ()    => request('/auth/me'),
 

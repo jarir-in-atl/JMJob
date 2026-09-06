@@ -10,13 +10,8 @@ use App\Models\User;
 use App\Models\Session as UserSession;
 use Nemesis\Core\Fluent;
 use Nemesis\Core\Validator;
-use Nemesis\Exceptions\ValidationException;
+use Nemesis\Services\Mailer;
 use App\Services\NotificationService;
-
-// For password reset OTP
-use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\SMTP;
-use PHPMailer\PHPMailer\Exception;
 
 /**
  * AuthController — register, login, logout, me.
@@ -26,19 +21,33 @@ use PHPMailer\PHPMailer\Exception;
  */
 class AuthController extends Controller
 {
+    private string $lastMailError = '';
+
     /**
      * POST /api/auth/register
+     * Starts the registration OTP flow.
      * Body: { name, email, password, password_confirmation, referral_code? }
      */
     public function register(Request $request): Response
     {
+        return $this->requestRegistrationOtp($request);
+    }
+
+    /**
+     * POST /api/auth/register/request-otp
+     * Stores a pending registration and emails a short-lived OTP.
+     */
+    public function requestRegistrationOtp(Request $request): Response
+    {
         $data = $this->readJson($request);
+        $data['email'] = strtolower(trim((string) ($data['email'] ?? '')));
 
         $validator = new Validator();
         $rules = [
-            'name'     => 'required|string|min:2|max:100',
-            'email'    => 'required|email|max:100',
-            'password' => 'required|string|min:6',
+            'name'                 => 'required|string|min:2|max:100',
+            'email'                => 'required|email|max:100',
+            'password'             => 'required|string|min:6',
+            'password_confirmation'=> 'required|string|same:password',
         ];
         if (!$validator->validate($data, $rules)) {
             return Response::json([
@@ -48,7 +57,6 @@ class AuthController extends Controller
             ], 422);
         }
 
-        // Uniqueness
         $exists = Fluent::table('users')
             ->select(['COUNT(*) AS c'])
             ->where('email', '=', $data['email'])
@@ -61,36 +69,121 @@ class AuthController extends Controller
             ], 422);
         }
 
-        $username   = User::generateUsername($data['name']);
-        $referral   = User::generateReferralCode();
+        $otp = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        $expiresAt = date('Y-m-d H:i:s', time() + 15 * 60);
+        $referralCode = trim((string) ($data['referral_code'] ?? ''));
+
+        Fluent::table('registration_otps')
+            ->where('email', '=', $data['email'])
+            ->delete();
+        $pendingId = Fluent::table('registration_otps')->insert([
+            'name'          => trim((string) $data['name']),
+            'email'         => $data['email'],
+            'password_hash' => password_hash((string) $data['password'], PASSWORD_BCRYPT),
+            'referral_code' => $referralCode !== '' ? $referralCode : null,
+            'otp_hash'      => password_hash($otp, PASSWORD_DEFAULT),
+            'expires_at'    => $expiresAt,
+            'attempts'      => 0,
+            'created_at'    => date('Y-m-d H:i:s'),
+        ]);
+
+        if (!$this->sendRegistrationOtpEmail($data['email'], $otp, trim((string) $data['name']))) {
+            Fluent::table('registration_otps')->where('id', '=', $pendingId)->delete();
+            return $this->mailFailureResponse('We could not send the verification code.');
+        }
+
+        return Response::json([
+            'success' => true,
+            'message' => 'A verification code was sent to your email address.',
+            'data'    => ['expires_in' => 900],
+        ]);
+    }
+
+    /**
+     * POST /api/auth/register/verify-otp
+     * Completes a pending registration and signs the new user in.
+     */
+    public function verifyRegistrationOtp(Request $request): Response
+    {
+        $data = $this->readJson($request);
+        $data['email'] = strtolower(trim((string) ($data['email'] ?? '')));
+        $otp = trim((string) ($data['otp'] ?? ''));
+
+        $validator = new Validator();
+        if (!$validator->validate($data, ['email' => 'required|email'])) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Validation failed.',
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+        if (!preg_match('/^\d{6}$/', $otp)) {
+            return Response::json([
+                'success' => false,
+                'message' => 'The verification code must contain 6 digits.',
+            ], 422);
+        }
+
+        $pending = Fluent::table('registration_otps')
+            ->where('email', '=', $data['email'])
+            ->where('expires_at', '>', date('Y-m-d H:i:s'))
+            ->first();
+        if (!$pending || (int) ($pending['attempts'] ?? 0) >= 5) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Invalid or expired verification code.',
+            ], 400);
+        }
+
+        if (!password_verify($otp, (string) $pending['otp_hash'])) {
+            Fluent::table('registration_otps')
+                ->where('id', '=', $pending['id'])
+                ->update(['attempts' => (int) $pending['attempts'] + 1]);
+            return Response::json([
+                'success' => false,
+                'message' => 'Invalid or expired verification code.',
+            ], 400);
+        }
+
+        $exists = Fluent::table('users')
+            ->select(['COUNT(*) AS c'])
+            ->where('email', '=', $data['email'])
+            ->first();
+        if ((int) ($exists['c'] ?? 0) > 0) {
+            Fluent::table('registration_otps')->where('id', '=', $pending['id'])->delete();
+            return Response::json([
+                'success' => false,
+                'message' => 'Email is already registered.',
+            ], 422);
+        }
+
         $referredBy = null;
-        if (!empty($data['referral_code'])) {
-            $refRow = Fluent::table('users')
+        if (!empty($pending['referral_code'])) {
+            $referrer = Fluent::table('users')
                 ->select(['id'])
-                ->where('referral_code', '=', $data['referral_code'])
+                ->where('referral_code', '=', $pending['referral_code'])
                 ->first();
-            if ($refRow) {
-                $referredBy = (int) $refRow['id'];
-            }
+            $referredBy = $referrer ? (int) $referrer['id'] : null;
         }
 
         $id = Fluent::table('users')->insert([
-            'name'           => $data['name'],
-            'email'          => $data['email'],
-            'username'       => $username,
-            'password'       => password_hash($data['password'], PASSWORD_BCRYPT),
-            'referral_code'  => $referral,
-            'referred_by'    => $referredBy,
-            'balance'        => 0,
-            'lifetime_earned'=> 0,
-            'today_earned'   => 0,
-            'ads_limit'      => 50,
-            'today_ads'      => 0,
+            'name'            => $pending['name'],
+            'email'           => $pending['email'],
+            'username'        => User::generateUsername((string) $pending['name']),
+            'password'        => $pending['password_hash'],
+            'referral_code'   => User::generateReferralCode(),
+            'referred_by'     => $referredBy,
+            'balance'         => 0,
+            'lifetime_earned' => 0,
+            'today_earned'    => 0,
+            'ads_limit'       => 50,
+            'today_ads'       => 0,
             'last_ad_reset_at'=> date('Y-m-d'),
-            'is_admin'       => 0,
-            'created_at'     => date('Y-m-d H:i:s'),
-            'updated_at'     => date('Y-m-d H:i:s'),
+            'is_admin'        => 0,
+            'created_at'      => date('Y-m-d H:i:s'),
+            'updated_at'      => date('Y-m-d H:i:s'),
         ]);
+        Fluent::table('registration_otps')->where('id', '=', $pending['id'])->delete();
 
         $user = User::find((int) $id);
         NotificationService::send(
@@ -247,7 +340,7 @@ class AuthController extends Controller
             ], 422);
         }
 
-        $email = $data['email'];
+        $email = strtolower(trim((string) $data['email']));
 
         // Check if user exists
         $user = Fluent::table('users')
@@ -268,10 +361,13 @@ class AuthController extends Controller
 
         // Store OTP in database (using a simple approach with password_reset_tokens table or user meta)
         // For simplicity, we'll store it directly in a custom table or use sessions
-        $this->storeResetToken($user['id'], $otp, $expiresAt);
+        $this->storeResetToken((int) $user['id'], $otp, $expiresAt);
 
-        // Send email
-        $this->sendPasswordResetEmail($email, $otp, $user['name']);
+        // Send email. Do not leave a usable token behind if SMTP fails.
+        if (!$this->sendPasswordResetEmail($email, $otp, (string) ($user['name'] ?? 'there'))) {
+            $this->deleteResetToken((int) $user['id']);
+            return $this->mailFailureResponse('We could not send the reset code.');
+        }
 
         return Response::json([
             'success' => true,
@@ -290,9 +386,10 @@ class AuthController extends Controller
 
         $validator = new Validator();
         if (!$validator->validate($data, [
-            'email'    => 'required|email',
-            'otp'      => 'required|string|size:6',
-            'password' => 'required|string|min:6',
+            'email'                 => 'required|email',
+            'otp'                   => 'required|string|size:6',
+            'password'              => 'required|string|min:6',
+            'password_confirmation' => 'required|string|same:password',
         ])) {
             return Response::json([
                 'success' => false,
@@ -301,9 +398,16 @@ class AuthController extends Controller
             ], 422);
         }
 
-        $email = $data['email'];
-        $otp = $data['otp'];
+        $email = strtolower(trim((string) $data['email']));
+        $otp = trim((string) $data['otp']);
         $password = $data['password'];
+
+        if (!preg_match('/^\d{6}$/', $otp)) {
+            return Response::json([
+                'success' => false,
+                'message' => 'The reset code must contain 6 digits.',
+            ], 422);
+        }
 
         // Find user
         $user = Fluent::table('users')
@@ -318,7 +422,7 @@ class AuthController extends Controller
         }
 
         // Verify OTP
-        $validToken = $this->verifyResetToken($user['id'], $otp);
+        $validToken = $this->verifyResetToken((int) $user['id'], $otp);
         if (!$validToken) {
             return Response::json([
                 'success' => false,
@@ -335,7 +439,7 @@ class AuthController extends Controller
             ]);
 
         // Delete used token
-        $this->deleteResetToken($user['id']);
+        $this->deleteResetToken((int) $user['id']);
 
         return Response::json([
             'success' => true,
@@ -431,42 +535,72 @@ class AuthController extends Controller
             ->delete();
     }
 
-    private function sendPasswordResetEmail(string $email, string $otp, string $name): void
+    private function sendPasswordResetEmail(string $email, string $otp, string $name): bool
     {
+        $this->lastMailError = '';
         try {
-            $mail = new PHPMailer(true);
-
-            // SMTP Configuration
-            $mail->isSMTP();
-            $mail->Host       = getenv('MAIL_HOST') ?: 'mail.jmjob.xyz';
-            $mail->SMTPAuth   = true;
-            $mail->Username   = getenv('MAIL_USERNAME') ?: '_mainaccount@jmjob.xyz';
-            $mail->Password   = getenv('MAIL_PASSWORD') ?: '';
-            $mail->SMTPAutoTLS = false;
-            $mail->Port       = getenv('MAIL_PORT') ?: 587;
-
-            // Recipients
-            $mail->setFrom(
-                getenv('MAIL_FROM_ADDRESS') ?: '_mainaccount@jmjob.xyz',
-                getenv('MAIL_FROM_NAME') ?: 'JMJob'
+            $mailer = new Mailer();
+            $sent = $mailer->send(
+                $email,
+                'JMJob - Password Reset Code',
+                $this->getEmailTemplate(
+                    'Password Reset Code',
+                    $otp,
+                    $name,
+                    'Use this code to reset your JMJob password.'
+                ),
+                "Your JMJob password reset code is: {$otp}\nThis code expires in 15 minutes."
             );
-            $mail->addAddress($email, $name);
-
-            // Content
-            $mail->isHTML(true);
-            $mail->Subject = 'JMJob - Password Reset Code';
-            $mail->Body    = $this->getEmailTemplate($otp, $name);
-            $mail->AltBody = "Your password reset code is: {$otp}\nThis code expires in 15 minutes.";
-
-            $mail->send();
-        } catch (Exception $e) {
-            // Log error but don't expose to user
-            error_log("Failed to send password reset email to {$email}: " . $e->getMessage());
+            $this->lastMailError = trim((string) $mailer->getError());
+            return $sent;
+        } catch (\Throwable $e) {
+            $this->lastMailError = trim($e->getMessage());
+            error_log('Auth mail setup error: ' . $this->lastMailError);
+            return false;
         }
     }
 
-    private function getEmailTemplate(string $otp, string $name): string
+    private function sendRegistrationOtpEmail(string $email, string $otp, string $name): bool
     {
+        $this->lastMailError = '';
+        try {
+            $mailer = new Mailer();
+            $sent = $mailer->send(
+                $email,
+                'JMJob - Verify Your Email',
+                $this->getEmailTemplate(
+                    'Verify Your Email',
+                    $otp,
+                    $name,
+                    'Use this code to finish creating your JMJob account.'
+                ),
+                "Your JMJob registration code is: {$otp}\nThis code expires in 15 minutes."
+            );
+            $this->lastMailError = trim((string) $mailer->getError());
+            return $sent;
+        } catch (\Throwable $e) {
+            $this->lastMailError = trim($e->getMessage());
+            error_log('Auth mail setup error: ' . $this->lastMailError);
+            return false;
+        }
+    }
+
+    private function mailFailureResponse(string $fallback): Response
+    {
+        $detail = $this->lastMailError !== '' ? $this->lastMailError : $fallback;
+        return Response::json([
+            'success' => false,
+            'message' => $detail,
+            'error'   => $detail,
+            'code'    => 'mail_delivery_failed',
+        ], 503);
+    }
+
+    private function getEmailTemplate(string $title, string $otp, string $name, string $message): string
+    {
+        $safeName = htmlspecialchars($name, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $safeTitle = htmlspecialchars($title, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $safeMessage = htmlspecialchars($message, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         return "
         <!DOCTYPE html>
         <html>
@@ -485,9 +619,9 @@ class AuthController extends Controller
         <body>
             <div class='container'>
                 <div class='logo'><span>JM</span>JOB</div>
-                <h1>Password Reset Code</h1>
-                <p class='text'>Hi {$name},</p>
-                <p class='text'>We received a request to reset your password. Use the code below to reset it:</p>
+                <h1>{$safeTitle}</h1>
+                <p class='text'>Hi {$safeName},</p>
+                <p class='text'>{$safeMessage}</p>
                 <div class='otp'>{$otp}</div>
                 <p class='text'>This code will expire in <strong>15 minutes</strong>.</p>
                 <p class='text'>If you didn't request this, you can safely ignore this email.</p>

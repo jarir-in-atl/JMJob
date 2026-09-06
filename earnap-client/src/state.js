@@ -66,6 +66,17 @@ export async function register(payload) {
     return res.data.user;
 }
 
+export async function requestRegistrationOtp(payload) {
+    return api.requestRegistrationOtp(payload);
+}
+
+export async function verifyRegistrationOtp(payload) {
+    const res = await api.verifyRegistrationOtp(payload);
+    authToken.set(res.data.token);
+    currentUser.set(res.data.user);
+    return res.data.user;
+}
+
 export async function logout() {
     try { await api.logout(); } catch {}
     authToken.set(null);

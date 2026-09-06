@@ -17,17 +17,50 @@ class Session {
 
     public function __construct() {
         if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+            // Resolve the typed configuration lazily so direct Session users
+            // receive the same safe save path as the web middleware.
+            $config = self::$config ??= SessionConfig::fromEnv();
+
             // Apply SessionConfig if it was set via boot()
-            if (self::$config !== null) {
-                if (self::$config->cookieName !== '') {
-                    session_name(self::$config->cookieName);
-                }
-                if (self::$config->lifetime > 0) {
-                    ini_set('session.gc_maxlifetime', (string) self::$config->lifetime);
-                    ini_set('session.cookie_lifetime', (string) self::$config->lifetime);
-                }
+            if ($config->cookieName !== '') {
+                session_name($config->cookieName);
             }
+            if ($config->lifetime > 0) {
+                ini_set('session.gc_maxlifetime', (string) $config->lifetime);
+                ini_set('session.cookie_lifetime', (string) $config->lifetime);
+            }
+
+            $this->configureSavePath($config->path !== '' ? $config->path : SessionConfig::defaultPath());
             session_start();
+        }
+    }
+
+    /**
+     * Configure a project-local, writable session directory before starting
+     * the native PHP session. PHP otherwise commonly falls back to /tmp,
+     * which is unavailable when the host uses project-root open_basedir.
+     */
+    protected function configureSavePath(string $path): void
+    {
+        $path = trim($path);
+        if ($path === '') {
+            throw new \RuntimeException('Session save path is empty. Configure SESSION_PATH or config/session.php.');
+        }
+
+        if (!is_dir($path) && !@mkdir($path, 0750, true) && !is_dir($path)) {
+            throw new \RuntimeException("Session save path does not exist and could not be created: {$path}");
+        }
+
+        $resolvedPath = realpath($path);
+        if ($resolvedPath === false || !is_writable($resolvedPath)) {
+            throw new \RuntimeException("Session save path is not writable: {$path}");
+        }
+
+        if (session_save_path() !== $resolvedPath) {
+            $result = @ini_set('session.save_path', $resolvedPath);
+            if ($result === false && session_save_path() !== $resolvedPath) {
+                throw new \RuntimeException("Unable to configure PHP session save path: {$resolvedPath}");
+            }
         }
     }
 

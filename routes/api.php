@@ -1,6 +1,6 @@
 <?php
 // Nemesis 4.0.0 | API routes — stateless / JSON | Updated: 2026-08-30
-// EarnApp clone: all API endpoints mounted under /api.
+// JMJob application: all API endpoints mounted under /api.
 
 use Nemesis\Router\Router;
 use App\Http\Controllers\Api\AuthController;
@@ -24,6 +24,8 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
 
     // Public auth
     $r->add('POST', '/auth/register', [AuthController::class, 'register']);
+    $r->add('POST', '/auth/register/request-otp', [AuthController::class, 'requestRegistrationOtp']);
+    $r->add('POST', '/auth/register/verify-otp', [AuthController::class, 'verifyRegistrationOtp']);
     $r->add('POST', '/auth/login',    [AuthController::class, 'login']);
     $r->add('POST', '/auth/forgot-password', [AuthController::class, 'forgotPassword']);
     $r->add('POST', '/auth/reset-password',  [AuthController::class, 'resetPassword']);

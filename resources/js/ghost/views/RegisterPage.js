@@ -8,11 +8,11 @@ export function RegisterPage() {
         root.innerHTML = '';
         root.className = 'view view--auth';
 
-        const ref = (window.EARNAPP_CONFIG && window.EARNAPP_CONFIG.referralCode) || '';
+        const ref = (window.JMJOB_CONFIG && window.JMJOB_CONFIG.referralCode) || '';
 
         root.innerHTML = `
             <div class="auth-card">
-                <h1 class="auth-card__title">Create your EarnApp account</h1>
+                <h1 class="auth-card__title">Create your JMJob account</h1>
                 <p class="auth-card__sub">Start earning in minutes</p>
                 ${ref ? `<p class="auth-card__referral">🎁 You were referred by <strong>${ref}</strong></p>` : ''}
                 <form id="register-form" class="auth-form">

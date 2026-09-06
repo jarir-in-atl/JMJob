@@ -163,11 +163,20 @@ class Engine
 
         $hash      = md5(realpath($viewPath) ?: $viewPath);
         $cachePath = $this->cacheDir . '/' . $hash . '.php';
+        $hashPath  = $cachePath . '.sha1';
+        $sourceHash = sha1_file($viewPath) ?: '';
+        $cachedHash = is_file($hashPath) ? trim((string) file_get_contents($hashPath)) : '';
 
-        if (!file_exists($cachePath) || filemtime($viewPath) > filemtime($cachePath)) {
+        // FTP deployments may preserve a source file's old mtime. Compare the
+        // content hash as well so a stale compiled view can never hide a new
+        // template (for example, a newly linked stylesheet).
+        if (!file_exists($cachePath) || $cachedHash !== $sourceHash) {
             $source   = file_get_contents($viewPath);
             $compiled = $this->compiler->compile($source);
             file_put_contents($cachePath, $compiled, LOCK_EX);
+            if ($sourceHash !== '') {
+                @file_put_contents($hashPath, $sourceHash, LOCK_EX);
+            }
         }
 
         return $cachePath;

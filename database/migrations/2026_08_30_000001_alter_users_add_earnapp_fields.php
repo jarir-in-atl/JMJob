@@ -6,7 +6,7 @@ use Nemesis\Core\Database;
 class AlterUsersAddEarnappFields extends Migration {
     public function up() {
         $db = Database::connect();
-        // Add earnapp-specific columns to the existing users table.
+        // Add JMJob-specific columns to the existing users table.
         $db->exec("ALTER TABLE users ADD COLUMN name VARCHAR(100) NULL AFTER email");
         $db->exec("ALTER TABLE users ADD COLUMN referral_code VARCHAR(20) NULL UNIQUE AFTER name");
         $db->exec("ALTER TABLE users ADD COLUMN referred_by INT NULL AFTER referral_code");

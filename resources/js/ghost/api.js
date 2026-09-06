@@ -2,7 +2,7 @@
 // inspect HTTP status codes and receive the JSON error payload from Nemesis.
 // (Ghost's `ghostFetch` helper resolves the response body before returning.)
 
-const cfg = window.EARNAPP_CONFIG || { apiBase: '/api' };
+const cfg = window.JMJOB_CONFIG || { apiBase: '/api' };
 
 let _token = null;
 let _onUnauthorized = null;

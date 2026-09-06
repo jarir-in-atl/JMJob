@@ -112,7 +112,30 @@ class Pipeline
     protected function destination(\Closure $destination): \Closure
     {
         return function (mixed $request) use ($destination): Response {
-            return $this->toResponse($destination($request));
+            $outputLevel = ob_get_level();
+            ob_start();
+
+            try {
+                $value = $destination($request);
+                $output = (string) ob_get_clean();
+            } catch (\Throwable $exception) {
+                // Do not leave a controller buffer open when an action fails.
+                while (ob_get_level() > $outputLevel) {
+                    ob_end_clean();
+                }
+                throw $exception;
+            }
+
+            $response = $this->toResponse($value);
+
+            // Controller actions in the legacy API render through echo/View::render().
+            // Preserve that output in the Response so outer middleware cannot swallow
+            // it while buffering the action call (the login page depends on this).
+            if ($output !== '') {
+                $response = $response->withContent($output . $response->getContent());
+            }
+
+            return $response;
         };
     }
 
@@ -120,7 +143,7 @@ class Pipeline
      * Coerce any value returned by an action/middleware into a Response.
      * - Response instance  → returned as-is
      * - string / numeric   → wrapped in Response::make()
-     * - null / void        → empty 200 response (controller echoed directly)
+     * - null / void        → empty 200 response (controller output is captured by destination())
      */
     protected function toResponse(mixed $value): Response
     {

@@ -7,6 +7,7 @@ declare(strict_types=1);
 namespace Tests\Unit;
 
 use Nemesis\Testing\TestCase;
+use Nemesis\Config\SessionConfig;
 use Nemesis\Http\Session;
 
 class SessionFlashTest extends TestCase
@@ -88,5 +89,38 @@ class SessionFlashTest extends TestCase
 
         $this->assertNotSame($first, $second);
         $this->assertSame(64, strlen($second)); // bin2hex(random_bytes(32)) = 64 chars
+    }
+
+    public function test_session_uses_project_local_save_path(): void
+    {
+        $sessionId = 'nemesis-path-test';
+        session_id($sessionId);
+        Session::boot(new SessionConfig(
+            driver: 'file',
+            lifetime: 120,
+            cookieName: 'nemesis_test_session',
+            secure: false,
+            sameSite: 'lax',
+            path: base_path('storage/session'),
+        ));
+
+        try {
+            new Session();
+            $this->assertSame(
+                PHP_SESSION_ACTIVE,
+                session_status(),
+                'The native PHP session must start successfully.'
+            );
+            $this->assertSame(
+                realpath(base_path('storage/session')),
+                realpath(session_save_path()),
+                'Sessions must use the configured project-local save path.'
+            );
+        } finally {
+            if (session_status() === PHP_SESSION_ACTIVE) {
+                session_write_close();
+            }
+            @unlink(base_path('storage/session/sess_' . $sessionId));
+        }
     }
 }

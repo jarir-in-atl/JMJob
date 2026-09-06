@@ -11,10 +11,9 @@ use Nemesis\Core\PluginSandbox;
 
 class PluginSandboxIsolationTest extends TestCase
 {
-    protected function tearDown(): void
+    public function tearDown(): void
     {
-        // Always restore open_basedir after each test.
-        @ini_set('open_basedir', '');
+        // The sandbox must not modify request-wide open_basedir state.
     }
 
     public function test_has_permission_works(): void
@@ -78,16 +77,19 @@ class PluginSandboxIsolationTest extends TestCase
         $this->assertTrue($ok);
     }
 
-    public function test_setup_and_teardown_modify_open_basedir(): void
+    public function test_sandbox_does_not_leak_open_basedir_restrictions(): void
     {
+        $before = ini_get('open_basedir') ?: '';
         $sandbox = new PluginSandbox('demo', ['filesystem']);
-        $sandbox->run(function () {
-            // Inside the sandbox, open_basedir should be set.
-            $basedir = ini_get('open_basedir');
-            $this->assertNotEmpty($basedir, 'open_basedir should be set inside the sandbox');
+        $sandbox->run(function () use ($before) {
+            // open_basedir is request-wide and must remain untouched.
+            $this->assertSame(
+                $before,
+                ini_get('open_basedir') ?: '',
+                'Sandbox must not change open_basedir inside the request.'
+            );
         });
 
-        // After the sandbox exits, open_basedir should be empty again.
-        $this->assertSame('', ini_get('open_basedir'), 'open_basedir should be restored after teardown');
+        $this->assertSame($before, ini_get('open_basedir') ?: '', 'Sandbox must not leak open_basedir state.');
     }
 }

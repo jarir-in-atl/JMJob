@@ -70,6 +70,17 @@ class Request
         return $this->data[$key] ?? $default;
     }
 
+    /**
+     * Retrieve a value from the URL query string.
+     *
+     * This is intentionally separate from input(): query() never falls back
+     * to POST or JSON body data, which keeps GET filters predictable.
+     */
+    public function query(string $key, mixed $default = null): mixed
+    {
+        return array_key_exists($key, $_GET) ? $_GET[$key] : $default;
+    }
+
     // -------------------------------------------------------------------------
     // File uploads — Added: 2026-04-03
     // -------------------------------------------------------------------------

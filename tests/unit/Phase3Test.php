@@ -261,6 +261,18 @@ class Phase3Test extends TestCase
         $this->assertInstanceOf(Response::class, $response);
     }
 
+    public function testPipelinePreservesEchoedControllerOutput(): void
+    {
+        $response = (new Pipeline())
+            ->send(new Request())
+            ->through([])
+            ->then(function (): void {
+                echo '<main>Rendered page</main>';
+            });
+
+        $this->assertSame('<main>Rendered page</main>', $response->getContent());
+    }
+
     public function testPipelinePassthroughMiddleware(): void
     {
         $req      = new Request();

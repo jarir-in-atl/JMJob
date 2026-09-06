@@ -3,11 +3,11 @@ declare(strict_types=1);
 namespace Nemesis\Services;
 
 use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\Exception;
 use Nemesis\Core\Config;
 
 class Mailer {
     protected $mail;
+    protected string $lastError = '';
 
     public function __construct() {
         $this->mail = new PHPMailer(true);
@@ -15,11 +15,21 @@ class Mailer {
     }
 
     protected function setup() {
+        $host = (string) Config::get('MAIL_HOST', 'smtp.gmail.com');
+        $password = (string) (Config::get('MAIL_PASS') ?: Config::get('MAIL_PASSWORD', ''));
+
+        // Google displays app passwords in four groups separated by spaces.
+        // Those spaces are formatting and must not be sent to Gmail as part
+        // of the credential. Keep other SMTP passwords unchanged.
+        if (strcasecmp($host, 'smtp.gmail.com') === 0) {
+            $password = (string) preg_replace('/\s+/', '', $password);
+        }
+
         $this->mail->isSMTP();
-        $this->mail->Host       = Config::get('MAIL_HOST', 'smtp.gmail.com');
+        $this->mail->Host       = $host;
         $this->mail->SMTPAuth   = true;
         $this->mail->Username   = Config::get('MAIL_USER') ?: Config::get('MAIL_USERNAME', '');
-        $this->mail->Password   = Config::get('MAIL_PASS') ?: Config::get('MAIL_PASSWORD', '');
+        $this->mail->Password   = $password;
         $encryption = strtolower((string) Config::get('MAIL_ENCRYPTION', 'tls'));
         $this->mail->SMTPSecure = $encryption === 'ssl'
             ? PHPMailer::ENCRYPTION_SMTPS
@@ -43,13 +53,14 @@ class Mailer {
             $this->mail->send();
             $this->mail->clearAddresses();
             return true;
-        } catch (Exception $e) {
-            error_log("Mailer Error: {$this->mail->ErrorInfo}");
+        } catch (\Throwable $e) {
+            $this->lastError = trim((string) ($this->mail->ErrorInfo ?: $e->getMessage()));
+            error_log("Mailer Error: {$this->lastError}");
             return false;
         }
     }
 
     public function getError() {
-        return $this->mail->ErrorInfo;
+        return $this->lastError ?: $this->mail->ErrorInfo;
     }
 }

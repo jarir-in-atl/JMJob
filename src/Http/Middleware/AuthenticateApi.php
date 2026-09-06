@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-// Nemesis 7.1.1 | EarnApp — API auth middleware (Bearer token in `sessions` table)
+// Nemesis 7.1.1 | JMJob — API auth middleware (Bearer token in `sessions` table)
 
 namespace Nemesis\Http\Middleware;
 

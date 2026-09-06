@@ -6,6 +6,7 @@
 /database/*.sqlite-wal
 /storage/cache/*
 /storage/logs/*
+/storage/session/*
 /storage/framework/views/*
 /storage/framework/
 /storage/views/*
@@ -42,6 +43,7 @@ draft_*
 # JMJob-specific
 /node_modules/
 /earnap-client/node_modules/
+/earnap-client/vendor/
 /earnap-client/dist/
 /test_*.php
 verify_*.php

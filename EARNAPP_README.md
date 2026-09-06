@@ -1,6 +1,6 @@
-# EarnApp Clone — Nemesis + Ghost.js
+# JMJob Clone — Nemesis + Ghost.js
 
-A full functional clone of [earnapp339.imrantechnology.xyz](https://earnapp339.imrantechnology.xyz/) (a.k.a. "TakaIncome" / "EasyEarningBot" — a Telegram Mini App for watching ads, completing tasks, and earning rewards).
+A full functional clone of [original reference platform](https://original reference platform/) (a.k.a. "TakaIncome" / "EasyEarningBot" — a Telegram Mini App for watching ads, completing tasks, and earning rewards).
 
 ## Architecture
 

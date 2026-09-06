@@ -1,6 +1,6 @@
 // HomePage — dashboard with user header + 3-col icon grid + Quick Actions,
 // Daily Mission card, Ads Reward Center, Web Task Center, Referral & Withdraw
-// summary cards. Layout matches the earnapp339 reference.
+// summary cards. Layout matches the JMJob reference design.
 import { currentUser, route, navigate, showFlash, refreshUser } from '../state.js';
 import { api } from '../api.js';
 
@@ -123,7 +123,7 @@ function renderDailyMission(u) {
             const res = await fetch('/api/user/claim-daily-bonus', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json',
-                           'Authorization': 'Bearer ' + (window.EARNAPP_TOKEN || '') },
+                           'Authorization': 'Bearer ' + (window.JMJOB_TOKEN || '') },
             }).then(r => r.json());
             if (res.success) {
                 showFlash(res.message || 'Daily bonus claimed!', 'success');

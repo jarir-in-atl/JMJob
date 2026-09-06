@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-// Nemesis 7.1.1 | Gap 3 — added real stream-wrapper isolation + open_basedir-style guard
+// Nemesis 7.1.1 | Gap 3 — explicit plugin path guard
 // Updated: 2026-08-30
 
 namespace Nemesis\Core;
@@ -9,26 +9,16 @@ namespace Nemesis\Core;
 /**
  * PluginSandbox - Security layer for plugin execution
  *
- * v7.1.1: now installs a per-plugin stream-wrapper that restricts all
- * filesystem access to the project root. Files outside the project
- * (e.g. /etc/passwd, /var/log, parent directories of the project) are
- * inaccessible while a plugin's bootstrap is running.
+ * Filesystem checks are explicit through checkFileAccess(). The sandbox does
+ * not mutate open_basedir at runtime: open_basedir is request-wide and PHP
+ * cannot reliably relax it after it has been tightened, which would leak the
+ * plugin restriction into the rest of the application request.
  */
 class PluginSandbox {
     protected array $permissions = [];
     protected string $pluginName;
 
-    /**
-     * Original open_basedir value captured at setupSandbox() so we can
-     * restore it on teardown().
-     */
-    private static ?string $previousOpenBasedir = null;
-
-    /**
-     * Number of nested sandboxes currently active. We only modify
-     * open_basedir for the outermost one and restore only when the
-     * outermost exits.
-     */
+    /** Number of nested sandbox scopes currently active. */
     private static int $activeSandboxDepth = 0;
 
     public function __construct(string $pluginName, array $permissions = []) {
@@ -52,43 +42,20 @@ class PluginSandbox {
     }
 
     /**
-     * Install the open_basedir restriction and the plugin-safe stream
-     * wrapper. Subsequent file operations made by the plugin will be
-     * confined to the project root.
+     * Enter a logical plugin scope without changing process-wide PHP ini
+     * settings. File access must use checkFileAccess() before it is opened.
      */
     protected function setupSandbox(): void
     {
-        if (self::$activeSandboxDepth === 0) {
-            // Capture previous open_basedir so we can restore it later.
-            self::$previousOpenBasedir = ini_get('open_basedir') ?: null;
-
-            $base = $this->resolveBasePath();
-            if ($base !== null) {
-                // open_basedir is the PHP-level restriction. Anything the
-                // plugin opens via fopen/file_get_contents/etc. must resolve
-                // under $base. The trailing slash matters on some platforms.
-                $restriction = $base . DIRECTORY_SEPARATOR;
-                @ini_set('open_basedir', $restriction);
-            }
-        }
         self::$activeSandboxDepth++;
     }
 
     /**
-     * Restore the previous open_basedir value. Only the outermost
-     * sandbox actually restores, so nested sandboxes don't fight.
+     * Leave the logical plugin scope. No global PHP ini state is modified.
      */
     protected function teardownSandbox(): void
     {
         self::$activeSandboxDepth = max(0, self::$activeSandboxDepth - 1);
-        if (self::$activeSandboxDepth === 0) {
-            if (self::$previousOpenBasedir !== null) {
-                @ini_set('open_basedir', self::$previousOpenBasedir);
-            } else {
-                @ini_set('open_basedir', '');
-            }
-            self::$previousOpenBasedir = null;
-        }
     }
 
     /**
@@ -101,10 +68,13 @@ class PluginSandbox {
         if (function_exists('base_path')) {
             $path = @base_path();
             if (is_string($path) && $path !== '') {
-                return rtrim($path, DIRECTORY_SEPARATOR);
+                $resolved = @realpath($path);
+                return rtrim($resolved !== false ? $resolved : $path, DIRECTORY_SEPARATOR);
             }
         }
-        return rtrim(getcwd() ?: '', DIRECTORY_SEPARATOR) ?: null;
+        $path = getcwd() ?: '';
+        $resolved = $path !== '' ? @realpath($path) : false;
+        return rtrim($resolved !== false ? $resolved : $path, DIRECTORY_SEPARATOR) ?: null;
     }
 
     /**

@@ -24,10 +24,10 @@ readonly class MailConfig
             mailer:      (string) (getenv('MAIL_MAILER')     ?: 'smtp'),
             host:        (string) (getenv('MAIL_HOST')       ?: 'smtp.mailtrap.io'),
             port:        (int)    (getenv('MAIL_PORT')       ?: 587),
-            username:    (string) (getenv('MAIL_USER')       ?: ''),
-            password:    (string) (getenv('MAIL_PASS')       ?: ''),
+            username:    (string) (getenv('MAIL_USER')       ?: getenv('MAIL_USERNAME') ?: ''),
+            password:    (string) (getenv('MAIL_PASS')       ?: getenv('MAIL_PASSWORD') ?: ''),
             encryption:  (string) (getenv('MAIL_ENCRYPTION') ?: 'tls'),
-            fromAddress: (string) (getenv('MAIL_FROM')       ?: 'hello@example.com'),
+            fromAddress: (string) (getenv('MAIL_FROM')       ?: getenv('MAIL_FROM_ADDRESS') ?: 'hello@example.com'),
             fromName:    (string) (getenv('MAIL_FROM_NAME')  ?: 'Nemesis'),
         );
     }

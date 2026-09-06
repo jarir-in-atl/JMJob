@@ -95,7 +95,7 @@ Database::connect($config['database']);
 header('Content-Type: text/plain; charset=utf-8');
 
 echo "============================================================\n";
-echo "  JMJob / EarnApp — Migration Runner\n";
+echo "  JMJob — Migration Runner\n";
 echo "============================================================\n\n";
 echo "Project root:  $projectRoot\n";
 echo "DB driver:     " . Database::getDriverName() . "\n";

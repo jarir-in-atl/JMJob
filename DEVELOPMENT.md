@@ -16,7 +16,7 @@ This document explains how to run the project on your dev machine.
 # 1. Install PHP dependencies
 composer install --no-interaction --no-scripts --prefer-dist
 
-# 2. Strip the heavy AWS SDK (we don't use S3 in the EarnApp clone)
+# 2. Strip the heavy AWS SDK (we don't use S3 in the JMJob clone)
 composer remove --no-interaction --no-scripts \
     aws/aws-sdk-php \
     league/flysystem-aws-s3-v3
@@ -65,7 +65,7 @@ cd ..
 ## Database
 
 - **Driver:** MySQL (production) / SQLite (alternative for throwaway dev)
-- **Tables:** 17 (10 framework + 7 EarnApp)
+- **Tables:** 17 (10 framework + 7 JMJob)
 - **Seeded users:** 1 admin + 3 regulars (alice, bob, carol)
 - **All seeded users have password `password`.**
 
@@ -91,7 +91,7 @@ routes/
 
 config/                     # database, app, app env, etc.
 database/
-├── migrations/             # 10 EarnApp + 5 framework migrations
+├── migrations/             # 10 JMJob + 5 framework migrations
 └── seeders/                # EarnAppSeeder
 ```
 

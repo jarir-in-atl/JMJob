@@ -6,7 +6,7 @@ return [
     'lifetime'  => (int) env('SESSION_LIFETIME', 120),   // minutes
     'expire_on_close' => false,
     'encrypt'   => false,
-    'path'      => base_path('storage/session'),
+    'path'      => env('SESSION_PATH', base_path('storage/session')),
     'cookie'    => env('SESSION_COOKIE', 'nemesis_session'),
     'secure'    => (bool) env('SESSION_SECURE_COOKIE', false),
     'http_only' => true,

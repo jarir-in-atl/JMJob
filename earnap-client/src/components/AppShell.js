@@ -57,7 +57,8 @@ export function AppShell() {
 }
 
 function renderRoute() {
-    const path = route.get();
+    const routeValue = route.get();
+    const path = routeValue.split('?')[0] || '/';
     const matched = ROUTES.find(r => r.path === path);
 
     if (!matched) {
@@ -74,7 +75,7 @@ function renderRoute() {
     }
 
     // Public pages (login/register) should not be seen when authed.
-    if (!matched.requireAuth && isAuthenticated.get() && ['/login', '/register'].includes(path)) {
+    if (!matched.requireAuth && isAuthenticated.get() && ['/login', '/register', '/forgot-password', '/reset-password'].includes(path)) {
         navigate('/');
         return LoadingView();
     }

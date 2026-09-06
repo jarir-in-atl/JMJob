@@ -1,4 +1,5 @@
-import { d, navigate, showFlash } from '../state.js';
+import { api } from '../api.js';
+import { navigate, showFlash } from '../state.js';
 
 export default async function ResetPasswordPage() {
     const container = document.querySelector('[data-view]');
@@ -6,7 +7,7 @@ export default async function ResetPasswordPage() {
 
     // Get email from URL params
     const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
-    const email = urlParams.get('email') || '';
+    const email = (urlParams.get('email') || '').trim().toLowerCase();
 
     container.innerHTML = '';
     container.removeAttribute('data-view');
@@ -20,7 +21,7 @@ export default async function ResetPasswordPage() {
             <form class="auth-form" id="reset-form">
                 <label class="auth-form__label">
                     Email Address
-                    <input type="email" name="email" value="${email}" placeholder="you@example.com" required autocomplete="email">
+                    <input type="email" name="email" value="${escapeHtml(email)}" placeholder="you@example.com" required autocomplete="email">
                 </label>
 
                 <label class="auth-form__label">
@@ -85,7 +86,12 @@ export default async function ResetPasswordPage() {
         submitBtn.textContent = 'Resetting...';
 
         try {
-            await d.resetPassword({ email, otp, password });
+            await api.resetPassword({
+                email,
+                otp,
+                password,
+                password_confirmation: passwordConfirmation,
+            });
             showFlash('Password reset successfully! You can now log in.', 'success');
             navigate('/login');
         } catch (err) {
@@ -94,4 +100,14 @@ export default async function ResetPasswordPage() {
             submitBtn.textContent = 'Reset Password';
         }
     });
+}
+
+function escapeHtml(value) {
+    return String(value || '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;',
+    }[character]));
 }

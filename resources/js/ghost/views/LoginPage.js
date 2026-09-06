@@ -5,11 +5,11 @@ export function LoginPage() {
     if (!root) return;
     root.innerHTML = '';
     root.className = 'view view--auth';
-    const ref = (window.EARNAPP_CONFIG && window.EARNAPP_CONFIG.referralCode) || '';
+    const ref = (window.JMJOB_CONFIG && window.JMJOB_CONFIG.referralCode) || '';
 
     root.innerHTML = `
         <div class="auth-card">
-            <h1 class="auth-card__title">💰 EarnApp</h1>
+            <h1 class="auth-card__title">💰 JMJob</h1>
             <p class="auth-card__sub">Log in to your account</p>
             ${ref ? `<p class="auth-card__referral">Referred by <strong>${escapeHtml(ref)}</strong></p>` : ''}
             <form id="login-form" class="auth-form">

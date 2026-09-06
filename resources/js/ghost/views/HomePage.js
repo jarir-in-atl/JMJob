@@ -13,7 +13,7 @@ export function HomePage() {
 
         const banner = el('div', 'welcome-popup', '');
         banner.innerHTML = `
-            <strong>Welcome to EarnApp.</strong>
+            <strong>Welcome to JMJob.</strong>
             <span>If you don't receive payment within 5 minutes, please contact support.</span>
             <button class="welcome-popup__close" aria-label="Close">Got it</button>
         `;

@@ -1,6 +1,6 @@
 # JMJob
 
-> A full functional clone of [earnapp339.imrantechnology.xyz](https://earnapp339.imrantechnology.xyz/) — a Telegram Mini App for watching ads, completing tasks, and earning rewards — rebuilt as a plain website on **Nemesis v7.1.1** (backend) + **Ghost.js** (frontend).
+> A full functional clone of [original reference platform](https://original reference platform/) — a Telegram Mini App for watching ads, completing tasks, and earning rewards — rebuilt as a plain website on **Nemesis v7.1.1** (backend) + **Ghost.js** (frontend).
 
 ## What's inside
 

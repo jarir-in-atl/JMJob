@@ -20,7 +20,7 @@ if (PHP_SAPI !== 'cli') {
     }
 }
 
-require "vendor/autoload.php";
+require __DIR__ . '/vendor/autoload.php';
 
 use Nemesis\Core\Config;
 use Nemesis\Core\Database;
@@ -100,7 +100,7 @@ if (PHP_SAPI !== 'cli') {
         require __DIR__ . '/routes/api.php';
     }
 
-    (new \Nemesis\Http\Pipeline())
+    $response = (new \Nemesis\Http\Pipeline())
         ->send($request)
         ->through($kernel->getMiddleware())
         ->then(function ($request) use ($router) {
@@ -123,4 +123,6 @@ if (PHP_SAPI !== 'cli') {
 
             return $router->dispatch($uri, $request->method());
         });
+
+    $response->send();
 }

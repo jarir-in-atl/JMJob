@@ -1209,7 +1209,7 @@ Desktop-first layout with **left sidebar navigation**:
 | Migration | Table | Notes |
 |-----------|-------|-------|
 | `2026_02_04_081846` | `users` (base) | Original user table |
-| `2026_08_30_000001` | `users` (alter) | Adds earnapp fields |
+| `2026_08_30_000001` | `users` (alter) | Adds JMJob fields |
 | `2026_08_30_000002` | `sessions` | Auth tokens |
 | `2026_08_30_000003` | `ad_providers` | Ad network config |
 | `2026_08_30_000004` | `ad_views` | Audit trail |

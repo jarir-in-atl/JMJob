@@ -1,4 +1,5 @@
-import { d, navigate, showFlash } from '../state.js';
+import { api } from '../api.js';
+import { navigate, showFlash } from '../state.js';
 
 export default async function ForgotPasswordPage() {
     const container = document.querySelector('[data-view]');
@@ -46,7 +47,7 @@ export default async function ForgotPasswordPage() {
         submitBtn.textContent = 'Sending...';
 
         try {
-            await d.forgotPassword({ email });
+            await api.forgotPassword({ email });
             showFlash('If an account exists with this email, you will receive a reset code.', 'success');
             // Navigate to reset password page with email
             navigate(`/reset-password?email=${encodeURIComponent(email)}`);

@@ -14,6 +14,8 @@ import { route, isAuthenticated, currentUser, navigate } from './state.js';
 import { HomePage }          from './views/HomePage.js';
 import { LoginPage }         from './views/LoginPage.js';
 import { RegisterPage }      from './views/RegisterPage.js';
+import ForgotPasswordPage    from './views/ForgotPasswordPage.js';
+import ResetPasswordPage     from './views/ResetPasswordPage.js';
 import { ReferPage }         from './views/ReferPage.js';
 import { WebTaskPage }       from './views/WebTaskPage.js';
 import { EarnPage }          from './views/EarnPage.js';
@@ -73,6 +75,8 @@ const VIEW_MAP = {
     '/notifications':   NotificationsPage,
     '/login':           LoginPage,
     '/register':        RegisterPage,
+    '/forgot-password': ForgotPasswordPage,
+    '/reset-password':  ResetPasswordPage,
 };
 
 export function startRouter() {
@@ -98,7 +102,8 @@ export function startRouter() {
 }
 
 async function renderCurrent() {
-    let path = window.location.hash.replace(/^#/, '') || '/';
+    const rawPath = window.location.hash.replace(/^#/, '') || '/';
+    let path = rawPath.split('?')[0] || '/';
     if (!VIEW_MAP[path]) {
         // Dynamic routes: /jobs/{id}
         const jobMatch = path.match(/^\/jobs\/(\d+)$/);
@@ -123,7 +128,7 @@ async function renderCurrent() {
     // Auth gate
     const authed = isAuthenticated.get();
     const u = currentUser.get();
-    const PUBLIC = ['/login', '/register'];
+    const PUBLIC = ['/login', '/register', '/forgot-password', '/reset-password'];
     if (PUBLIC.includes(path) && authed) {
         navigate('/');
         return;
