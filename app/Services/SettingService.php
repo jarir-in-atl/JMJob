@@ -138,7 +138,11 @@ class SettingService
 
     public static function currencySymbol(): string
     {
-        return (string) self::get('currency_symbol', '৳');
+        $val = self::get('currency_symbol', null);
+        if ($val === null || $val === '' || $val === '?') {
+            return '৳';
+        }
+        return (string) $val;
     }
 
     /**

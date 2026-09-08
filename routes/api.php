@@ -16,8 +16,6 @@ use App\Http\Controllers\Api\PosterController;
 use App\Http\Controllers\Api\AdminSettingsController;
 use App\Http\Controllers\Api\NotificationController;
 
-/** @var Router $router */
-
 $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r) {
     // Health check
     $r->get('/health', fn() => \Nemesis\Http\Response::json(['success' => true, 'data' => ['status' => 'ok']]));
