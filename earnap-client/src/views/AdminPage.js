@@ -10,19 +10,26 @@ export function AdminPage() {
         root.className = 'view view--admin';
         const u = currentUser.get();
         if (!u || !u.is_admin) {
-            root.innerHTML = `<div class="card"><h2>403</h2><p>Admin only.</p><a class="btn btn--primary" href="#/">Go home</a></div>`;
+            root.innerHTML = `<div class="card"><h2>403</h2><p>Admin access required.</p><a class="btn btn--primary" href="#/">Go home</a></div>`;
             return;
         }
         root.innerHTML = `
-            <h2 class="page-title">Admin Panel</h2>
-            <div class="admin-tabs">
-                <button class="admin-tab admin-tab--active" data-tab="stats">Stats</button>
-                <button class="admin-tab" data-tab="withdrawals">Withdrawals</button>
-                <button class="admin-tab" data-tab="payments">Payments</button>
-                <button class="admin-tab" data-tab="users">Users</button>
-                <button class="admin-tab" data-tab="providers">Ad Providers</button>
+            <div class="admin-page-header">
+                <div>
+                    <div class="admin-page-header__tag"><i class="bi bi-shield-lock-fill"></i> ADMIN CONTROL CENTER</div>
+                    <h1 class="page-title">Executive Dashboard</h1>
+                    <p class="muted">System-wide operational metrics, finance auditing, and platform management.</p>
+                </div>
             </div>
-            <div class="admin-tab-content" id="admin-content">Loading…</div>
+
+            <div class="admin-tabs">
+                <button class="admin-tab admin-tab--active" data-tab="stats"><i class="bi bi-speedometer2"></i> Overview</button>
+                <button class="admin-tab" data-tab="withdrawals"><i class="bi bi-wallet2"></i> Withdrawals</button>
+                <button class="admin-tab" data-tab="payments"><i class="bi bi-cash-stack"></i> Deposits</button>
+                <button class="admin-tab" data-tab="users"><i class="bi bi-people"></i> Users & Roles</button>
+                <button class="admin-tab" data-tab="providers"><i class="bi bi-play-circle"></i> Ad Providers</button>
+            </div>
+            <div class="admin-tab-content" id="admin-content"><div class="spinner"></div></div>
         `;
         const tabs = root.querySelectorAll('.admin-tab');
         const content = root.querySelector('#admin-content');
@@ -78,7 +85,24 @@ async function renderTab(name, content) {
                     <span class="muted">Current configuration</span>
                     <div><strong>${escapeHtml(r.currency || 'BDT')}</strong> currency · <strong>${escapeHtml(r.escrow_mode || 'full_bid')}</strong> escrow</div>
                 </div>
+                <div class="card admin-config-card">
+                    <div>
+                        <strong>System Maintenance</strong>
+                        <p class="muted" style="margin:0; font-size:12px;">Reset daily user ad view limits and daily bonus claim timers for all users.</p>
+                    </div>
+                    <button class="btn btn--danger btn--sm" id="btn-reset-counters"><i class="bi bi-arrow-counterclockwise"></i> Reset Daily Counters</button>
+                </div>
             `;
+            const resetBtn = content.querySelector('#btn-reset-counters');
+            if (resetBtn) {
+                resetBtn.addEventListener('click', async () => {
+                    if (!confirm('Reset daily ad view counters for all users?')) return;
+                    try {
+                        const res = await api.adminResetDailyCounters();
+                        showFlash(res.message || 'Daily counters reset.', 'success');
+                    } catch (e) { showFlash(e.message || 'Reset failed.', 'error'); }
+                });
+            }
         } else if (name === 'withdrawals') {
             const res = await api.adminWithdrawals('pending');
             const items = res.data || [];

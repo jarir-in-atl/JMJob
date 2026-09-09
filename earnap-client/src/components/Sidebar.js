@@ -19,15 +19,14 @@ const USER_NAV_ITEMS = [
     { path: '/settings', label: 'Settings', icon: 'bi-gear' },
 ];
 
-// Admin-only sidebar additions (appended after the user links).
 const ADMIN_NAV_ITEMS = [
-    { path: '/admin', label: 'Admin Panel', icon: 'bi-shield-lock' },
-    { path: '/admin/payments', label: 'Payments', icon: 'bi-cash-stack' },
-    { path: '/admin/jobs', label: 'Job Oversight', icon: 'bi-briefcase' },
-    { path: '/admin/transactions', label: 'Transactions', icon: 'bi-receipt' },
-    { path: '/admin/reports', label: 'Reports', icon: 'bi-bar-chart-line' },
+    { path: '/admin', label: 'Overview', icon: 'bi-speedometer2' },
+    { path: '/admin/payments', label: 'Payments & TRX', icon: 'bi-cash-stack' },
+    { path: '/admin/jobs', label: 'Job Moderation', icon: 'bi-shield-check' },
+    { path: '/admin/transactions', label: 'Ledger Audit', icon: 'bi-receipt' },
+    { path: '/admin/reports', label: 'Analytics & Reports', icon: 'bi-bar-chart-line' },
     { path: '/admin/categories', label: 'Categories', icon: 'bi-tags' },
-    { path: '/admin/settings', label: 'Settings', icon: 'bi-sliders' },
+    { path: '/admin/settings', label: 'Platform Settings', icon: 'bi-sliders' },
 ];
 
 const POSTER_NAV_ITEMS = [
@@ -39,13 +38,16 @@ const POSTER_NAV_ITEMS = [
 
 function getNavItems() {
     const u = currentUser.get();
-    const items = [...USER_NAV_ITEMS];
-    if (u && (u.role === 'poster' || u.is_admin)) {
-        items.push({ separator: true }, ...POSTER_NAV_ITEMS);
-    }
     if (u && u.is_admin) {
-        // Admin: show user links + a separator + admin links at the bottom.
-        return [...items, { separator: true }, ...ADMIN_NAV_ITEMS];
+        return [
+            { header: 'ADMIN CONSOLE' },
+            ...ADMIN_NAV_ITEMS,
+        ];
+    }
+
+    const items = [...USER_NAV_ITEMS];
+    if (u && u.role === 'poster') {
+        items.push({ separator: true }, ...POSTER_NAV_ITEMS);
     }
     return items;
 }
@@ -61,10 +63,11 @@ function toggleCollapse() {
 }
 
 export function Sidebar() {
+    const isAdminRoute = () => route.get().startsWith('/admin');
     return {
         tag: 'aside',
         props: {
-            class: () => `sidebar ${isCollapsed.get() ? 'sidebar--collapsed' : ''}`,
+            class: () => `sidebar ${isCollapsed.get() ? 'sidebar--collapsed' : ''} ${isAdminRoute() ? 'sidebar--admin' : ''}`,
             id: 'sidebar',
         },
         children: [
@@ -76,12 +79,24 @@ export function Sidebar() {
 }
 
 function Brand() {
+    const isAdminRoute = () => route.get().startsWith('/admin');
     return {
         tag: 'div',
         props: { class: 'sidebar__brand' },
         children: [
-            { tag: 'span', props: {}, children: ['JM'] },
-            { tag: 'span', props: { class: () => isCollapsed.get() ? '' : '' }, children: ['JOB'] },
+            {
+                tag: 'div',
+                props: { class: 'sidebar__brand-text' },
+                children: [
+                    { tag: 'span', props: { class: 'sidebar__brand-prefix' }, children: ['JM'] },
+                    { tag: 'span', props: { class: 'sidebar__brand-suffix' }, children: ['JOB'] },
+                ],
+            },
+            {
+                tag: 'span',
+                props: { class: () => `sidebar__admin-badge ${isAdminRoute() ? 'sidebar__admin-badge--active' : ''}` },
+                children: ['ADMIN'],
+            },
         ],
     };
 }
@@ -106,7 +121,19 @@ function NavList() {
     return {
         tag: 'nav',
         props: { class: 'sidebar__nav' },
-        children: getNavItems().map(item => item.separator ? NavSeparator() : NavItem(item)),
+        children: getNavItems().map(item => {
+            if (item.header) return NavHeader(item.header);
+            if (item.separator) return NavSeparator();
+            return NavItem(item);
+        }),
+    };
+}
+
+function NavHeader(text) {
+    return {
+        tag: 'div',
+        props: { class: 'sidebar__header' },
+        children: [text],
     };
 }
 
@@ -165,3 +192,4 @@ export function closeSidebar() {
     if (sidebar) sidebar.classList.remove('sidebar--open');
     if (overlay) overlay.classList.remove('sidebar-overlay--active');
 }
+

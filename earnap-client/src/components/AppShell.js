@@ -9,9 +9,13 @@ import { MobileNav, MobileNavOverlay } from './MobileNav.js';
 import { HorizontalNav } from './HorizontalNav.js';
 
 export function AppShell() {
+    const isAdmin = () => !!currentUser.get()?.is_admin;
+    const isAdminRoute = () => route.get().startsWith('/admin');
     return {
         tag: 'div',
-        props: { class: 'app-shell' },
+        props: {
+            class: () => `app-shell ${(isAdmin() || isAdminRoute()) ? 'app-shell--admin' : ''}`,
+        },
         children: [
             // Only show sidebar when authenticated
             when(
@@ -40,10 +44,9 @@ export function AppShell() {
                 props: { class: 'main-wrapper' },
                 children: [
                     TopBar(),
-                    // Horizontal icon+label nav, sits below the topbar.
-                    // Redundant with the sidebar (per client requirement).
+                    // Horizontal icon+label nav, sits below the topbar for non-admin users only
                     when(
-                        () => isAuthenticated.get(),
+                        () => isAuthenticated.get() && !isAdmin(),
                         () => HorizontalNav(),
                         () => null
                     ),
@@ -60,6 +63,13 @@ function renderRoute() {
     const routeValue = route.get();
     const path = routeValue.split('?')[0] || '/';
     const matched = ROUTES.find(r => r.path === path);
+    const u = currentUser.get();
+
+    // Admin users default directly to Executive Dashboard (/admin)
+    if (u && u.is_admin && !path.startsWith('/admin')) {
+        navigate('/admin');
+        return LoadingView();
+    }
 
     if (!matched) {
         return NotFoundView();

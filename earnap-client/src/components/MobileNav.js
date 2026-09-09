@@ -40,12 +40,13 @@ const POSTER_NAV_ITEMS = [
 
 function getNavItems() {
     const u = currentUser.get();
-    const items = [...USER_NAV_ITEMS];
-    if (u && (u.role === 'poster' || u.is_admin)) {
-        items.push({ separator: true }, ...POSTER_NAV_ITEMS);
-    }
     if (u && u.is_admin) {
-        return [...items, { separator: true }, ...ADMIN_NAV_ITEMS];
+        return ADMIN_NAV_ITEMS;
+    }
+
+    const items = [...USER_NAV_ITEMS];
+    if (u && u.role === 'poster') {
+        items.push({ separator: true }, ...POSTER_NAV_ITEMS);
     }
     return items;
 }

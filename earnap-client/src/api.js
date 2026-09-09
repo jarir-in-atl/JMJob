@@ -121,6 +121,7 @@ export const api = {
     adminUpdateUserRole: (id, role) => request(`/admin/users/${id}/role`, { method: 'POST', body: { role } }),
     adminProviders:    () => request('/admin/ad-providers'),
     adminUpdateProvider: (id, body) => request(`/admin/ad-providers/${id}`, { method: 'POST', body }),
+    adminResetDailyCounters: () => request('/admin/reset-daily-counters', { method: 'POST' }),
 
     // Payments (deposit / TRXID)
     paymentGateways:    () => request('/payment/gateways'),

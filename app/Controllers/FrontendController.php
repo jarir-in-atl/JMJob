@@ -15,7 +15,7 @@ class FrontendController extends Controller
 
     public function admin(Request $request): void
     {
-        $this->render('admin/dashboard', $this->pageData($request));
+        $this->render('app', $this->pageData($request));
     }
 
     public function profile(Request $request): void

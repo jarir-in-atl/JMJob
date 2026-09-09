@@ -13,12 +13,18 @@ export function TopBar() {
 }
 
 function themeToggle() {
-    const isDark = () => theme.get() === 'dark';
+    const isDark = () => {
+        const t = theme.get();
+        if (t === 'system') {
+            return typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        }
+        return t === 'dark';
+    };
     return {
         tag: 'button',
         props: {
             class: 'topbar__icon-btn theme-toggle',
-            title: isDark() ? 'Switch to light mode' : 'Switch to dark mode',
+            title: () => isDark() ? 'Switch to light mode' : 'Switch to dark mode',
             onclick: () => toggleTheme(),
             'data-theme': () => theme.get(),
         },
