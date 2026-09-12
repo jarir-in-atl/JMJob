@@ -54,14 +54,19 @@ class CreateJobPostingWorkflowFields extends Migration {
             INDEX idx_subcat_active (is_active)
         ) ENGINE=INNODB;");
 
-        // 2. Safely add missing status or workflow columns if table was created in an incomplete state
-        $hasStatus = !empty($db->query("SHOW COLUMNS FROM jobs LIKE 'status'")->fetchAll());
-        if (!$hasStatus) {
-            $db->exec("ALTER TABLE jobs ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'open' AFTER bidding_closes_at, ADD INDEX idx_jobs_status (status);");
-        }
+        // 2. Safely add missing columns if table was created in an incomplete state
+        $existingCols = array_column($db->query("SHOW COLUMNS FROM jobs")->fetchAll(), 'Field');
 
-        $hasSubcat = !empty($db->query("SHOW COLUMNS FROM jobs LIKE 'subcategory_id'")->fetchAll());
-        if (!$hasSubcat) {
+        if (!in_array('status', $existingCols, true)) {
+            $db->exec("ALTER TABLE jobs ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'open', ADD INDEX idx_jobs_status (status);");
+        }
+        if (!in_array('assigned_worker_id', $existingCols, true)) {
+            $db->exec("ALTER TABLE jobs ADD COLUMN assigned_worker_id INT NULL, ADD INDEX idx_jobs_assigned_worker (assigned_worker_id);");
+        }
+        if (!in_array('assigned_bid_id', $existingCols, true)) {
+            $db->exec("ALTER TABLE jobs ADD COLUMN assigned_bid_id INT NULL;");
+        }
+        if (!in_array('subcategory_id', $existingCols, true)) {
             $db->exec("ALTER TABLE jobs
                 ADD COLUMN subcategory_id INT NULL AFTER category_id,
                 ADD COLUMN worker_count INT NOT NULL DEFAULT 1 AFTER budget,
