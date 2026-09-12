@@ -171,13 +171,13 @@ class EarnAppSeeder extends Seeder
             $aliceUser = Fluent::table('users')->where('email', '=', 'alice@example.com')->first();
             $posterId  = $aliceUser ? $aliceUser['id'] : ($adminUser ? $adminUser['id'] : 1);
 
-            // Job 1: Open Job
+            // Job 1: Pending Approval (For Admin Moderation)
             Fluent::table('jobs')->insert([
                 'poster_id' => $posterId,
                 'category_id' => $catSocial,
                 'subcategory_id' => 1,
-                'title' => 'Subscribe to My YouTube Channel & Watch 2 Mins',
-                'slug' => 'subscribe-youtube-channel-watch-2mins',
+                'title' => '[PENDING MODERATION] Subscribe to My YouTube Channel & Watch 2 Mins',
+                'slug' => 'pending-subscribe-youtube-channel-watch-2mins',
                 'description' => 'Go to YouTube, search for TechLab BD, subscribe, like the latest video, and submit a screenshot showing subscription.',
                 'proof_requirements' => json_encode([
                     ['name' => 'YouTube Username', 'type' => 'text', 'required' => true],
@@ -189,19 +189,19 @@ class EarnAppSeeder extends Seeder
                 'system_fee_percent' => 30.00,
                 'system_fee_amount' => 150.0000,
                 'total_payable_amount' => 650.0000,
-                'status' => 'open',
+                'status' => 'pending_approval',
                 'deadline_at' => date('Y-m-d H:i:s', strtotime('+7 days')),
                 'created_at' => $now,
                 'updated_at' => $now,
             ]);
 
-            // Job 2: Engaged / Pending Review Job
-            Fluent::table('jobs')->insert([
+            // Job 2: Open Job (For Workers to Apply)
+            $job2Id = Fluent::table('jobs')->insert([
                 'poster_id' => $posterId,
                 'category_id' => $catApp,
                 'subcategory_id' => 3,
-                'title' => 'Install App & Give 5 Star Review on Play Store',
-                'slug' => 'install-app-5-star-review-playstore',
+                'title' => '[OPEN] Install Mobile App & Leave 5 Star Review on Play Store',
+                'slug' => 'open-install-app-5-star-review-playstore',
                 'description' => 'Download AppX from Google Play, leave a 5-star positive review, and provide screenshot proof.',
                 'proof_requirements' => json_encode([
                     ['name' => 'Play Store Reviewer Name', 'type' => 'text', 'required' => true],
@@ -218,6 +218,151 @@ class EarnAppSeeder extends Seeder
                 'created_at' => $now,
                 'updated_at' => $now,
             ]);
+
+            // Job 3: Engaged Job (Fully Applied / Slots Filled)
+            $job3Id = Fluent::table('jobs')->insert([
+                'poster_id' => $posterId,
+                'category_id' => $catSocial,
+                'subcategory_id' => 2,
+                'title' => '[ENGAGED] Like & Share Facebook Page Post',
+                'slug' => 'engaged-like-share-facebook-page-post',
+                'description' => 'Like our official Facebook page and share the pinned post on your personal timeline.',
+                'proof_requirements' => json_encode([
+                    ['name' => 'Facebook Profile Link', 'type' => 'text', 'required' => true]
+                ]),
+                'budget' => 100.0000,
+                'worker_count' => 2,
+                'cost_per_worker' => 50.0000,
+                'system_fee_percent' => 30.00,
+                'system_fee_amount' => 30.0000,
+                'total_payable_amount' => 130.0000,
+                'status' => 'engaged',
+                'deadline_at' => date('Y-m-d H:i:s', strtotime('+5 days')),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+
+            // Job 4: Submitted Job (Worker Submitted Work)
+            $job4Id = Fluent::table('jobs')->insert([
+                'poster_id' => $posterId,
+                'category_id' => $catSocial,
+                'subcategory_id' => 1,
+                'title' => '[SUBMITTED] Join Telegram Group & Comment',
+                'slug' => 'submitted-join-telegram-group-comment',
+                'description' => 'Join our official Telegram community group and say Hello!',
+                'proof_requirements' => json_encode([
+                    ['name' => 'Telegram Username', 'type' => 'text', 'required' => true]
+                ]),
+                'budget' => 40.0000,
+                'worker_count' => 1,
+                'cost_per_worker' => 40.0000,
+                'system_fee_percent' => 30.00,
+                'system_fee_amount' => 12.0000,
+                'total_payable_amount' => 52.0000,
+                'status' => 'submitted',
+                'deadline_at' => date('Y-m-d H:i:s', strtotime('+2 days')),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+
+            // Job 5: Completed Job
+            Fluent::table('jobs')->insert([
+                'poster_id' => $posterId,
+                'category_id' => $catSocial,
+                'subcategory_id' => 1,
+                'title' => '[COMPLETED] Watch Video & Leave Thoughtful Comment',
+                'slug' => 'completed-watch-video-leave-comment',
+                'description' => 'Watch the complete video and comment your opinion on the topic.',
+                'proof_requirements' => json_encode([
+                    ['name' => 'Comment Screenshot Link', 'type' => 'file', 'required' => true]
+                ]),
+                'budget' => 200.0000,
+                'worker_count' => 4,
+                'cost_per_worker' => 50.0000,
+                'system_fee_percent' => 30.00,
+                'system_fee_amount' => 60.0000,
+                'total_payable_amount' => 260.0000,
+                'status' => 'completed',
+                'deadline_at' => date('Y-m-d H:i:s', strtotime('-1 day')),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+
+            // Job 6: Declined Job (By Admin)
+            Fluent::table('jobs')->insert([
+                'poster_id' => $posterId,
+                'category_id' => $catSocial,
+                'subcategory_id' => 1,
+                'title' => '[DECLINED] Invalid Promotional Task',
+                'slug' => 'declined-invalid-promotional-task',
+                'description' => 'Task description violated community guidelines.',
+                'proof_requirements' => json_encode([]),
+                'budget' => 100.0000,
+                'worker_count' => 1,
+                'cost_per_worker' => 100.0000,
+                'system_fee_percent' => 30.00,
+                'system_fee_amount' => 30.0000,
+                'total_payable_amount' => 130.0000,
+                'status' => 'declined',
+                'decline_reason' => 'Task violates platform terms of service regarding spam content.',
+                'deadline_at' => date('Y-m-d H:i:s', strtotime('+1 day')),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+
+            // Seed Job Bids (Worker Applications)
+            $bobUser   = Fluent::table('users')->where('email', '=', 'bob@example.com')->first();
+            $carolUser = Fluent::table('users')->where('email', '=', 'carol@example.com')->first();
+
+            if ($bobUser) {
+                // Bob applied to Job 2
+                Fluent::table('job_bids')->insert([
+                    'job_id' => $job2Id,
+                    'worker_id' => $bobUser['id'],
+                    'proposal' => 'I can complete this app install within 30 minutes!',
+                    'bkash_number' => '01800000002',
+                    'trx_id' => 'TRX9988776655',
+                    'status' => 'pending',
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+
+                // Bob submitted work for Job 4
+                $bid4Id = Fluent::table('job_bids')->insert([
+                    'job_id' => $job4Id,
+                    'worker_id' => $bobUser['id'],
+                    'proposal' => 'Joined group as requested.',
+                    'bkash_number' => '01800000002',
+                    'trx_id' => 'TRX1122334455',
+                    'status' => 'accepted',
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+
+                Fluent::table('job_submissions')->insert([
+                    'job_id' => $job4Id,
+                    'bid_id' => $bid4Id,
+                    'worker_id' => $bobUser['id'],
+                    'notes' => 'Done! My username is @bob_crypto',
+                    'status' => 'pending_review',
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            }
+
+            if ($carolUser) {
+                // Carol applied to Job 3
+                Fluent::table('job_bids')->insert([
+                    'job_id' => $job3Id,
+                    'worker_id' => $carolUser['id'],
+                    'proposal' => 'Shared post on my Facebook timeline.',
+                    'bkash_number' => '01700000009',
+                    'trx_id' => 'TRX5544332211',
+                    'status' => 'pending',
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            }
         }
 
         echo "EarnAppSeeder: done.\n";
