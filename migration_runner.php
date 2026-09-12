@@ -116,6 +116,19 @@ try {
         case 'migrate':
             echo "▶ Running migrations...\n\n";
             $manager->migrate();
+
+            if (isset($_GET['seed']) && $_GET['seed'] === '1') {
+                echo "\n▶ Running EarnAppSeeder...\n\n";
+                require_once $projectRoot . '/database/seeders/EarnAppSeeder.php';
+                $seeder = new \EarnAppSeeder();
+                $seeder->run();
+            }
+            break;
+        case 'seed':
+            echo "▶ Running EarnAppSeeder...\n\n";
+            require_once $projectRoot . '/database/seeders/EarnAppSeeder.php';
+            $seeder = new \EarnAppSeeder();
+            $seeder->run();
             break;
         case 'rollback':
             echo "◀ Rolling back last batch...\n\n";

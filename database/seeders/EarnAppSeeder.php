@@ -148,6 +148,78 @@ class EarnAppSeeder extends Seeder
             }
         }
 
+        // ----- Subcategories & Jobs Demo Data -----
+        $catExists = (int) (Fluent::table('categories')->select(['COUNT(*) AS c'])->first()['c'] ?? 0);
+        if ($catExists === 0) {
+            $catSocial = Fluent::table('categories')->insert(['name' => 'Social Media Marketing', 'slug' => 'social-media', 'description' => 'YouTube, Facebook, Telegram promotion', 'is_active' => 1]);
+            $catApp    = Fluent::table('categories')->insert(['name' => 'App Installation', 'slug' => 'app-install', 'description' => 'Mobile app installs & reviews', 'is_active' => 1]);
+        } else {
+            $catSocial = (int) (Fluent::table('categories')->first()['id'] ?? 1);
+            $catApp    = $catSocial;
+        }
+
+        $subcatExists = (int) (Fluent::table('subcategories')->select(['COUNT(*) AS c'])->first()['c'] ?? 0);
+        if ($subcatExists === 0) {
+            Fluent::table('subcategories')->insert(['category_id' => $catSocial, 'name' => 'YouTube Subscription', 'slug' => 'youtube-subscription', 'is_active' => 1]);
+            Fluent::table('subcategories')->insert(['category_id' => $catSocial, 'name' => 'Facebook Page Like', 'slug' => 'facebook-like', 'is_active' => 1]);
+            Fluent::table('subcategories')->insert(['category_id' => $catApp, 'name' => 'Android App Install', 'slug' => 'android-install', 'is_active' => 1]);
+        }
+
+        $jobExists = (int) (Fluent::table('jobs')->select(['COUNT(*) AS c'])->first()['c'] ?? 0);
+        if ($jobExists === 0) {
+            $adminUser = Fluent::table('users')->where('email', '=', 'admin@example.com')->first();
+            $aliceUser = Fluent::table('users')->where('email', '=', 'alice@example.com')->first();
+            $posterId  = $aliceUser ? $aliceUser['id'] : ($adminUser ? $adminUser['id'] : 1);
+
+            // Job 1: Open Job
+            Fluent::table('jobs')->insert([
+                'poster_id' => $posterId,
+                'category_id' => $catSocial,
+                'subcategory_id' => 1,
+                'title' => 'Subscribe to My YouTube Channel & Watch 2 Mins',
+                'slug' => 'subscribe-youtube-channel-watch-2mins',
+                'description' => 'Go to YouTube, search for TechLab BD, subscribe, like the latest video, and submit a screenshot showing subscription.',
+                'proof_requirements' => json_encode([
+                    ['name' => 'YouTube Username', 'type' => 'text', 'required' => true],
+                    ['name' => 'Screenshot Image Link / Proof', 'type' => 'file', 'required' => true]
+                ]),
+                'budget' => 500.0000,
+                'worker_count' => 10,
+                'cost_per_worker' => 50.0000,
+                'system_fee_percent' => 30.00,
+                'system_fee_amount' => 150.0000,
+                'total_payable_amount' => 650.0000,
+                'status' => 'open',
+                'deadline_at' => date('Y-m-d H:i:s', strtotime('+7 days')),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+
+            // Job 2: Engaged / Pending Review Job
+            Fluent::table('jobs')->insert([
+                'poster_id' => $posterId,
+                'category_id' => $catApp,
+                'subcategory_id' => 3,
+                'title' => 'Install App & Give 5 Star Review on Play Store',
+                'slug' => 'install-app-5-star-review-playstore',
+                'description' => 'Download AppX from Google Play, leave a 5-star positive review, and provide screenshot proof.',
+                'proof_requirements' => json_encode([
+                    ['name' => 'Play Store Reviewer Name', 'type' => 'text', 'required' => true],
+                    ['name' => 'Review Screenshot URL', 'type' => 'file', 'required' => true]
+                ]),
+                'budget' => 300.0000,
+                'worker_count' => 5,
+                'cost_per_worker' => 60.0000,
+                'system_fee_percent' => 30.00,
+                'system_fee_amount' => 90.0000,
+                'total_payable_amount' => 390.0000,
+                'status' => 'open',
+                'deadline_at' => date('Y-m-d H:i:s', strtotime('+3 days')),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+
         echo "EarnAppSeeder: done.\n";
     }
 }
