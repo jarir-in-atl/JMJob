@@ -365,6 +365,141 @@ class EarnAppSeeder extends Seeder
             }
         }
 
+        // ----- Payment Submissions (TRXID Verification Demo Data) -----
+        $payCount = (int) (Fluent::table('payment_submissions')->select(['COUNT(*) AS c'])->first()['c'] ?? 0);
+        if ($payCount === 0) {
+            $aliceRow = Fluent::table('users')->where('email', '=', 'alice@example.com')->first();
+            $bobRow   = Fluent::table('users')->where('email', '=', 'bob@example.com')->first();
+            $carolRow = Fluent::table('users')->where('email', '=', 'carol@example.com')->first();
+
+            if ($aliceRow) {
+                // Pending bKash Deposit
+                Fluent::table('payment_submissions')->insert([
+                    'user_id' => $aliceRow['id'], 'gateway' => 'bkash',
+                    'sender_number' => '01711223344', 'amount' => 500.00,
+                    'trxid' => 'BKASH99887711', 'status' => 'pending',
+                    'admin_id' => null, 'admin_note' => null,
+                    'verified_at' => null, 'created_at' => date('Y-m-d H:i:s', strtotime('-2 hours')),
+                    'updated_at' => date('Y-m-d H:i:s', strtotime('-2 hours')),
+                ]);
+
+                // Approved Nagad Deposit
+                Fluent::table('payment_submissions')->insert([
+                    'user_id' => $aliceRow['id'], 'gateway' => 'nagad',
+                    'sender_number' => '01711223344', 'amount' => 1200.00,
+                    'trxid' => 'NAGAD88776622', 'status' => 'approved',
+                    'admin_id' => 1, 'admin_note' => 'bKash Merchant Cash-In Confirmed',
+                    'verified_at' => date('Y-m-d H:i:s', strtotime('-1 day')),
+                    'created_at' => date('Y-m-d H:i:s', strtotime('-1 day')),
+                    'updated_at' => date('Y-m-d H:i:s', strtotime('-1 day')),
+                ]);
+            }
+
+            if ($bobRow) {
+                // Pending Rocket Deposit
+                Fluent::table('payment_submissions')->insert([
+                    'user_id' => $bobRow['id'], 'gateway' => 'rocket',
+                    'sender_number' => '01899887766', 'amount' => 250.00,
+                    'trxid' => 'ROCKET77665533', 'status' => 'pending',
+                    'admin_id' => null, 'admin_note' => null,
+                    'verified_at' => null, 'created_at' => date('Y-m-d H:i:s', strtotime('-30 mins')),
+                    'updated_at' => date('Y-m-d H:i:s', strtotime('-30 mins')),
+                ]);
+
+                // Rejected Deposit
+                Fluent::table('payment_submissions')->insert([
+                    'user_id' => $bobRow['id'], 'gateway' => 'upay',
+                    'sender_number' => '01899887766', 'amount' => 100.00,
+                    'trxid' => 'UPAY55443311', 'status' => 'rejected',
+                    'admin_id' => 1, 'admin_note' => 'Invalid transaction ID provided. Number mismatch.',
+                    'verified_at' => date('Y-m-d H:i:s', strtotime('-3 days')),
+                    'created_at' => date('Y-m-d H:i:s', strtotime('-3 days')),
+                    'updated_at' => date('Y-m-d H:i:s', strtotime('-3 days')),
+                ]);
+            }
+
+            if ($carolRow) {
+                // Pending bKash Deposit
+                Fluent::table('payment_submissions')->insert([
+                    'user_id' => $carolRow['id'], 'gateway' => 'bkash',
+                    'sender_number' => '01900112233', 'amount' => 350.00,
+                    'trxid' => 'BKASH44332211', 'status' => 'pending',
+                    'admin_id' => null, 'admin_note' => null,
+                    'verified_at' => null, 'created_at' => date('Y-m-d H:i:s', strtotime('-15 mins')),
+                    'updated_at' => date('Y-m-d H:i:s', strtotime('-15 mins')),
+                ]);
+            }
+        }
+
+        // ----- Transactions (Financial Audit Ledger Demo Data) -----
+        $txCount = (int) (Fluent::table('transactions')->select(['COUNT(*) AS c'])->first()['c'] ?? 0);
+        if ($txCount === 0) {
+            $aliceRow = Fluent::table('users')->where('email', '=', 'alice@example.com')->first();
+            $bobRow   = Fluent::table('users')->where('email', '=', 'bob@example.com')->first();
+            $firstJob = Fluent::table('jobs')->first();
+
+            $aliceId = $aliceRow ? $aliceRow['id'] : 2;
+            $bobId   = $bobRow ? $bobRow['id'] : 3;
+            $jobId   = $firstJob ? $firstJob['id'] : 1;
+
+            // 1. Deposit Transaction
+            Fluent::table('transactions')->insert([
+                'user_id' => $aliceId, 'job_id' => null, 'type' => 'deposit',
+                'amount' => 1200.00, 'currency' => 'BDT', 'balance_after' => 1200.00, 'frozen_after' => 0.00,
+                'reference' => 'NAGAD88776622', 'note' => 'User deposit via Nagad TRXID approved',
+                'admin_id' => 1, 'created_at' => date('Y-m-d H:i:s', strtotime('-2 days')),
+            ]);
+
+            // 2. Escrow Hold Transaction
+            Fluent::table('transactions')->insert([
+                'user_id' => $aliceId, 'job_id' => $jobId, 'type' => 'escrow_hold',
+                'amount' => 390.00, 'currency' => 'BDT', 'balance_after' => 810.00, 'frozen_after' => 390.00,
+                'reference' => 'ESC-JOB-' . $jobId, 'note' => 'Funds held in escrow for job creation',
+                'admin_id' => null, 'created_at' => date('Y-m-d H:i:s', strtotime('-36 hours')),
+            ]);
+
+            // 3. Escrow Release Transaction
+            Fluent::table('transactions')->insert([
+                'user_id' => $bobId, 'job_id' => $jobId, 'type' => 'escrow_release',
+                'amount' => 60.00, 'currency' => 'BDT', 'balance_after' => 60.00, 'frozen_after' => 330.00,
+                'reference' => 'REL-JOB-' . $jobId, 'note' => 'Escrow payment released for job completion',
+                'admin_id' => null, 'created_at' => date('Y-m-d H:i:s', strtotime('-1 day')),
+            ]);
+
+            // 4. Platform Commission Transaction
+            Fluent::table('transactions')->insert([
+                'user_id' => null, 'job_id' => $jobId, 'type' => 'commission',
+                'amount' => 18.00, 'currency' => 'BDT', 'balance_after' => 0.00, 'frozen_after' => 0.00,
+                'reference' => 'FEE-JOB-' . $jobId, 'note' => 'Platform 30% system fee collected',
+                'admin_id' => null, 'created_at' => date('Y-m-d H:i:s', strtotime('-1 day')),
+            ]);
+
+            // 5. Withdrawal Transaction
+            Fluent::table('transactions')->insert([
+                'user_id' => $aliceId, 'job_id' => null, 'type' => 'withdrawal',
+                'amount' => 500.00, 'currency' => 'BDT', 'balance_after' => 310.00, 'frozen_after' => 330.00,
+                'reference' => 'WD-00192', 'note' => 'Approved withdrawal to bKash 01700000001',
+                'admin_id' => 1, 'created_at' => date('Y-m-d H:i:s', strtotime('-18 hours')),
+            ]);
+
+            // 6. Escrow Refund Transaction
+            Fluent::table('transactions')->insert([
+                'user_id' => $aliceId, 'job_id' => $jobId, 'type' => 'refund',
+                'amount' => 50.00, 'currency' => 'BDT', 'balance_after' => 360.00, 'frozen_after' => 280.00,
+                'reference' => 'REF-JOB-' . $jobId, 'note' => 'Escrow refunded due to unfulfilled slot',
+                'admin_id' => 1, 'created_at' => date('Y-m-d H:i:s', strtotime('-12 hours')),
+            ]);
+
+            // 7. System Adjustment Transaction
+            Fluent::table('transactions')->insert([
+                'user_id' => $bobId, 'job_id' => null, 'type' => 'adjustment',
+                'amount' => 15.00, 'currency' => 'BDT', 'balance_after' => 75.00, 'frozen_after' => 0.00,
+                'reference' => 'ADJ-BONUS-01', 'note' => 'Admin goodwill bonus credit',
+                'admin_id' => 1, 'created_at' => date('Y-m-d H:i:s', strtotime('-2 hours')),
+            ]);
+        }
+
         echo "EarnAppSeeder: done.\n";
     }
 }
+
