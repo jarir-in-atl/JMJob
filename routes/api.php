@@ -24,6 +24,9 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
     // Social links public route
     $r->get('/social-links', [SocialLinksController::class, 'index'], 'social-links.index');
 
+    // Public notices route
+    $r->get('/notices', [SocialLinksController::class, 'getNotices'], 'notices.index');
+
     // Public auth
     $r->add('POST', '/auth/register', [AuthController::class, 'register']);
     $r->add('POST', '/auth/register/request-otp', [AuthController::class, 'requestRegistrationOtp']);
@@ -129,6 +132,7 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
             $r->get('/admin/settings',                               [AdminSettingsController::class, 'listSettings'],    'admin.settings');
             $r->add('POST', '/admin/settings',                        [AdminSettingsController::class, 'updateSettings']);
             $r->add('POST', '/admin/social-links',                    [SocialLinksController::class, 'update']);
+            $r->add('POST', '/admin/notices',                         [SocialLinksController::class, 'updateNotices']);
 
             // Transactions ledger + revenue stats
             $r->get('/admin/transactions',                           [AdminSettingsController::class, 'transactions'],    'admin.transactions');

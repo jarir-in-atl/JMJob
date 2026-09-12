@@ -14,15 +14,8 @@ export function HomePage() {
 
         const u = currentUser.get();
 
-        // Notice banner (Bengali-style per reference, but English for our app)
-        const banner = el('div', 'welcome-popup', '');
-        banner.innerHTML = `
-            <strong>JM Job:</strong>
-            <span>Complete tasks, watch ads, refer friends, and withdraw anytime.</span>
-            <button class="welcome-popup__close" aria-label="Close">Got it</button>
-        `;
-        banner.querySelector('button').addEventListener('click', () => banner.remove());
-        root.appendChild(banner);
+        // Dynamic notice banner (rotates multiple notices every X seconds)
+        renderDynamicBanner(root);
 
         // Section 1: user header (avatar + name + balance)
         root.appendChild(renderUserHeader(u));
@@ -41,6 +34,54 @@ function el(tag, className, text) {
     if (className) e.className = className;
     if (text !== undefined) e.textContent = text;
     return e;
+}
+
+let bannerTimer = null;
+
+async function renderDynamicBanner(root) {
+    if (bannerTimer) {
+        clearInterval(bannerTimer);
+        bannerTimer = null;
+    }
+
+    const banner = el('div', 'welcome-popup', '');
+    banner.innerHTML = `
+        <strong>JM Job:</strong>
+        <span id="notice-banner-text">Loading updates…</span>
+        <button class="welcome-popup__close" aria-label="Close">Got it</button>
+    `;
+    banner.querySelector('button').addEventListener('click', () => {
+        if (bannerTimer) {
+            clearInterval(bannerTimer);
+            bannerTimer = null;
+        }
+        banner.remove();
+    });
+    root.appendChild(banner);
+
+    const span = banner.querySelector('#notice-banner-text');
+
+    try {
+        const res = await api.notices();
+        const notices = Array.isArray(res.notices) && res.notices.length ? res.notices : ['Complete tasks, watch ads, refer friends, and withdraw anytime.'];
+        const intervalSec = (typeof res.interval === 'number' && res.interval > 0) ? res.interval : 4;
+
+        let index = 0;
+        span.textContent = notices[0];
+
+        if (notices.length > 1) {
+            bannerTimer = setInterval(() => {
+                index = (index + 1) % notices.length;
+                span.style.opacity = '0';
+                setTimeout(() => {
+                    span.textContent = notices[index];
+                    span.style.opacity = '1';
+                }, 200);
+            }, intervalSec * 1000);
+        }
+    } catch (e) {
+        span.textContent = 'Complete tasks, watch ads, refer friends, and withdraw anytime.';
+    }
 }
 
 // ----- 1. User header -----

@@ -2,7 +2,7 @@
 import { api } from '../api.js';
 import { showFlash, currentUser } from '../state.js';
 
-let _state = { grouped: {}, social: {}, loading: false };
+let _state = { grouped: {}, social: {}, noticesData: { interval: 4, notices: [] }, loading: false };
 
 export function AdminSettingsPage() {
     return async () => {
@@ -17,7 +17,7 @@ export function AdminSettingsPage() {
         }
         root.innerHTML = `
             <h1 class="page-title">Platform Settings</h1>
-            <p class="muted">Configure platform-wide defaults and social media links.</p>
+            <p class="muted">Configure platform-wide defaults, homepage popup notices, and social media links.</p>
             <div id="settings-container"><div class="spinner"></div></div>
         `;
         await load();
@@ -29,12 +29,14 @@ async function load() {
     if (!c) return;
     c.innerHTML = '<div class="spinner"></div>';
     try {
-        const [resSettings, resSocial] = await Promise.all([
+        const [resSettings, resSocial, resNotices] = await Promise.all([
             api.adminSettings(),
-            api.socialLinks()
+            api.socialLinks(),
+            api.notices()
         ]);
         _state.grouped = resSettings.data || {};
         _state.social = resSocial || {};
+        _state.noticesData = resNotices || { interval: 4, notices: [] };
         render();
     } catch (e) {
         c.innerHTML = `<p class="muted">Failed to load: ${escapeHtml(e.message || 'unknown')}</p>`;
@@ -54,6 +56,36 @@ function render() {
             </div>
         </div>
     `).join('');
+
+    // Dynamic Homepage Popup Notices section
+    const nd = _state.noticesData;
+    const noticeText = Array.isArray(nd.notices) ? nd.notices.join('\n') : '';
+    html += `
+        <div class="card settings-group" style="margin-top:20px;">
+            <h3 class="card__title"><i class="bi bi-megaphone me-2"></i>Homepage Popup Banner Notices</h3>
+            <p class="muted mb-3" style="font-size:13px;">Manage notices displayed at the top of the user dashboard. Enter <strong>one notice per line</strong> to show multiple notices in rotaton.</p>
+            <div class="settings-group__rows">
+                <div class="settings-row">
+                    <label for="notice-interval" class="settings-row__label">
+                        <strong>Rotation Interval (seconds)</strong>
+                        <span class="muted">Time period each notice stays visible before changing (default: 4 seconds if left blank).</span>
+                    </label>
+                    <div class="settings-row__control">
+                        <input type="number" min="1" step="1" id="notice-interval" value="${nd.interval || 4}" placeholder="4" class="settings-row__input">
+                    </div>
+                </div>
+                <div class="settings-row">
+                    <label for="notice-messages" class="settings-row__label">
+                        <strong>Notice Messages (One per line)</strong>
+                        <span class="muted">Write multiple lines to rotate automatically.</span>
+                    </label>
+                    <div class="settings-row__control">
+                        <textarea id="notice-messages" rows="4" class="settings-row__input" placeholder="Complete tasks, watch ads, refer friends, and withdraw anytime.">${escapeHtml(noticeText)}</textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
 
     // Social Media Links section
     const s = _state.social;
@@ -160,14 +192,20 @@ async function saveAll() {
         telegram: document.getElementById('social-telegram')?.value || '',
     };
 
+    const noticeUpdates = {
+        interval: document.getElementById('notice-interval')?.value || 4,
+        notices: document.getElementById('notice-messages')?.value || '',
+    };
+
     const btn = document.getElementById('settings-save-btn');
     btn.disabled = true; btn.textContent = 'Saving…';
     try {
         await Promise.all([
             api.adminUpdateSettings(updates),
-            api.adminUpdateSocialLinks(socialUpdates)
+            api.adminUpdateSocialLinks(socialUpdates),
+            api.adminUpdateNotices(noticeUpdates),
         ]);
-        showFlash('Settings and social links saved successfully.', 'success');
+        showFlash('Settings, notices, and social links saved successfully.', 'success');
         await load();
     } catch (e) {
         showFlash(e.message || 'Failed to save.', 'error');

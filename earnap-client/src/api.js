@@ -169,6 +169,10 @@ export const api = {
     socialLinks:          () => request('/social-links'),
     adminUpdateSocialLinks: (body) => request('/admin/social-links', { method: 'POST', body }),
 
+    // Dynamic Notices
+    notices:              () => request('/notices'),
+    adminUpdateNotices:   (body) => request('/admin/notices', { method: 'POST', body }),
+
     adminJobs:                  (status = '') => request(`/admin/jobs${status ? `?status=${encodeURIComponent(status)}` : ''}`),
     adminFlagJobDispute:        (id) => request(`/admin/jobs/${id}/dispute`, { method: 'POST' }),
     adminResolveJob:             (id, body) => request(`/admin/jobs/${id}/resolve`, { method: 'POST', body }),
