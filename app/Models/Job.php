@@ -145,13 +145,17 @@ class Job extends Model
 
     public static function assignedTo(int $userId, int $limit = 50): array
     {
-        $rows = Fluent::table('jobs')
-            ->where('assigned_worker_id', '=', $userId)
-            ->whereIn('status', [self::STATUS_ASSIGNED, self::STATUS_SUBMITTED, self::STATUS_REVISION])
-            ->orderBy('updated_at', 'desc')
-            ->limit($limit)
-            ->get()->all();
-        return array_map(fn($r) => new self((array) $r), $rows);
+        try {
+            $rows = Fluent::table('jobs')
+                ->where('assigned_worker_id', '=', $userId)
+                ->whereIn('status', [self::STATUS_ASSIGNED, self::STATUS_SUBMITTED, self::STATUS_REVISION])
+                ->orderBy('updated_at', 'desc')
+                ->limit($limit)
+                ->get()->all();
+            return array_map(fn($r) => new self((array) $r), $rows);
+        } catch (\Throwable $e) {
+            return [];
+        }
     }
 
     public static function findBySlug(string $slug): ?self
