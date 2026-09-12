@@ -31,10 +31,8 @@ export function HomePage() {
         // Referral, Profile, Support, Deposit) — matches reference
         root.appendChild(renderIconGrid());
 
-        // Section 3: Quick action cards (Daily Mission + Invite & Earn + Tasks + Ads)
+        // Section 3: Quick action cards (Daily Mission)
         root.appendChild(renderDailyMission(u));
-        root.appendChild(await renderAdReward(u));
-        root.appendChild(await renderWebTaskSummary());
     };
 }
 
