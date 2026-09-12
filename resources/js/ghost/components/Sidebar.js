@@ -3,6 +3,9 @@ import { signal } from '@ghost-js/core';
 
 const NAV_ITEMS = [
     { path: '/', label: 'Dashboard', icon: 'bi-house-door' },
+    { path: '/jobs/available', label: 'Browse Jobs', icon: 'bi-briefcase' },
+    { path: '/poster/post-job', label: 'Post a Job', icon: 'bi-plus-square' },
+    { path: '/poster/jobs', label: 'My Jobs', icon: 'bi-briefcase-fill' },
     { path: '/tasks', label: 'Tasks', icon: 'bi-list-check' },
     { path: '/earn', label: 'Watch Ads', icon: 'bi-play-circle' },
     { path: '/refer', label: 'Refer & Earn', icon: 'bi-people' },

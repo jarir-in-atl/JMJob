@@ -86,6 +86,19 @@ function authenticatedTopBar() {
                 tag: 'div',
                 props: { class: 'topbar__right' },
                 children: [
+                    // Post a Job quick action button
+                    {
+                        tag: 'a',
+                        props: {
+                            class: 'btn btn--sm btn--primary topbar__post-job-btn',
+                            href: '#/poster/post-job',
+                            style: 'margin-right: 8px; display: inline-flex; align-items: center; gap: 4px;',
+                        },
+                        children: [
+                            { tag: 'i', props: { class: 'bi bi-plus-lg' }, children: [] },
+                            'Post a Job',
+                        ],
+                    },
                     // Theme toggle
                     themeToggle(),
                     // Notifications bell

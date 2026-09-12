@@ -3,9 +3,9 @@ import { when } from '@ghost-js/core';
 
 const TABS = [
     { path: '/',         label: 'Home',     icon: 'bi-house-door' },
+    { path: '/jobs/available', label: 'Jobs', icon: 'bi-briefcase' },
+    { path: '/poster/post-job', label: 'Post Job', icon: 'bi-plus-square' },
     { path: '/webtask',   label: 'Tasks',    icon: 'bi-list-check' },
-    { path: '/earn',      label: 'Earn',     icon: 'bi-play-circle' },
-    { path: '/refer',     label: 'Refer',    icon: 'bi-people' },
     { path: '/withdraw',  label: 'Wallet',   icon: 'bi-wallet2' },
     { path: '/profile',   label: 'Profile',  icon: 'bi-person' },
 ];
