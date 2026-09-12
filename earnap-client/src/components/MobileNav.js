@@ -13,6 +13,7 @@ const USER_NAV_ITEMS = [
     { path: '/wallet', label: 'Wallet', icon: 'bi-wallet' },
     { path: '/notifications', label: 'Notifications', icon: 'bi-bell' },
     { path: '/jobs/available', label: 'Browse Jobs', icon: 'bi-briefcase' },
+    { path: '/poster/post-job', label: 'Post a Job', icon: 'bi-plus-square-fill' },
     { path: '/worker/bids', label: 'My Bids', icon: 'bi-clipboard-check' },
     { path: '/worker/active-jobs', label: 'Active Jobs', icon: 'bi-hammer' },
     { path: '/leaderboard', label: 'Leaderboard', icon: 'bi-bar-chart' },

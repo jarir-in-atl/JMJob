@@ -9,6 +9,8 @@ const USER_NAV_ITEMS = [
     { path: '/earn',          label: 'Earn Ad',  icon: 'bi-play-circle-fill' },
     { path: '/tasks',         label: 'Web Task', icon: 'bi-link-45deg' },
     { path: '/webtask',       label: 'Tasks',    icon: 'bi-telegram' },
+    { path: '/jobs/available', label: 'Jobs',       icon: 'bi-briefcase' },
+    { path: '/poster/post-job', label: 'Post Job',  icon: 'bi-plus-square-fill' },
     { path: '/withdraw',      label: 'Withdraw', icon: 'bi-wallet2' },
     { path: '/notifications', label: 'Alerts',    icon: 'bi-bell' },
     { path: '/refer',         label: 'Referral', icon: 'bi-gift-fill' },

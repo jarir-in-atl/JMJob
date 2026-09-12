@@ -26,8 +26,13 @@ export function JobsAvailablePage() {
         root.className = 'view view--jobs-available';
 
         root.innerHTML = `
-            <h1 class="page-title">Browse Jobs</h1>
-            <p class="muted">Find work that matches your skills. Place a bid to get started.</p>
+            <div class="page-heading-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <div>
+                    <h1 class="page-title" style="margin-bottom: 0.25rem;">Browse Jobs</h1>
+                    <p class="muted" style="margin: 0;">Find work that matches your skills. Place a bid to get started.</p>
+                </div>
+                <a href="#/poster/post-job" class="btn btn--primary"><i class="bi bi-plus-lg"></i> Post a Job</a>
+            </div>
 
             <div class="card jobs-filters">
                 <div class="jobs-filters__row">
