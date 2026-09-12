@@ -5,21 +5,10 @@
 import { route, navigate, isAuthenticated, currentUser } from '../state.js';
 
 const USER_NAV_ITEMS = [
-    { path: '/',              label: 'Home',     icon: 'bi-house-door' },
-    { path: '/earn',          label: 'Earn Ad',  icon: 'bi-play-circle-fill' },
-    { path: '/tasks',         label: 'Web Task', icon: 'bi-link-45deg' },
-    { path: '/webtask',       label: 'Tasks',    icon: 'bi-telegram' },
-    { path: '/jobs/available', label: 'Jobs',       icon: 'bi-briefcase' },
-    { path: '/poster/post-job', label: 'Post Job',  icon: 'bi-plus-square-fill' },
-    { path: '/withdraw',      label: 'Withdraw', icon: 'bi-wallet2' },
-    { path: '/notifications', label: 'Alerts',    icon: 'bi-bell' },
-    { path: '/refer',         label: 'Referral', icon: 'bi-gift-fill' },
-    { path: '/deposit',       label: 'Deposit',  icon: 'bi-cash-coin' },
-    { path: '/profile',       label: 'Profile',  icon: 'bi-person-bounding-box' },
-    { path: '/leaderboard',   label: 'Leaders',  icon: 'bi-bar-chart-line-fill' },
-    { path: '/achievements',  label: 'Awards',   icon: 'bi-award-fill' },
-    { path: '/support',       label: 'Support',  icon: 'bi-headset' },
-    { path: '/settings',      label: 'Settings', icon: 'bi-gear-fill' },
+    { path: '/',                    label: 'Home',        icon: 'bi-house-door' },
+    { path: '/worker/active-jobs',  label: 'Active Jobs', icon: 'bi-hammer' },
+    { path: '/withdraw',            label: 'Withdraw',    icon: 'bi-wallet2' },
+    { path: '/profile',             label: 'Account',     icon: 'bi-person-circle' },
 ];
 
 const ADMIN_NAV_ITEMS = [
@@ -42,12 +31,7 @@ function getNavItems() {
     if (u && u.is_admin) {
         return ADMIN_NAV_ITEMS;
     }
-
-    const items = [...USER_NAV_ITEMS];
-    if (u && u.role === 'poster') {
-        items.push({ separator: true }, ...POSTER_NAV_ITEMS);
-    }
-    return items;
+    return USER_NAV_ITEMS;
 }
 
 function NavLink({ path, label, icon }) {
