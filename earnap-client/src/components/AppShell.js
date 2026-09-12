@@ -11,10 +11,11 @@ import { HorizontalNav } from './HorizontalNav.js';
 export function AppShell() {
     const isAdmin = () => !!currentUser.get()?.is_admin;
     const isAdminRoute = () => route.get().startsWith('/admin');
+    const isAuthed = () => isAuthenticated.get();
     return {
         tag: 'div',
         props: {
-            class: () => `app-shell ${(isAdmin() || isAdminRoute()) ? 'app-shell--admin' : ''}`,
+            class: () => `app-shell ${isAuthed() ? 'app-shell--authed' : 'app-shell--public'} ${(isAdmin() || isAdminRoute()) ? 'app-shell--admin' : ''}`,
         },
         children: [
             // Only show sidebar when authenticated

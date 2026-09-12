@@ -130,14 +130,22 @@ async function renderCurrent() {
     const u = currentUser.get();
     const PUBLIC = ['/login', '/register', '/forgot-password', '/reset-password'];
     if (PUBLIC.includes(path) && authed) {
-        navigate('/');
+        if (u && u.is_admin) {
+            navigate('/admin');
+        } else {
+            navigate('/');
+        }
         return;
     }
     if (!PUBLIC.includes(path) && !authed) {
         navigate('/login');
         return;
     }
-    // Admin gate
+    // Admin gate & home redirect
+    if (path === '/' && u && u.is_admin) {
+        navigate('/admin');
+        return;
+    }
     if (path.startsWith('/admin') && (!u || !u.is_admin)) {
         mainForbidden();
         return;

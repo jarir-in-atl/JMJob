@@ -31,6 +31,215 @@ use RuntimeException;
 class JobService
 {
     /**
+     * Enhanced Poster flow: 3-step job creation with additive fee and pending_approval status.
+     */
+    public function createWorkflowJob(
+        User $poster,
+        int $categoryId,
+        ?int $subcategoryId,
+        string $title,
+        string $description,
+        array $proofRequirements,
+        int $workerCount,
+        float $costPerWorker,
+        string $deadlineAt
+    ): array {
+        if (trim($title) === '' || mb_strlen($title) > 160) {
+            return ['success' => false, 'message' => 'Title is required (1-160 chars).'];
+        }
+        if (trim($description) === '') {
+            return ['success' => false, 'message' => 'Description is required.'];
+        }
+        if ($workerCount < 1) {
+            return ['success' => false, 'message' => 'Worker count must be at least 1.'];
+        }
+        if ($costPerWorker <= 0) {
+            return ['success' => false, 'message' => 'Cost per worker must be positive.'];
+        }
+
+        $category = Category::find($categoryId);
+        if ($category === null || !$category->isActive()) {
+            return ['success' => false, 'message' => 'Invalid or inactive category.'];
+        }
+
+        $feePercent = (float) SettingService::get('job_system_fee_percentage', 30.00);
+        $netAmount = round($workerCount * $costPerWorker, 4);
+        $systemFeeAmount = round($netAmount * ($feePercent / 100.0), 4);
+        $totalPayableAmount = round($netAmount + $systemFeeAmount, 4);
+
+        $slug = self::makeUniqueSlug($title);
+
+        $id = (int) Fluent::table('jobs')->insert([
+            'poster_id'            => $poster->id,
+            'category_id'          => $categoryId,
+            'subcategory_id'       => $subcategoryId,
+            'title'                => $title,
+            'slug'                 => $slug,
+            'description'          => $description,
+            'proof_requirements'   => json_encode($proofRequirements, JSON_UNESCAPED_UNICODE),
+            'budget'               => $netAmount,
+            'worker_count'         => $workerCount,
+            'cost_per_worker'      => $costPerWorker,
+            'system_fee_percent'   => $feePercent,
+            'system_fee_amount'    => $systemFeeAmount,
+            'total_payable_amount' => $totalPayableAmount,
+            'currency'             => SettingService::currencyCode(),
+            'deadline_at'          => $deadlineAt,
+            'bidding_closes_at'    => $deadlineAt,
+            'status'               => Job::STATUS_PENDING_APPROVAL,
+            'created_at'           => date('Y-m-d H:i:s'),
+        ]);
+
+        return ['success' => true, 'job' => Job::find($id), 'message' => 'Job posted and submitted for admin review.'];
+    }
+
+    /**
+     * Admin flow: approve job posting.
+     */
+    public function approveJob(int $jobId, int $adminId): array
+    {
+        $job = Job::find($jobId);
+        if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
+        if ($job->status !== Job::STATUS_PENDING_APPROVAL) {
+            return ['success' => false, 'message' => 'Job is not pending approval.'];
+        }
+
+        Fluent::table('jobs')->where('id', '=', $jobId)->update([
+            'status'     => Job::STATUS_OPEN,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        return ['success' => true, 'job' => Job::find($jobId), 'message' => 'Job approved successfully.'];
+    }
+
+    /**
+     * Admin flow: decline job posting with reason.
+     */
+    public function declineJob(int $jobId, string $reason, int $adminId): array
+    {
+        $job = Job::find($jobId);
+        if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
+        if (trim($reason) === '') return ['success' => false, 'message' => 'Decline reason is required.'];
+
+        Fluent::table('jobs')->where('id', '=', $jobId)->update([
+            'status'         => Job::STATUS_DECLINED,
+            'decline_reason' => $reason,
+            'updated_at'     => date('Y-m-d H:i:s'),
+        ]);
+
+        return ['success' => true, 'job' => Job::find($jobId), 'message' => 'Job declined.'];
+    }
+
+    /**
+     * Worker flow: apply for job with anti-self-application and single application anti-spam checks.
+     */
+    public function applyForJob(User $worker, int $jobId, ?string $proposal = null, ?string $bkashNumber = null): array
+    {
+        $job = Job::find($jobId);
+        if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
+        if ((int) $job->poster_id === (int) $worker->id) {
+            return ['success' => false, 'message' => 'You cannot apply to your own job posting.'];
+        }
+        if (!$job->isOpen()) {
+            return ['success' => false, 'message' => 'Job is not open for applications.'];
+        }
+        if ($job->deadline_at && strtotime($job->deadline_at) < time()) {
+            return ['success' => false, 'message' => 'Job deadline has passed.'];
+        }
+
+        // Anti-Spam Check: One application per worker per job posting cycle
+        $existing = JobBid::findForWorker($jobId, (int) $worker->id);
+        if ($existing !== null) {
+            return ['success' => false, 'message' => 'You have already applied for this job posting cycle.'];
+        }
+
+        $id = (int) Fluent::table('job_bids')->insert([
+            'job_id'        => $jobId,
+            'worker_id'     => $worker->id,
+            'amount'        => $job->cost_per_worker > 0 ? $job->cost_per_worker : $job->budget,
+            'currency'      => $job->currency,
+            'delivery_days' => 1,
+            'proposal'      => $proposal ?? 'Application submitted',
+            'bkash_number'  => $bkashNumber,
+            'status'        => JobBid::STATUS_PENDING,
+            'created_at'    => date('Y-m-d H:i:s'),
+        ]);
+
+        Fluent::table('jobs')
+            ->where('id', '=', $jobId)
+            ->update(['bid_count' => (int) $job->bid_count + 1, 'updated_at' => date('Y-m-d H:i:s')]);
+
+        return ['success' => true, 'bid' => JobBid::find($id), 'message' => 'Application submitted to Admin for review.'];
+    }
+
+    /**
+     * Admin flow: approve worker application (first-come first-serve capacity check).
+     */
+    public function approveWorkerApplication(int $bidId, int $adminId): array
+    {
+        $bid = JobBid::find($bidId);
+        if ($bid === null) return ['success' => false, 'message' => 'Application bid not found.'];
+        $job = Job::find((int) $bid->job_id);
+        if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
+
+        $assignedCount = (int) Fluent::table('job_bids')
+            ->where('job_id', '=', $job->id)
+            ->where('status', '=', JobBid::STATUS_ACCEPTED)
+            ->count();
+
+        $maxWorkers = (int) ($job->worker_count ?? 1);
+        if ($assignedCount >= $maxWorkers) {
+            return ['success' => false, 'message' => 'Job worker capacity has already been filled.'];
+        }
+
+        Fluent::table('job_bids')->where('id', '=', $bid->id)->update([
+            'status'     => JobBid::STATUS_ACCEPTED,
+            'decided_at' => date('Y-m-d H:i:s'),
+            'decided_by' => $adminId,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        $newAssignedCount = $assignedCount + 1;
+        if ($newAssignedCount >= $maxWorkers) {
+            // Update job status to engaged when full
+            Fluent::table('jobs')->where('id', '=', $job->id)->update([
+                'status'     => Job::STATUS_ENGAGED,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+
+        return ['success' => true, 'message' => 'Worker application approved and assigned to job.'];
+    }
+
+    /**
+     * Poster flow: extend deadline by X days.
+     */
+    public function extendDeadline(User $poster, int $jobId, int $days): array
+    {
+        $job = Job::find($jobId);
+        if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
+        if ((int) $job->poster_id !== (int) $poster->id) {
+            return ['success' => false, 'message' => 'Only the job poster can extend the deadline.'];
+        }
+        if ($days <= 0 || $days > 90) {
+            return ['success' => false, 'message' => 'Days must be between 1 and 90.'];
+        }
+
+        $baseTime = strtotime($job->deadline_at ?? 'now');
+        if ($baseTime < time()) $baseTime = time();
+        $newDeadline = date('Y-m-d H:i:s', $baseTime + ($days * 86400));
+
+        Fluent::table('jobs')->where('id', '=', $jobId)->update([
+            'deadline_at'       => $newDeadline,
+            'bidding_closes_at' => $newDeadline,
+            'status'            => Job::STATUS_OPEN, // Re-open job listing
+            'updated_at'        => date('Y-m-d H:i:s'),
+        ]);
+
+        return ['success' => true, 'job' => Job::find($jobId), 'message' => "Deadline extended by {$days} days."];
+    }
+
+    /**
      * Poster flow: validate + create a new job.
      * Returns ['success' => bool, 'job' => Job|null, 'message' => string].
      */

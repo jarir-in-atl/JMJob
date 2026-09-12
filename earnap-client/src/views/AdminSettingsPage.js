@@ -1,8 +1,8 @@
-// AdminSettingsPage — edit platform_settings (commission, currency, escrow, etc.)
+// AdminSettingsPage — edit platform_settings and social media links
 import { api } from '../api.js';
 import { showFlash, currentUser } from '../state.js';
 
-let _state = { grouped: {}, loading: false };
+let _state = { grouped: {}, social: {}, loading: false };
 
 export function AdminSettingsPage() {
     return async () => {
@@ -17,7 +17,7 @@ export function AdminSettingsPage() {
         }
         root.innerHTML = `
             <h1 class="page-title">Platform Settings</h1>
-            <p class="muted">Configure platform-wide defaults. Changes apply immediately across the app.</p>
+            <p class="muted">Configure platform-wide defaults and social media links.</p>
             <div id="settings-container"><div class="spinner"></div></div>
         `;
         await load();
@@ -29,8 +29,12 @@ async function load() {
     if (!c) return;
     c.innerHTML = '<div class="spinner"></div>';
     try {
-        const res = await api.adminSettings();
-        _state.grouped = res.data || {};
+        const [resSettings, resSocial] = await Promise.all([
+            api.adminSettings(),
+            api.socialLinks()
+        ]);
+        _state.grouped = resSettings.data || {};
+        _state.social = resSocial || {};
         render();
     } catch (e) {
         c.innerHTML = `<p class="muted">Failed to load: ${escapeHtml(e.message || 'unknown')}</p>`;
@@ -40,23 +44,64 @@ async function load() {
 function render() {
     const c = document.getElementById('settings-container');
     if (!c) return;
+
     const cats = Object.keys(_state.grouped);
-    if (cats.length === 0) {
-        c.innerHTML = '<p class="muted">No settings found.</p>';
-        return;
-    }
-    c.innerHTML = cats.map(cat => `
+    let html = cats.map(cat => `
         <div class="card settings-group">
             <h3 class="card__title">${escapeHtml(cat.charAt(0).toUpperCase() + cat.slice(1))}</h3>
             <div class="settings-group__rows">
                 ${_state.grouped[cat].map(s => settingRow(cat, s)).join('')}
             </div>
         </div>
-    `).join('') + `
-        <div style="margin-top:16px;">
+    `).join('');
+
+    // Social Media Links section
+    const s = _state.social;
+    html += `
+        <div class="card settings-group" style="margin-top:20px;">
+            <h3 class="card__title"><i class="bi bi-share me-2"></i>Social Media Links (Footer)</h3>
+            <p class="muted mb-3" style="font-size:13px;">Specify full URLs for the social icons displayed in the site footer. Leave empty to hide.</p>
+            <div class="settings-group__rows">
+                <div class="settings-row">
+                    <label for="social-facebook" class="settings-row__label">
+                        <strong>Facebook URL</strong>
+                    </label>
+                    <div class="settings-row__control">
+                        <input type="url" id="social-facebook" value="${escapeHtml(s.facebook || '')}" placeholder="https://facebook.com/yourpage" class="settings-row__input">
+                    </div>
+                </div>
+                <div class="settings-row">
+                    <label for="social-instagram" class="settings-row__label">
+                        <strong>Instagram URL</strong>
+                    </label>
+                    <div class="settings-row__control">
+                        <input type="url" id="social-instagram" value="${escapeHtml(s.instagram || '')}" placeholder="https://instagram.com/yourprofile" class="settings-row__input">
+                    </div>
+                </div>
+                <div class="settings-row">
+                    <label for="social-whatsapp" class="settings-row__label">
+                        <strong>WhatsApp Link / Number</strong>
+                    </label>
+                    <div class="settings-row__control">
+                        <input type="text" id="social-whatsapp" value="${escapeHtml(s.whatsapp || '')}" placeholder="https://wa.me/1234567890" class="settings-row__input">
+                    </div>
+                </div>
+                <div class="settings-row">
+                    <label for="social-telegram" class="settings-row__label">
+                        <strong>Telegram Link / Channel</strong>
+                    </label>
+                    <div class="settings-row__control">
+                        <input type="text" id="social-telegram" value="${escapeHtml(s.telegram || '')}" placeholder="https://t.me/yourchannel" class="settings-row__input">
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div style="margin-top:20px;">
             <button class="btn btn--primary btn--xl" id="settings-save-btn">Save All Changes</button>
         </div>
     `;
+
+    c.innerHTML = html;
     document.getElementById('settings-save-btn').addEventListener('click', saveAll);
 }
 
@@ -107,11 +152,22 @@ async function saveAll() {
             updates[s.key] = v;
         }
     }
+
+    const socialUpdates = {
+        facebook: document.getElementById('social-facebook')?.value || '',
+        instagram: document.getElementById('social-instagram')?.value || '',
+        whatsapp: document.getElementById('social-whatsapp')?.value || '',
+        telegram: document.getElementById('social-telegram')?.value || '',
+    };
+
     const btn = document.getElementById('settings-save-btn');
     btn.disabled = true; btn.textContent = 'Saving…';
     try {
-        await api.adminUpdateSettings(updates);
-        showFlash('Settings saved.', 'success');
+        await Promise.all([
+            api.adminUpdateSettings(updates),
+            api.adminUpdateSocialLinks(socialUpdates)
+        ]);
+        showFlash('Settings and social links saved successfully.', 'success');
         await load();
     } catch (e) {
         showFlash(e.message || 'Failed to save.', 'error');

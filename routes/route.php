@@ -30,7 +30,11 @@ $applicationsController = new ApplicationsController();
 $frontendController = new FrontendController();
 
 $router->frontendGroup('react', 'layouts.app', function (Router $router) use ($frontendController): void {
-    $router->add('GET', '/login', [$frontendController, 'login'], ['web'])->name('login.page');
+    $router->add('GET', '/login', function () {
+        ob_start();
+        \Nemesis\Core\View::render('app', []);
+        return \Nemesis\Http\Response::make(ob_get_clean(), 200, ['Content-Type' => 'text/html; charset=UTF-8']);
+    }, ['web'])->name('login.page');
     $router->add('GET', '/profile', [$frontendController, 'profile'], ['web'])->name('profile.page');
 }, ['middleware' => 'web']);
 

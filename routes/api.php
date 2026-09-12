@@ -15,10 +15,14 @@ use App\Http\Controllers\Api\JobController;
 use App\Http\Controllers\Api\PosterController;
 use App\Http\Controllers\Api\AdminSettingsController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\SocialLinksController;
 
 $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r) {
     // Health check
     $r->get('/health', fn() => \Nemesis\Http\Response::json(['success' => true, 'data' => ['status' => 'ok']]));
+
+    // Social links public route
+    $r->get('/social-links', [SocialLinksController::class, 'index'], 'social-links.index');
 
     // Public auth
     $r->add('POST', '/auth/register', [AuthController::class, 'register']);
@@ -69,6 +73,9 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
         $r->get('/categories',                 [JobController::class, 'categories'],   'jobs.categories');
         $r->get('/jobs',                       [JobController::class, 'index'],        'jobs.index');
         $r->get('/jobs/{id}',                  [JobController::class, 'show'],         'jobs.show');
+        $r->add('POST', '/jobs/workflow',      [JobController::class, 'createWorkflowJob']);
+        $r->add('POST', '/jobs/{id}/apply',    [JobController::class, 'applyForJob']);
+        $r->add('POST', '/jobs/{id}/extend-deadline', [JobController::class, 'extendDeadline']);
         $r->add('POST', '/jobs/{id}/bid',       [JobController::class, 'bid']);
         $r->add('DELETE', '/bids/{id}',         [JobController::class, 'withdrawBid']);
         $r->get('/worker/bids',                [JobController::class, 'myBids'],       'worker.bids');
@@ -95,6 +102,9 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
             $r->get('/admin/users',                 [AdminController::class, 'users'],     'admin.users');
             $r->add('POST', '/admin/users/{id}/role', [AdminController::class, 'updateRole']);
             $r->get('/admin/jobs',                  [AdminController::class, 'jobs'],      'admin.jobs');
+            $r->add('POST', '/admin/jobs/{id}/approve', [AdminController::class, 'approveJob']);
+            $r->add('POST', '/admin/jobs/{id}/decline', [AdminController::class, 'declineJob']);
+            $r->add('POST', '/admin/applications/{id}/approve', [AdminController::class, 'approveApplication']);
             $r->add('POST', '/admin/jobs/{id}/dispute', [AdminController::class, 'flagDispute']);
             $r->add('POST', '/admin/jobs/{id}/resolve',  [AdminController::class, 'resolveJob']);
             $r->get('/admin/stats',                 [AdminController::class, 'stats'],     'admin.stats');
@@ -118,6 +128,7 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
             // Platform settings
             $r->get('/admin/settings',                               [AdminSettingsController::class, 'listSettings'],    'admin.settings');
             $r->add('POST', '/admin/settings',                        [AdminSettingsController::class, 'updateSettings']);
+            $r->add('POST', '/admin/social-links',                    [SocialLinksController::class, 'update']);
 
             // Transactions ledger + revenue stats
             $r->get('/admin/transactions',                           [AdminSettingsController::class, 'transactions'],    'admin.transactions');

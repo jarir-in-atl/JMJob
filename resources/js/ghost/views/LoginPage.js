@@ -21,6 +21,7 @@ export function LoginPage() {
                 </label>
                 <button type="submit" class="btn btn--primary btn--xl">Log in</button>
             </form>
+            <p class="auth-card__alt"><a href="#/forgot-password">Forgot your password?</a></p>
             <p class="auth-card__alt">No account? <a href="#/register">Sign up</a></p>
             <p class="auth-card__demo">
                 Demo accounts:<br>
@@ -37,9 +38,13 @@ export function LoginPage() {
             const btn = form.querySelector('button');
             btn.disabled = true; btn.textContent = 'Logging in…';
             try {
-                await login(fd.get('email'), fd.get('password'));
+                const user = await login(fd.get('email'), fd.get('password'));
                 showFlash('Welcome back!', 'success');
-                navigate('/');
+                if (user && user.is_admin) {
+                    navigate('/admin');
+                } else {
+                    navigate('/');
+                }
             } catch (err) {
                 showFlash(err.message || 'Login failed', 'error');
                 btn.disabled = false; btn.textContent = 'Log in';

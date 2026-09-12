@@ -14,6 +14,12 @@ $router->get('/', function () {
     return Response::make(ob_get_clean(), 200, ['Content-Type' => 'text/html; charset=UTF-8']);
 })->name('home');
 
+$router->get('/login', function () {
+    ob_start();
+    \Nemesis\Core\View::render('app', []);
+    return Response::make(ob_get_clean(), 200, ['Content-Type' => 'text/html; charset=UTF-8']);
+});
+
 $router->get('/admin', function () {
     ob_start();
     \Nemesis\Core\View::render('app', []);

@@ -287,6 +287,51 @@ class AdminController extends Controller
         return Response::json(['success' => true, 'data' => $items]);
     }
 
+    public function approveJob(Request $request, string $id): Response
+    {
+        $admin = $request->getMeta('auth.user');
+        $result = $this->jobService->approveJob((int) $id, (int) $admin->id);
+        if (!$result['success']) {
+            return Response::json($result, 422);
+        }
+        return Response::json([
+            'success' => true,
+            'message' => $result['message'],
+            'data'    => ['id' => (int) $id, 'status' => Job::STATUS_OPEN],
+        ]);
+    }
+
+    public function declineJob(Request $request, string $id): Response
+    {
+        $admin = $request->getMeta('auth.user');
+        $body = (array) $this->readJson($request);
+        $reason = (string) ($body['reason'] ?? '');
+
+        $result = $this->jobService->declineJob((int) $id, $reason, (int) $admin->id);
+        if (!$result['success']) {
+            return Response::json($result, 422);
+        }
+        return Response::json([
+            'success' => true,
+            'message' => $result['message'],
+            'data'    => ['id' => (int) $id, 'status' => Job::STATUS_DECLINED, 'reason' => $reason],
+        ]);
+    }
+
+    public function approveApplication(Request $request, string $bidId): Response
+    {
+        $admin = $request->getMeta('auth.user');
+        $result = $this->jobService->approveWorkerApplication((int) $bidId, (int) $admin->id);
+        if (!$result['success']) {
+            return Response::json($result, 422);
+        }
+        return Response::json([
+            'success' => true,
+            'message' => $result['message'],
+            'data'    => ['bid_id' => (int) $bidId, 'status' => 'accepted'],
+        ]);
+    }
+
     public function flagDispute(Request $request, string $id): Response
     {
         $job = Job::find((int) $id);

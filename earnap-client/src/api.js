@@ -164,6 +164,11 @@ export const api = {
     adminDeleteCategory:        (id) => request(`/admin/categories/${id}/delete`, { method: 'POST' }),
     adminSettings:              () => request('/admin/settings'),
     adminUpdateSettings:        (body) => request('/admin/settings', { method: 'POST', body }),
+
+    // Social Links
+    socialLinks:          () => request('/social-links'),
+    adminUpdateSocialLinks: (body) => request('/admin/social-links', { method: 'POST', body }),
+
     adminJobs:                  (status = '') => request(`/admin/jobs${status ? `?status=${encodeURIComponent(status)}` : ''}`),
     adminFlagJobDispute:        (id) => request(`/admin/jobs/${id}/dispute`, { method: 'POST' }),
     adminResolveJob:             (id, body) => request(`/admin/jobs/${id}/resolve`, { method: 'POST', body }),

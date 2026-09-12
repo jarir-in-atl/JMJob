@@ -11,15 +11,18 @@ use Nemesis\Core\Fluent;
  */
 class Job extends Model
 {
-    public const STATUS_OPEN        = 'open';
-    public const STATUS_IN_REVIEW   = 'in_review';
-    public const STATUS_ASSIGNED    = 'assigned';
-    public const STATUS_SUBMITTED   = 'submitted';
-    public const STATUS_REVISION    = 'revision';
-    public const STATUS_COMPLETED   = 'completed';
-    public const STATUS_CANCELLED   = 'cancelled';
-    public const STATUS_DISPUTED    = 'disputed';
-    public const STATUS_EXPIRED     = 'expired';
+    public const STATUS_PENDING_APPROVAL = 'pending_approval';
+    public const STATUS_OPEN             = 'open';
+    public const STATUS_DECLINED         = 'declined';
+    public const STATUS_IN_REVIEW        = 'in_review';
+    public const STATUS_ENGAGED          = 'engaged';
+    public const STATUS_ASSIGNED         = 'assigned';
+    public const STATUS_SUBMITTED        = 'submitted';
+    public const STATUS_REVISION         = 'revision';
+    public const STATUS_COMPLETED        = 'completed';
+    public const STATUS_CANCELLED        = 'cancelled';
+    public const STATUS_DISPUTED         = 'disputed';
+    public const STATUS_EXPIRED          = 'expired';
 
     public const OPEN_STATUSES = [
         self::STATUS_OPEN, self::STATUS_IN_REVIEW,
@@ -32,9 +35,10 @@ class Job extends Model
     }
 
     protected $fillable = [
-        'poster_id', 'category_id', 'title', 'slug', 'description', 'requirements',
-        'budget', 'currency', 'deadline_at', 'bidding_closes_at', 'status',
-        'assigned_bid_id', 'assigned_worker_id', 'bid_count', 'view_count',
+        'poster_id', 'category_id', 'subcategory_id', 'title', 'slug', 'description', 'requirements',
+        'proof_requirements', 'budget', 'worker_count', 'cost_per_worker', 'system_fee_percent',
+        'system_fee_amount', 'total_payable_amount', 'currency', 'deadline_at', 'bidding_closes_at',
+        'status', 'decline_reason', 'assigned_bid_id', 'assigned_worker_id', 'bid_count', 'view_count',
         'is_featured', 'attachment_path',
     ];
 

@@ -204,7 +204,86 @@ class JobController extends Controller
                 'description'  => $c->description,
                 'icon_class'   => $c->icon_class,
                 'display_order' => (int) $c->display_order,
+                'subcategories'=> array_map(fn($s) => [
+                    'id'   => (int) $s->id,
+                    'name' => $s->name,
+                    'slug' => $s->slug,
+                ], \App\Models\Subcategory::forCategory((int) $c->id)),
             ], $cats),
+        ]);
+    }
+
+    public function createWorkflowJob(Request $request): Response
+    {
+        $user = $request->getMeta('auth.user');
+        $body = (array) $this->readJson($request);
+
+        $categoryId       = (int) ($body['category_id'] ?? 0);
+        $subcategoryId    = isset($body['subcategory_id']) ? (int) $body['subcategory_id'] : null;
+        $title            = (string) ($body['title'] ?? '');
+        $description      = (string) ($body['description'] ?? '');
+        $proofRequirements= (array) ($body['proof_requirements'] ?? []);
+        $workerCount      = (int) ($body['worker_count'] ?? 1);
+        $costPerWorker    = (float) ($body['cost_per_worker'] ?? 0);
+        $deadlineAt       = (string) ($body['deadline_at'] ?? date('Y-m-d H:i:s', time() + 7 * 86400));
+
+        $result = $this->jobService->createWorkflowJob(
+            $user,
+            $categoryId,
+            $subcategoryId,
+            $title,
+            $description,
+            $proofRequirements,
+            $workerCount,
+            $costPerWorker,
+            $deadlineAt
+        );
+
+        if (!$result['success']) {
+            return Response::json($result, 422);
+        }
+
+        return Response::json([
+            'success' => true,
+            'message' => $result['message'],
+            'data'    => $this->serializeJob($result['job'], true),
+        ]);
+    }
+
+    public function applyForJob(Request $request, int $id): Response
+    {
+        $user = $request->getMeta('auth.user');
+        $body = (array) $this->readJson($request);
+        $proposal    = isset($body['proposal']) ? (string) $body['proposal'] : null;
+        $bkashNumber = isset($body['bkash_number']) ? (string) $body['bkash_number'] : null;
+
+        $result = $this->jobService->applyForJob($user, $id, $proposal, $bkashNumber);
+        if (!$result['success']) {
+            return Response::json($result, 422);
+        }
+
+        return Response::json([
+            'success' => true,
+            'message' => $result['message'],
+            'data'    => $this->serializeBid($result['bid']),
+        ]);
+    }
+
+    public function extendDeadline(Request $request, int $id): Response
+    {
+        $user = $request->getMeta('auth.user');
+        $body = (array) $this->readJson($request);
+        $days = (int) ($body['days'] ?? 7);
+
+        $result = $this->jobService->extendDeadline($user, $id, $days);
+        if (!$result['success']) {
+            return Response::json($result, 422);
+        }
+
+        return Response::json([
+            'success' => true,
+            'message' => $result['message'],
+            'data'    => $this->serializeJob($result['job'], true),
         ]);
     }
 

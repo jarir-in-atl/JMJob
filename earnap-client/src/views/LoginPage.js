@@ -38,9 +38,13 @@ export function LoginPage() {
             const btn = form.querySelector('button');
             btn.disabled = true; btn.textContent = 'Logging in…';
             try {
-                await login(fd.get('email'), fd.get('password'));
+                const user = await login(fd.get('email'), fd.get('password'));
                 showFlash('Welcome back!', 'success');
-                navigate('/');
+                if (user && user.is_admin) {
+                    navigate('/admin');
+                } else {
+                    navigate('/');
+                }
             } catch (err) {
                 showFlash(err.message || 'Login failed', 'error');
                 btn.disabled = false; btn.textContent = 'Log in';

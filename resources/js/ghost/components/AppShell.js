@@ -7,9 +7,12 @@ import { Toast } from './Toast.js';
 import { Footer } from './Footer.js';
 
 export function AppShell() {
+    const isAuthed = () => isAuthenticated.get();
     return {
         tag: 'div',
-        props: { class: 'app-shell' },
+        props: {
+            class: () => `app-shell ${isAuthed() ? 'app-shell--authed' : 'app-shell--public'}`,
+        },
         children: [
             // Only show sidebar when authenticated
             when(

@@ -64,8 +64,9 @@ img { max-width: 100%; }
 button { font-family: inherit; cursor: pointer; }
 .muted { color: var(--muted); }
 
-#app { min-height: 100vh; display: flex; flex-direction: column; padding-bottom: 60px; }
-.app-shell { display: contents; }
+#app { min-height: 100vh; display: flex; flex-direction: column; }
+#app:has(.app-shell--public) { padding-bottom: 0 !important; }
+.app-shell { display: flex; flex-direction: column; flex: 1; min-height: 100vh; }
 .app-loading {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     height: 100vh; gap: 16px; color: var(--muted);
@@ -93,7 +94,7 @@ button { font-family: inherit; cursor: pointer; }
 .topbar__brand {
     font-weight: 700; font-size: 18px; color: var(--text);
 }
-.topbar__user, .topbar__actions { display: flex; align-items: center; gap: 12px; }
+.topbar__left, .topbar__right, .topbar__user, .topbar__actions { display: flex; align-items: center; gap: 12px; }
 .topbar__user-info { text-align: right; line-height: 1.2; }
 .topbar__user-info strong { display: block; font-size: 13px; }
 .topbar__user-balance { font-size: 12px; color: var(--primary); font-weight: 600; }
@@ -101,8 +102,10 @@ button { font-family: inherit; cursor: pointer; }
 .topbar__icon-btn {
     background: transparent; border: 1px solid var(--border); color: var(--muted);
     width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
 }
 .topbar__icon-btn:hover { background: var(--bg); }
+.topbar__icon-btn.theme-toggle { border: none; font-size: 16px; }
 .topbar__link { padding: 8px 14px; border-radius: 8px; color: var(--text); font-weight: 500; }
 .topbar__link--cta { background: var(--primary); color: #fff; }
 .topbar__link--cta:hover { background: var(--primary-dark); }
@@ -1274,11 +1277,14 @@ button { font-family: inherit; cursor: pointer; }
     flex-wrap: wrap; gap: 8px; font-size: 13px; color: var(--muted);
 }
 .app-footer__copy { font-weight: 500; }
+.app-footer__social { display: flex; align-items: center; gap: 14px; }
+.app-footer__social-link { color: var(--muted); font-size: 18px; transition: color 0.2s ease, transform 0.2s ease; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.app-footer__social-link:hover { color: var(--primary); transform: translateY(-2px); }
 .app-footer__developed { display: flex; align-items: center; gap: 4px; }
 .app-footer__link { color: var(--primary); font-weight: 600; text-decoration: none; transition: opacity 0.2s ease; }
 .app-footer__link:hover { opacity: 0.8; text-decoration: underline; }
 @media (max-width: 540px) {
-    .app-footer { padding: 14px 16px; font-size: 12px; }
+    .app-footer { padding: 14px 16px; font-size: 12px; flex-direction: column; text-align: center; gap: 12px; }
 }
 
 /* ---------- Sidebar Base Styles & Desktop Workspace ---------- */
@@ -1427,12 +1433,22 @@ button { font-family: inherit; cursor: pointer; }
     flex: 1;
     display: flex;
     flex-direction: column;
+    min-height: 100vh;
     min-width: 0;
-    margin-left: 260px;
+    margin-left: 0;
     transition: margin-left 0.25s ease;
+}
+.app-main { flex: 1; }
+.app-shell--authed:not(.app-shell--public) .main-wrapper,
+.app-shell:has(.sidebar) .main-wrapper {
+    margin-left: 260px;
 }
 .app-shell:has(.sidebar--collapsed) .main-wrapper {
     margin-left: 70px;
+}
+.app-shell--public .main-wrapper,
+.app-shell:not(:has(.sidebar)) .main-wrapper {
+    margin-left: 0 !important;
 }
 
 @media (max-width: 768px) {
