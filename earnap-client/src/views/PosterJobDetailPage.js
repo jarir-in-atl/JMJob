@@ -84,7 +84,10 @@ async function cancelJob(jobId) {
     catch (error) { showFlash(error.message || 'Could not cancel job.', 'error'); }
 }
 async function reload(jobId) { const content = document.getElementById('poster-job-detail-content'); if (content) { content.innerHTML = '<div class="spinner"></div>'; await load(jobId); } }
-function hasPosterAccess() { const user = currentUser.get(); return !!user && (user.is_admin || user.role === 'poster'); }
+function hasPosterAccess() {
+    const user = currentUser.get();
+    return !!user;
+}
 function label(value) { return String(value || '').replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()); }
 function formatDate(value) { if (!value) return 'unknown'; const date = new Date(String(value).replace(' ', 'T') + 'Z'); return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString(); }
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])); }
