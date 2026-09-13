@@ -192,6 +192,7 @@ button { font-family: inherit; cursor: pointer; }
 .icon-grid__item--pink   .icon-grid__chip { background: linear-gradient(135deg, #f472b6, #ec4899); }
 .icon-grid__item--red    .icon-grid__chip { background: linear-gradient(135deg, #f87171, #ef4444); }
 .icon-grid__item--gray   .icon-grid__chip { background: linear-gradient(135deg, #94a3b8, #64748b); }
+.icon-grid__item--purple .icon-grid__chip { background: linear-gradient(135deg, #a855f7, #7e22ce); }
 .icon-grid__label { font-size: 12px; font-weight: 600; text-align: center; line-height: 1.1; z-index: 1; }
 
 @media (max-width: 540px) {
