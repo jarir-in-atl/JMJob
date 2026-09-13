@@ -6,6 +6,7 @@ import { route, navigate, isAuthenticated, currentUser } from '../state.js';
 
 const USER_NAV_ITEMS = [
     { path: '/',                    label: 'Home',        icon: 'bi-house-door' },
+    { path: '/poster/post-job',     label: 'Post Job',    icon: 'bi-plus-square-fill' },
     { path: '/worker/active-jobs',  label: 'Active Jobs', icon: 'bi-hammer' },
     { path: '/withdraw',            label: 'Withdraw',    icon: 'bi-wallet2' },
     { path: '/profile',             label: 'Account',     icon: 'bi-person-circle' },

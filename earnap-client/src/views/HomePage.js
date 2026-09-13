@@ -114,6 +114,7 @@ function renderIconGrid() {
     const grid = el('div', 'icon-grid');
 
     const items = [
+        { path: '/poster/post-job', label: 'Post Job',  icon: 'bi-plus-square-fill', tone: 'purple' },
         { path: '/earn',      label: 'Earn Ad',     icon: 'bi-play-circle-fill',  tone: 'green' },
         { path: '/tasks',     label: 'Web Task',    icon: 'bi-link-45deg',         tone: 'blue' },
         { path: '/webtask',   label: 'Tasks',       icon: 'bi-telegram',           tone: 'blue' },
