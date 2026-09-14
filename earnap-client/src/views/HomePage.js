@@ -83,11 +83,15 @@ async function renderDynamicBanner(root) {
                     nextIndex = Math.floor(Math.random() * notices.length);
                 } while (nextIndex === index && notices.length > 1);
                 index = nextIndex;
-                contentBox.style.opacity = '0';
+
+                contentBox.className = 'welcome-popup__content banner-vanish-left';
                 setTimeout(() => {
                     renderBannerItem(contentBox, notices[index]);
-                    contentBox.style.opacity = '1';
-                }, 200);
+                    contentBox.className = 'welcome-popup__content banner-enter-right';
+                    setTimeout(() => {
+                        contentBox.className = 'welcome-popup__content';
+                    }, 400);
+                }, 400);
             }, intervalSec * 1000);
         }
     } catch (e) {

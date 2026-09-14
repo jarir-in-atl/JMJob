@@ -176,11 +176,33 @@ echo -e "  on demand via Composer's autoloader files."
 echo ""
 
 # ============================================================
+# Step 6: Git commit & push
+# ============================================================
+echo -e "${YELLOW}▶ Step 6: Committing and pushing to git...${NC}"
+echo ""
+COMMIT_MSG="${1:-Deploy commit: $(date '+%Y-%m-%d %H:%M:%S')}"
+
+if [ -n "$(git status --porcelain)" ]; then
+    echo -e "  Staging changes..."
+    git add .
+    echo -e "  Committing: '$COMMIT_MSG'"
+    git commit -m "$COMMIT_MSG"
+    echo -e "  Pushing to remote repository..."
+    git push
+    echo -e "${GREEN}  ✅ Git commit & push complete${NC}"
+else
+    echo -e "  No uncommitted changes detected. Pushing any unpushed commits..."
+    git push
+    echo -e "${GREEN}  ✅ Git push complete${NC}"
+fi
+echo ""
+
+# ============================================================
 # Summary
 # ============================================================
 echo ""
 echo -e "${BLUE}============================================================${NC}"
-echo -e "${GREEN}  ✅ Deployment complete!${NC}"
+echo -e "${GREEN}  ✅ Deployment & Git push complete!${NC}"
 echo -e "${BLUE}============================================================${NC}"
 echo ""
 echo -e "  Hard refresh (Ctrl+Shift+R) to see changes."

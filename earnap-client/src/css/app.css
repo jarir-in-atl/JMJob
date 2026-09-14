@@ -240,6 +240,8 @@ button { font-family: inherit; cursor: pointer; }
     margin-bottom: 16px;
     box-shadow: none !important;
     width: 100%;
+    overflow: hidden;
+    position: relative;
 }
 .welcome-popup--banner .welcome-popup__content {
     width: 100%;
@@ -247,6 +249,7 @@ button { font-family: inherit; cursor: pointer; }
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
+    will-change: transform, opacity;
 }
 .welcome-popup--banner .welcome-popup__image {
     width: 100%;
@@ -259,6 +262,37 @@ button { font-family: inherit; cursor: pointer; }
     display: block;
     background: transparent !important;
 }
+
+@keyframes bannerVanishLeft {
+    0% {
+        opacity: 1;
+        transform: translateX(0);
+    }
+    100% {
+        opacity: 0;
+        transform: translateX(-100%);
+    }
+}
+
+@keyframes bannerEnterRight {
+    0% {
+        opacity: 0;
+        transform: translateX(100%);
+    }
+    100% {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.welcome-popup--banner .welcome-popup__content.banner-vanish-left {
+    animation: bannerVanishLeft 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.welcome-popup--banner .welcome-popup__content.banner-enter-right {
+    animation: bannerEnterRight 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
 
 /* ---------- Ad progress ---------- */
 .ad-progress {
