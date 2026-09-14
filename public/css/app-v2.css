@@ -1535,11 +1535,32 @@ button { font-family: inherit; cursor: pointer; }
     border-color: #6366f1;
     box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
 }
-.settings-row__check {
+.settings-row--stack {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+}
+.banner-messages-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.banner-message-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    cursor: pointer;
+    gap: 10px;
+    width: 100%;
+}
+.banner-message-num {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    min-width: 85px;
+}
+.banner-message-row .notice-msg-input {
+    flex: 1;
+    min-width: 0;
 }
 
 /* Categories page */

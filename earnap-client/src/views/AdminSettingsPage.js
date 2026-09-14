@@ -59,11 +59,12 @@ function render() {
 
     // Dynamic Banner Message Setting section
     const nd = _state.noticesData;
-    const noticeText = Array.isArray(nd.notices) ? nd.notices.join('\n') : '';
+    const noticesList = Array.isArray(nd.notices) && nd.notices.length ? nd.notices : ['Complete tasks, watch ads, refer friends, and withdraw anytime.'];
+    
     html += `
         <div class="card settings-group" style="margin-top:20px;">
             <h3 class="card__title"><i class="bi bi-megaphone me-2"></i>Banner Message Setting</h3>
-            <p class="muted mb-3" style="font-size:13px;">Manage banner messages displayed on the homepage dashboard. Enter <strong>multiple messages (one per line)</strong> to rotate them randomly after every specified interval.</p>
+            <p class="muted mb-3" style="font-size:13px;">Manage banner messages displayed on the homepage dashboard. Click <strong>+ Add Message</strong> to add individual textboxes. Messages will rotate randomly after every specified interval.</p>
             <div class="settings-group__rows">
                 <div class="settings-row">
                     <label for="notice-interval" class="settings-row__label">
@@ -74,13 +75,18 @@ function render() {
                         <input type="number" min="1" step="1" id="notice-interval" value="${nd.interval || 4}" placeholder="4" class="settings-row__input">
                     </div>
                 </div>
-                <div class="settings-row">
-                    <label for="notice-messages" class="settings-row__label">
-                        <strong>Banner Messages (One message per line)</strong>
-                        <span class="muted">Write multiple lines (Message 1, Message 2, Message 3...). A message will be chosen randomly after every interval.</span>
-                    </label>
-                    <div class="settings-row__control">
-                        <textarea id="notice-messages" rows="5" class="settings-row__input" placeholder="Message 1: Complete tasks, watch ads, refer friends, and withdraw anytime.&#10;Message 2: Join our Telegram community for daily bonus codes!&#10;Message 3: Post jobs now to hire skilled workers fast.">${escapeHtml(noticeText)}</textarea>
+                <div class="settings-row settings-row--stack">
+                    <div class="settings-row__label" style="margin-bottom:8px;">
+                        <strong>Banner Messages</strong>
+                        <span class="muted">Add separate textboxes for each message. A message will be chosen randomly after every interval.</span>
+                    </div>
+                    <div id="notice-messages-container" class="banner-messages-list">
+                        ${noticesList.map((msg, index) => messageInputRow(index + 1, msg)).join('')}
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <button type="button" class="btn btn--secondary btn--sm" id="add-notice-btn">
+                            <i class="bi bi-plus-circle-fill"></i> Add Message
+                        </button>
                     </div>
                 </div>
             </div>
@@ -135,6 +141,53 @@ function render() {
 
     c.innerHTML = html;
     document.getElementById('settings-save-btn').addEventListener('click', saveAll);
+    document.getElementById('add-notice-btn').addEventListener('click', addNoticeRow);
+    wireNoticeDeleteButtons();
+}
+
+function messageInputRow(num, val = '') {
+    return `
+        <div class="banner-message-row">
+            <span class="banner-message-num">Message ${num}:</span>
+            <input type="text" class="settings-row__input notice-msg-input" value="${escapeHtml(val)}" placeholder="e.g. Complete tasks, watch ads, refer friends...">
+            <button type="button" class="btn btn--danger btn--sm remove-notice-btn" title="Remove message">
+                <i class="bi bi-trash"></i>
+            </button>
+        </div>
+    `;
+}
+
+function addNoticeRow() {
+    const container = document.getElementById('notice-messages-container');
+    if (!container) return;
+    const count = container.querySelectorAll('.banner-message-row').length + 1;
+    const div = document.createElement('div');
+    div.innerHTML = messageInputRow(count, '');
+    const newRow = div.firstElementChild;
+    container.appendChild(newRow);
+    wireNoticeDeleteButtons();
+    newRow.querySelector('input')?.focus();
+}
+
+function wireNoticeDeleteButtons() {
+    const container = document.getElementById('notice-messages-container');
+    if (!container) return;
+    const rows = container.querySelectorAll('.banner-message-row');
+    rows.forEach((row, i) => {
+        const numLabel = row.querySelector('.banner-message-num');
+        if (numLabel) numLabel.textContent = `Message ${i + 1}:`;
+        const delBtn = row.querySelector('.remove-notice-btn');
+        if (delBtn) {
+            delBtn.onclick = () => {
+                if (container.querySelectorAll('.banner-message-row').length > 1) {
+                    row.remove();
+                    wireNoticeDeleteButtons();
+                } else {
+                    showFlash('At least one message textbox is required.', 'warning');
+                }
+            };
+        }
+    });
 }
 
 function settingRow(category, s) {
@@ -192,9 +245,12 @@ async function saveAll() {
         telegram: document.getElementById('social-telegram')?.value || '',
     };
 
+    const msgInputs = Array.from(document.querySelectorAll('.notice-msg-input'));
+    const noticesList = msgInputs.map(input => input.value.trim()).filter(Boolean);
+
     const noticeUpdates = {
         interval: document.getElementById('notice-interval')?.value || 4,
-        notices: document.getElementById('notice-messages')?.value || '',
+        notices: noticesList.length ? noticesList : ['Complete tasks, watch ads, refer friends, and withdraw anytime.'],
     };
 
     const btn = document.getElementById('settings-save-btn');
