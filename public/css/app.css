@@ -263,34 +263,133 @@ button { font-family: inherit; cursor: pointer; }
     background: transparent !important;
 }
 
+/* ---------- Banner Animations (Ultra-Smooth) ---------- */
 @keyframes bannerVanishLeft {
     0% {
         opacity: 1;
-        transform: translateX(0);
+        transform: translateX(0) scale(1);
     }
     100% {
         opacity: 0;
-        transform: translateX(-100%);
+        transform: translateX(-100%) scale(0.98);
     }
 }
-
 @keyframes bannerEnterRight {
     0% {
         opacity: 0;
-        transform: translateX(100%);
+        transform: translateX(100%) scale(0.98);
     }
     100% {
         opacity: 1;
-        transform: translateX(0);
+        transform: translateX(0) scale(1);
     }
 }
 
-.welcome-popup--banner .welcome-popup__content.banner-vanish-left {
-    animation: bannerVanishLeft 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+@keyframes bannerVanishRight {
+    0% {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translateX(100%) scale(0.98);
+    }
+}
+@keyframes bannerEnterLeft {
+    0% {
+        opacity: 0;
+        transform: translateX(-100%) scale(0.98);
+    }
+    100% {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
 }
 
+@keyframes bannerVanishBottom {
+    0% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(100%);
+    }
+}
+@keyframes bannerEnterTop {
+    0% {
+        opacity: 0;
+        transform: translateY(-100%);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes bannerVanishTop {
+    0% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-100%);
+    }
+}
+@keyframes bannerEnterBottom {
+    0% {
+        opacity: 0;
+        transform: translateY(100%);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes bannerVanishFade {
+    0% { opacity: 1; }
+    100% { opacity: 0; }
+}
+@keyframes bannerEnterFade {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
+}
+
+.welcome-popup--banner .welcome-popup__content.banner-vanish-left {
+    animation: bannerVanishLeft 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
 .welcome-popup--banner .welcome-popup__content.banner-enter-right {
-    animation: bannerEnterRight 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    animation: bannerEnterRight 0.35s cubic-bezier(0, 0, 0.2, 1) forwards;
+}
+
+.welcome-popup--banner .welcome-popup__content.banner-vanish-right {
+    animation: bannerVanishRight 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+.welcome-popup--banner .welcome-popup__content.banner-enter-left {
+    animation: bannerEnterLeft 0.35s cubic-bezier(0, 0, 0.2, 1) forwards;
+}
+
+.welcome-popup--banner .welcome-popup__content.banner-vanish-bottom {
+    animation: bannerVanishBottom 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+.welcome-popup--banner .welcome-popup__content.banner-enter-top {
+    animation: bannerEnterTop 0.35s cubic-bezier(0, 0, 0.2, 1) forwards;
+}
+
+.welcome-popup--banner .welcome-popup__content.banner-vanish-top {
+    animation: bannerVanishTop 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+.welcome-popup--banner .welcome-popup__content.banner-enter-bottom {
+    animation: bannerEnterBottom 0.35s cubic-bezier(0, 0, 0.2, 1) forwards;
+}
+
+.welcome-popup--banner .welcome-popup__content.banner-vanish-fade {
+    animation: bannerVanishFade 0.35s ease-in-out forwards;
+}
+.welcome-popup--banner .welcome-popup__content.banner-enter-fade {
+    animation: bannerEnterFade 0.35s ease-in-out forwards;
 }
 
 

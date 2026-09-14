@@ -87,6 +87,21 @@ function render() {
                         <input type="number" min="1" step="1" id="notice-interval" value="${nd.interval || 4}" placeholder="4" class="settings-row__input">
                     </div>
                 </div>
+                <div class="settings-row">
+                    <label for="notice-direction" class="settings-row__label">
+                        <strong>Animation Direction</strong>
+                        <span class="muted">Select transition animation style when switching banner images.</span>
+                    </label>
+                    <div class="settings-row__control">
+                        <select id="notice-direction" class="settings-row__input">
+                            <option value="right_to_left" ${(nd.direction || 'right_to_left') === 'right_to_left' ? 'selected' : ''}>Right to Left (Gradual Vanish)</option>
+                            <option value="left_to_right" ${nd.direction === 'left_to_right' ? 'selected' : ''}>Left to Right (Gradual Vanish)</option>
+                            <option value="top_to_bottom" ${nd.direction === 'top_to_bottom' ? 'selected' : ''}>Top to Bottom (Gradual Vanish)</option>
+                            <option value="bottom_to_top" ${nd.direction === 'bottom_to_top' ? 'selected' : ''}>Bottom to Top (Gradual Vanish)</option>
+                            <option value="fade" ${nd.direction === 'fade' ? 'selected' : ''}>Fade In / Out</option>
+                        </select>
+                    </div>
+                </div>
                 <div class="settings-row settings-row--stack">
                     <div class="settings-row__label" style="margin-bottom:8px;">
                         <strong>Banner Images</strong>
@@ -316,6 +331,7 @@ async function saveAll() {
 
     const noticeUpdates = {
         interval: document.getElementById('notice-interval')?.value || 4,
+        direction: document.getElementById('notice-direction')?.value || 'right_to_left',
         notices: noticesList,
     };
 

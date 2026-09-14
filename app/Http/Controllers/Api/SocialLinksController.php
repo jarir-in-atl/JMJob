@@ -71,6 +71,7 @@ class SocialLinksController extends Controller
         if (!file_exists($filePath)) {
             $default = [
                 'interval' => 4,
+                'direction' => 'right_to_left',
                 'notices' => [
                     [
                         'text' => 'Complete tasks, watch ads, refer friends, and withdraw anytime.',
@@ -106,9 +107,15 @@ class SocialLinksController extends Controller
             }
         }
 
+        $allowedDirections = ['right_to_left', 'left_to_right', 'top_to_bottom', 'bottom_to_top', 'fade'];
+        $direction = isset($data['direction']) && in_array($data['direction'], $allowedDirections, true)
+            ? $data['direction']
+            : 'right_to_left';
+
         return Response::json([
-            'interval' => isset($data['interval']) ? (int)$data['interval'] : 4,
-            'notices'  => $noticesList
+            'interval'  => isset($data['interval']) ? (int)$data['interval'] : 4,
+            'direction' => $direction,
+            'notices'    => $noticesList
         ]);
     }
 
@@ -134,9 +141,15 @@ class SocialLinksController extends Controller
         $interval = isset($data['interval']) && (string)$data['interval'] !== '' ? (int)$data['interval'] : 4;
         if ($interval <= 0) $interval = 4;
 
+        $allowedDirections = ['right_to_left', 'left_to_right', 'top_to_bottom', 'bottom_to_top', 'fade'];
+        $direction = isset($data['direction']) && in_array($data['direction'], $allowedDirections, true)
+            ? $data['direction']
+            : 'right_to_left';
+
         $validated = [
-            'interval' => $interval,
-            'notices'  => $noticesList,
+            'interval'  => $interval,
+            'direction' => $direction,
+            'notices'    => $noticesList,
         ];
 
         $filePath = $this->getNoticesFilePath();

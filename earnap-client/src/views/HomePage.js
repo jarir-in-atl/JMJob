@@ -72,6 +72,16 @@ async function renderDynamicBanner(root) {
 
         const contentBox = banner.querySelector('#notice-banner-content');
         const intervalSec = (typeof res.interval === 'number' && res.interval > 0) ? res.interval : 4;
+        const dir = res.direction || 'right_to_left';
+
+        const animMap = {
+            right_to_left: { exit: 'banner-vanish-left', enter: 'banner-enter-right' },
+            left_to_right: { exit: 'banner-vanish-right', enter: 'banner-enter-left' },
+            top_to_bottom: { exit: 'banner-vanish-bottom', enter: 'banner-enter-top' },
+            bottom_to_top: { exit: 'banner-vanish-top', enter: 'banner-enter-bottom' },
+            fade:          { exit: 'banner-vanish-fade', enter: 'banner-enter-fade' }
+        };
+        const anim = animMap[dir] || animMap.right_to_left;
 
         let index = 0;
         renderBannerItem(contentBox, notices[0]);
@@ -84,14 +94,14 @@ async function renderDynamicBanner(root) {
                 } while (nextIndex === index && notices.length > 1);
                 index = nextIndex;
 
-                contentBox.className = 'welcome-popup__content banner-vanish-left';
+                contentBox.className = `welcome-popup__content ${anim.exit}`;
                 setTimeout(() => {
                     renderBannerItem(contentBox, notices[index]);
-                    contentBox.className = 'welcome-popup__content banner-enter-right';
+                    contentBox.className = `welcome-popup__content ${anim.enter}`;
                     setTimeout(() => {
                         contentBox.className = 'welcome-popup__content';
-                    }, 400);
-                }, 400);
+                    }, 350);
+                }, 350);
             }, intervalSec * 1000);
         }
     } catch (e) {
