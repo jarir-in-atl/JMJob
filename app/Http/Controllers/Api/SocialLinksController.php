@@ -164,8 +164,10 @@ class SocialLinksController extends Controller
             return Response::json(['message' => 'Invalid image format. Allowed: JPG, PNG, GIF, WEBP.'], 400);
         }
 
-        // Upload directory in public/uploads/banners
-        if (function_exists('public_path')) {
+        // Upload directory in web root /uploads/banners
+        if (isset($_SERVER['DOCUMENT_ROOT']) && is_dir($_SERVER['DOCUMENT_ROOT'])) {
+            $uploadDir = rtrim($_SERVER['DOCUMENT_ROOT'], '/') . '/uploads/banners';
+        } elseif (function_exists('public_path')) {
             $uploadDir = public_path('uploads/banners');
         } else {
             $uploadDir = dirname(__DIR__, 3) . '/public/uploads/banners';
