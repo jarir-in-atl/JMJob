@@ -35,21 +35,21 @@ export function PostJobPage() {
                         <label>Budget (৳)
                             <input name="budget" type="number" min="1" step="0.01" required placeholder="100.00">
                         </label>
-                        <div class="poster-form__field">
-                            <label for="bidding-window-val" style="display:inline-flex; align-items:center; gap:6px; font-weight:600; margin-bottom:6px;">
-                                <span>Bidding window</span>
-                                <i class="bi bi-info-circle" title="Set 0 for unlimited" style="color: var(--muted, #6b7280); cursor: help; font-size: 14px;"></i>
-                            </label>
-                            <div style="display:flex; gap:8px;">
-                                <input id="bidding-window-val" type="number" min="0" step="any" value="3" placeholder="3" style="flex:1;" required>
-                                <select id="bidding-window-unit" style="width:120px;">
+                        <label>
+                            <span class="poster-form__label-head">
+                                Bidding window
+                                <i class="bi bi-info-circle" title="Set 0 for unlimited" style="color: var(--muted, #6b7280); cursor: help; font-weight: normal; font-size: 14px;"></i>
+                            </span>
+                            <div class="poster-form__input-group">
+                                <input id="bidding-window-val" type="number" min="0" step="any" value="3" placeholder="3" required>
+                                <select id="bidding-window-unit">
                                     <option value="minutes">Minutes</option>
                                     <option value="hours">Hours</option>
                                     <option value="days" selected>Days</option>
                                     <option value="months">Months</option>
                                 </select>
                             </div>
-                        </div>
+                        </label>
                     </div>
                     <label>Deadline (optional)
                         <input name="deadline_at" type="datetime-local">

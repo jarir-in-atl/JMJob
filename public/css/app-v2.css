@@ -1307,6 +1307,10 @@ button { font-family: inherit; cursor: pointer; }
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
 }
 .poster-form__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.poster-form__label-head { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+.poster-form__input-group { display: flex; gap: 8px; width: 100%; }
+.poster-form__input-group input { flex: 1; min-width: 0; }
+.poster-form__input-group select { width: 120px; flex-shrink: 0; }
 .poster-form__actions, .poster-job-row__actions, .poster-wallet-actions, .poster-detail-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .poster-filter-bar { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
 .poster-filter-bar label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
