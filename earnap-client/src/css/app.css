@@ -483,35 +483,9 @@ button { font-family: inherit; cursor: pointer; }
 .app-shell:has(.hnav) .bottomnav { display: none; }
 .app-shell:has(.hnav) .bottomnav-spacer { display: none; }
 
-/* Scroll arrows for the bottom hnav (mobile only) */
+/* Scroll arrows for the bottom hnav */
 .hnav__scroll {
-    display: none;
-    align-items: center;
-    justify-content: center;
-    background: var(--card);
-    border: none;
-    color: var(--primary);
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 5;
-    box-shadow: var(--shadow);
-    cursor: pointer;
-    font-size: 16px;
-    transition: all 0.15s ease;
-}
-.hnav__scroll:hover { background: var(--bg); transform: translateY(-50%) scale(1.08); }
-.hnav__scroll:active { transform: translateY(-50%) scale(0.95); }
-.hnav__scroll:disabled,
-.hnav__scroll.is-disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
-.hnav__scroll--left  { left: 4px; }
-.hnav__scroll--right { right: 4px; }
-
-@media (max-width: 768px) {
-    .hnav__scroll { display: flex; }
+    display: none !important;
 }
 
 .mobile-nav-overlay {

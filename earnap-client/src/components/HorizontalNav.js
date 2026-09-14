@@ -137,9 +137,7 @@ export function HorizontalNav() {
             id: 'horizontal-nav',
         },
         children: [
-            ScrollButton('left'),
             NavList(),
-            ScrollButton('right'),
         ],
     };
 }
