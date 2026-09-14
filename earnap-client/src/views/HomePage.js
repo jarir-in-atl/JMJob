@@ -14,7 +14,7 @@ export function HomePage() {
 
         const u = currentUser.get();
 
-        // Dynamic notice banner (rotates multiple notices every X seconds)
+        // Dynamic notice banner (rotates multiple notices every X seconds at the top)
         renderDynamicBanner(root);
 
         // Section 1: user header (avatar + name + balance)
@@ -72,7 +72,11 @@ async function renderDynamicBanner(root) {
             }
             banner.remove();
         });
-        root.appendChild(banner);
+        if (root.firstChild) {
+            root.insertBefore(banner, root.firstChild);
+        } else {
+            root.appendChild(banner);
+        }
 
         const contentBox = banner.querySelector('#notice-banner-content');
         const intervalSec = (typeof res.interval === 'number' && res.interval > 0) ? res.interval : 4;
