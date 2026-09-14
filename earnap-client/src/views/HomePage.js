@@ -44,10 +44,11 @@ async function renderDynamicBanner(root) {
         bannerTimer = null;
     }
 
-    const banner = el('div', 'welcome-popup', '');
+    const banner = el('div', 'welcome-popup welcome-popup--banner', '');
     banner.innerHTML = `
-        <strong>JM Job:</strong>
-        <span id="notice-banner-text">Loading updates…</span>
+        <div id="notice-banner-content" class="welcome-popup__content">
+            <span id="notice-banner-text">Loading updates…</span>
+        </div>
         <button class="welcome-popup__close" aria-label="Close">Got it</button>
     `;
     banner.querySelector('button').addEventListener('click', () => {
@@ -59,15 +60,24 @@ async function renderDynamicBanner(root) {
     });
     root.appendChild(banner);
 
-    const span = banner.querySelector('#notice-banner-text');
+    const contentBox = banner.querySelector('#notice-banner-content');
 
     try {
         const res = await api.notices();
-        const notices = Array.isArray(res.notices) && res.notices.length ? res.notices : ['Complete tasks, watch ads, refer friends, and withdraw anytime.'];
+        let rawNotices = Array.isArray(res.notices) && res.notices.length ? res.notices : [];
+        const notices = rawNotices.map(item => {
+            if (typeof item === 'string') return { text: item, image: '' };
+            return { text: item.text || '', image: item.image || '' };
+        }).filter(item => item.text || item.image);
+
+        if (!notices.length) {
+            notices.push({ text: 'Complete tasks, watch ads, refer friends, and withdraw anytime.', image: '' });
+        }
+
         const intervalSec = (typeof res.interval === 'number' && res.interval > 0) ? res.interval : 4;
 
         let index = 0;
-        span.textContent = notices[0];
+        renderBannerItem(contentBox, notices[0]);
 
         if (notices.length > 1) {
             bannerTimer = setInterval(() => {
@@ -76,15 +86,41 @@ async function renderDynamicBanner(root) {
                     nextIndex = Math.floor(Math.random() * notices.length);
                 } while (nextIndex === index && notices.length > 1);
                 index = nextIndex;
-                span.style.opacity = '0';
+                contentBox.style.opacity = '0';
                 setTimeout(() => {
-                    span.textContent = notices[index];
-                    span.style.opacity = '1';
+                    renderBannerItem(contentBox, notices[index]);
+                    contentBox.style.opacity = '1';
                 }, 200);
             }, intervalSec * 1000);
         }
     } catch (e) {
-        span.textContent = 'Complete tasks, watch ads, refer friends, and withdraw anytime.';
+        renderBannerItem(contentBox, { text: 'Complete tasks, watch ads, refer friends, and withdraw anytime.', image: '' });
+    }
+}
+
+function renderBannerItem(container, item) {
+    container.innerHTML = '';
+    const hasText = Boolean(item.text && item.text.trim());
+    const hasImage = Boolean(item.image && item.image.trim());
+
+    if (hasImage) {
+        const img = document.createElement('img');
+        img.className = 'welcome-popup__image';
+        img.src = item.image;
+        img.alt = item.text || 'Banner Notice';
+        img.onerror = () => { img.style.display = 'none'; };
+        container.appendChild(img);
+    }
+
+    if (hasText) {
+        const textWrap = document.createElement('div');
+        textWrap.className = 'welcome-popup__text-wrap';
+        textWrap.innerHTML = `<strong>JM Job:</strong> <span>${escapeHtml(item.text)}</span>`;
+        container.appendChild(textWrap);
+    }
+
+    if (!hasText && !hasImage) {
+        container.innerHTML = `<strong>JM Job:</strong> <span>Complete tasks, watch ads, refer friends, and withdraw anytime.</span>`;
     }
 }
 

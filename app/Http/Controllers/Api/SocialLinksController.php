@@ -72,7 +72,10 @@ class SocialLinksController extends Controller
             $default = [
                 'interval' => 4,
                 'notices' => [
-                    'Complete tasks, watch ads, refer friends, and withdraw anytime.'
+                    [
+                        'text' => 'Complete tasks, watch ads, refer friends, and withdraw anytime.',
+                        'image' => ''
+                    ]
                 ]
             ];
             file_put_contents($filePath, json_encode($default, JSON_PRETTY_PRINT));
@@ -82,9 +85,30 @@ class SocialLinksController extends Controller
         $content = file_get_contents($filePath);
         $data = json_decode($content, true) ?? [];
 
+        $rawNotices = is_array($data['notices'] ?? null) ? $data['notices'] : [];
+        $noticesList = [];
+
+        foreach ($rawNotices as $item) {
+            if (is_array($item)) {
+                $text = isset($item['text']) ? trim((string)$item['text']) : '';
+                $image = isset($item['image']) ? trim((string)$item['image']) : '';
+                if ($text !== '' || $image !== '') {
+                    $noticesList[] = ['text' => $text, 'image' => $image];
+                }
+            } elseif (is_string($item) && trim($item) !== '') {
+                $noticesList[] = ['text' => trim($item), 'image' => ''];
+            }
+        }
+
+        if (empty($noticesList)) {
+            $noticesList = [
+                ['text' => 'Complete tasks, watch ads, refer friends, and withdraw anytime.', 'image' => '']
+            ];
+        }
+
         return Response::json([
             'interval' => isset($data['interval']) ? (int)$data['interval'] : 4,
-            'notices'  => is_array($data['notices'] ?? null) ? $data['notices'] : ['Complete tasks, watch ads, refer friends, and withdraw anytime.']
+            'notices'  => $noticesList
         ]);
     }
 
@@ -92,16 +116,31 @@ class SocialLinksController extends Controller
     {
         $data = $request->all();
         $rawNotices = $data['notices'] ?? [];
-        if (is_string($rawNotices)) {
-            $noticesList = array_values(array_filter(array_map('trim', explode("\n", $rawNotices))));
-        } elseif (is_array($rawNotices)) {
-            $noticesList = array_values(array_filter(array_map(fn($v) => trim((string)$v), $rawNotices)));
-        } else {
-            $noticesList = [];
+        $noticesList = [];
+
+        if (is_array($rawNotices)) {
+            foreach ($rawNotices as $item) {
+                if (is_array($item)) {
+                    $text = isset($item['text']) ? trim((string)$item['text']) : '';
+                    $image = isset($item['image']) ? trim((string)$item['image']) : '';
+                    if ($text !== '' || $image !== '') {
+                        $noticesList[] = ['text' => $text, 'image' => $image];
+                    }
+                } elseif (is_string($item) && trim($item) !== '') {
+                    $noticesList[] = ['text' => trim($item), 'image' => ''];
+                }
+            }
+        } elseif (is_string($rawNotices)) {
+            $lines = array_values(array_filter(array_map('trim', explode("\n", $rawNotices))));
+            foreach ($lines as $line) {
+                $noticesList[] = ['text' => $line, 'image' => ''];
+            }
         }
 
         if (empty($noticesList)) {
-            $noticesList = ['Complete tasks, watch ads, refer friends, and withdraw anytime.'];
+            $noticesList = [
+                ['text' => 'Complete tasks, watch ads, refer friends, and withdraw anytime.', 'image' => '']
+            ];
         }
 
         $interval = isset($data['interval']) && (string)$data['interval'] !== '' ? (int)$data['interval'] : 4;

@@ -59,17 +59,25 @@ function render() {
 
     // Dynamic Banner Message Setting section
     const nd = _state.noticesData;
-    const noticesList = Array.isArray(nd.notices) && nd.notices.length ? nd.notices : ['Complete tasks, watch ads, refer friends, and withdraw anytime.'];
+    let noticesList = [];
+    if (Array.isArray(nd.notices) && nd.notices.length) {
+        noticesList = nd.notices.map(item => {
+            if (typeof item === 'string') return { text: item, image: '' };
+            return { text: item.text || '', image: item.image || '' };
+        });
+    } else {
+        noticesList = [{ text: 'Complete tasks, watch ads, refer friends, and withdraw anytime.', image: '' }];
+    }
     
     html += `
         <div class="card settings-group" style="margin-top:20px;">
             <h3 class="card__title"><i class="bi bi-megaphone me-2"></i>Banner Message Setting</h3>
-            <p class="muted mb-3" style="font-size:13px;">Manage banner messages displayed on the homepage dashboard. Click <strong>+ Add Message</strong> to add individual textboxes. Messages will rotate randomly after every specified interval.</p>
+            <p class="muted mb-3" style="font-size:13px;">Manage homepage banner items. Each item can contain <strong>Text Only</strong>, <strong>Image Only</strong>, or <strong>Text + Image</strong>. Click <strong>+ Add Banner Item</strong> to add items.</p>
             <div class="settings-group__rows">
                 <div class="settings-row">
                     <label for="notice-interval" class="settings-row__label">
                         <strong>Rotation Interval (seconds)</strong>
-                        <span class="muted">Time period before switching to a random banner message (default: 4 seconds).</span>
+                        <span class="muted">Time period before switching to a random banner item (default: 4 seconds).</span>
                     </label>
                     <div class="settings-row__control">
                         <input type="number" min="1" step="1" id="notice-interval" value="${nd.interval || 4}" placeholder="4" class="settings-row__input">
@@ -77,15 +85,15 @@ function render() {
                 </div>
                 <div class="settings-row settings-row--stack">
                     <div class="settings-row__label" style="margin-bottom:8px;">
-                        <strong>Banner Messages</strong>
-                        <span class="muted">Add separate textboxes for each message. A message will be chosen randomly after every interval.</span>
+                        <strong>Banner Items</strong>
+                        <span class="muted">Fill Text, Image URL, or both for each banner item. Items rotate randomly on the homepage.</span>
                     </div>
                     <div id="notice-messages-container" class="banner-messages-list">
-                        ${noticesList.map((msg, index) => messageInputRow(index + 1, msg)).join('')}
+                        ${noticesList.map((item, index) => messageInputRow(index + 1, item)).join('')}
                     </div>
-                    <div style="margin-top: 10px;">
+                    <div style="margin-top: 12px;">
                         <button type="button" class="btn btn--secondary btn--sm" id="add-notice-btn">
-                            <i class="bi bi-plus-circle-fill"></i> Add Message
+                            <i class="bi bi-plus-circle-fill"></i> Add Banner Item
                         </button>
                     </div>
                 </div>
@@ -145,14 +153,27 @@ function render() {
     wireNoticeDeleteButtons();
 }
 
-function messageInputRow(num, val = '') {
+function messageInputRow(num, item = { text: '', image: '' }) {
+    const textVal = typeof item === 'string' ? item : (item.text || '');
+    const imgVal = typeof item === 'object' && item ? (item.image || '') : '';
     return `
-        <div class="banner-message-row">
-            <span class="banner-message-num">Message ${num}:</span>
-            <input type="text" class="settings-row__input notice-msg-input" value="${escapeHtml(val)}" placeholder="e.g. Complete tasks, watch ads, refer friends...">
-            <button type="button" class="btn btn--danger btn--sm remove-notice-btn" title="Remove message">
-                <i class="bi bi-trash"></i>
-            </button>
+        <div class="banner-message-row card">
+            <div class="banner-message-row__header">
+                <span class="banner-message-num">Item ${num}</span>
+                <button type="button" class="btn btn--danger btn--sm remove-notice-btn" title="Remove item">
+                    <i class="bi bi-trash"></i> Remove
+                </button>
+            </div>
+            <div class="banner-message-row__fields">
+                <div class="banner-field">
+                    <label class="banner-field__label"><i class="bi bi-text-left"></i> Message Text (optional for Image Only)</label>
+                    <input type="text" class="settings-row__input notice-msg-text" value="${escapeHtml(textVal)}" placeholder="e.g. Complete tasks, watch ads, refer friends...">
+                </div>
+                <div class="banner-field">
+                    <label class="banner-field__label"><i class="bi bi-image"></i> Image URL (optional for Text Only)</label>
+                    <input type="url" class="settings-row__input notice-msg-image" value="${escapeHtml(imgVal)}" placeholder="https://example.com/banner-image.jpg">
+                </div>
+            </div>
         </div>
     `;
 }
@@ -162,7 +183,7 @@ function addNoticeRow() {
     if (!container) return;
     const count = container.querySelectorAll('.banner-message-row').length + 1;
     const div = document.createElement('div');
-    div.innerHTML = messageInputRow(count, '');
+    div.innerHTML = messageInputRow(count, { text: '', image: '' });
     const newRow = div.firstElementChild;
     container.appendChild(newRow);
     wireNoticeDeleteButtons();
@@ -175,7 +196,7 @@ function wireNoticeDeleteButtons() {
     const rows = container.querySelectorAll('.banner-message-row');
     rows.forEach((row, i) => {
         const numLabel = row.querySelector('.banner-message-num');
-        if (numLabel) numLabel.textContent = `Message ${i + 1}:`;
+        if (numLabel) numLabel.textContent = `Item ${i + 1}`;
         const delBtn = row.querySelector('.remove-notice-btn');
         if (delBtn) {
             delBtn.onclick = () => {
@@ -183,7 +204,7 @@ function wireNoticeDeleteButtons() {
                     row.remove();
                     wireNoticeDeleteButtons();
                 } else {
-                    showFlash('At least one message textbox is required.', 'warning');
+                    showFlash('At least one banner item is required.', 'warning');
                 }
             };
         }
@@ -245,12 +266,16 @@ async function saveAll() {
         telegram: document.getElementById('social-telegram')?.value || '',
     };
 
-    const msgInputs = Array.from(document.querySelectorAll('.notice-msg-input'));
-    const noticesList = msgInputs.map(input => input.value.trim()).filter(Boolean);
+    const rows = Array.from(document.querySelectorAll('.banner-message-row'));
+    const noticesList = rows.map(row => {
+        const text = row.querySelector('.notice-msg-text')?.value.trim() || '';
+        const image = row.querySelector('.notice-msg-image')?.value.trim() || '';
+        return { text, image };
+    }).filter(item => item.text !== '' || item.image !== '');
 
     const noticeUpdates = {
         interval: document.getElementById('notice-interval')?.value || 4,
-        notices: noticesList.length ? noticesList : ['Complete tasks, watch ads, refer friends, and withdraw anytime.'],
+        notices: noticesList.length ? noticesList : [{ text: 'Complete tasks, watch ads, refer friends, and withdraw anytime.', image: '' }],
     };
 
     const btn = document.getElementById('settings-save-btn');

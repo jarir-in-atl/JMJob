@@ -234,10 +234,30 @@ button { font-family: inherit; cursor: pointer; }
     font-size: 13px;
 }
 .welcome-popup strong { color: #92400e; }
+.welcome-popup__content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+    transition: opacity 0.2s ease;
+}
+.welcome-popup__image {
+    max-height: 100px;
+    max-width: 220px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+}
+.welcome-popup__text-wrap {
+    flex: 1;
+    min-width: 0;
+}
 .welcome-popup__close {
     margin-left: auto; padding: 6px 12px;
     background: #fbbf24; color: #fff; border: none; border-radius: 6px;
     font-weight: 600; cursor: pointer;
+    flex-shrink: 0;
 }
 
 /* ---------- Ad progress ---------- */
@@ -1547,20 +1567,43 @@ button { font-family: inherit; cursor: pointer; }
 }
 .banner-message-row {
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: 10px;
-    width: 100%;
+    padding: 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+.banner-message-row__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
 }
 .banner-message-num {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text);
-    white-space: nowrap;
-    min-width: 85px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--primary);
 }
-.banner-message-row .notice-msg-input {
-    flex: 1;
-    min-width: 0;
+.banner-message-row__fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+.banner-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.banner-field__label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+}
+@media (max-width: 600px) {
+    .banner-message-row__fields {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* Categories page */
