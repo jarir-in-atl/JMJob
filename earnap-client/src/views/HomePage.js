@@ -63,15 +63,7 @@ async function renderDynamicBanner(root) {
         const banner = el('div', 'welcome-popup welcome-popup--banner', '');
         banner.innerHTML = `
             <div id="notice-banner-content" class="welcome-popup__content"></div>
-            <button class="welcome-popup__close" aria-label="Close">Got it</button>
         `;
-        banner.querySelector('button').addEventListener('click', () => {
-            if (bannerTimer) {
-                clearInterval(bannerTimer);
-                bannerTimer = null;
-            }
-            banner.remove();
-        });
         if (root.firstChild) {
             root.insertBefore(banner, root.firstChild);
         } else {
