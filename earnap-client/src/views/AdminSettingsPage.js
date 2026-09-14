@@ -57,27 +57,25 @@ function render() {
         </div>
     `).join('');
 
-    // Dynamic Banner Message Setting section
+    // Dynamic Image Banner Setting section
     const nd = _state.noticesData;
     let noticesList = [];
     if (Array.isArray(nd.notices) && nd.notices.length) {
         noticesList = nd.notices.map(item => {
-            if (typeof item === 'string') return { text: item, image: '' };
-            return { text: item.text || '', image: item.image || '' };
-        });
-    } else {
-        noticesList = [{ text: 'Complete tasks, watch ads, refer friends, and withdraw anytime.', image: '' }];
+            if (typeof item === 'string') return { image: item };
+            return { image: item.image || '' };
+        }).filter(item => item.image);
     }
     
     html += `
         <div class="card settings-group" style="margin-top:20px;">
-            <h3 class="card__title"><i class="bi bi-megaphone me-2"></i>Banner Message Setting</h3>
-            <p class="muted mb-3" style="font-size:13px;">Manage homepage banner items. Each item can contain <strong>Text Only</strong>, <strong>Image Only</strong>, or <strong>Text + Image</strong>. Click <strong>+ Add Banner Item</strong> to add items.</p>
+            <h3 class="card__title"><i class="bi bi-image me-2"></i>Banner Setting (Image Only)</h3>
+            <p class="muted mb-3" style="font-size:13px;">Upload banner images to display on the homepage dashboard. Click <strong>+ Add Banner Image</strong> to upload images directly. Banners rotate randomly after every specified interval.</p>
             <div class="settings-group__rows">
                 <div class="settings-row">
                     <label for="notice-interval" class="settings-row__label">
                         <strong>Rotation Interval (seconds)</strong>
-                        <span class="muted">Time period before switching to a random banner item (default: 4 seconds).</span>
+                        <span class="muted">Time period before switching to a random banner image (default: 4 seconds).</span>
                     </label>
                     <div class="settings-row__control">
                         <input type="number" min="1" step="1" id="notice-interval" value="${nd.interval || 4}" placeholder="4" class="settings-row__input">
@@ -85,15 +83,15 @@ function render() {
                 </div>
                 <div class="settings-row settings-row--stack">
                     <div class="settings-row__label" style="margin-bottom:8px;">
-                        <strong>Banner Items</strong>
-                        <span class="muted">Fill Text, Image URL, or both for each banner item. Items rotate randomly on the homepage.</span>
+                        <strong>Banner Images</strong>
+                        <span class="muted">Upload image files directly (JPG, PNG, WEBP, GIF).</span>
                     </div>
                     <div id="notice-messages-container" class="banner-messages-list">
                         ${noticesList.map((item, index) => messageInputRow(index + 1, item)).join('')}
                     </div>
                     <div style="margin-top: 12px;">
                         <button type="button" class="btn btn--secondary btn--sm" id="add-notice-btn">
-                            <i class="bi bi-plus-circle-fill"></i> Add Banner Item
+                            <i class="bi bi-plus-circle-fill"></i> Add Banner Image
                         </button>
                     </div>
                 </div>
@@ -150,28 +148,30 @@ function render() {
     c.innerHTML = html;
     document.getElementById('settings-save-btn').addEventListener('click', saveAll);
     document.getElementById('add-notice-btn').addEventListener('click', addNoticeRow);
-    wireNoticeDeleteButtons();
+    wireNoticeUploadAndButtons();
 }
 
-function messageInputRow(num, item = { text: '', image: '' }) {
-    const textVal = typeof item === 'string' ? item : (item.text || '');
-    const imgVal = typeof item === 'object' && item ? (item.image || '') : '';
+function messageInputRow(num, item = { image: '' }) {
+    const imgVal = typeof item === 'string' ? item : (item?.image || '');
     return `
         <div class="banner-message-row card">
             <div class="banner-message-row__header">
-                <span class="banner-message-num">Item ${num}</span>
-                <button type="button" class="btn btn--danger btn--sm remove-notice-btn" title="Remove item">
+                <span class="banner-message-num">Banner ${num}</span>
+                <button type="button" class="btn btn--danger btn--sm remove-notice-btn" title="Remove banner">
                     <i class="bi bi-trash"></i> Remove
                 </button>
             </div>
             <div class="banner-message-row__fields">
-                <div class="banner-field">
-                    <label class="banner-field__label"><i class="bi bi-text-left"></i> Message Text (optional for Image Only)</label>
-                    <input type="text" class="settings-row__input notice-msg-text" value="${escapeHtml(textVal)}" placeholder="e.g. Complete tasks, watch ads, refer friends...">
-                </div>
-                <div class="banner-field">
-                    <label class="banner-field__label"><i class="bi bi-image"></i> Image URL (optional for Text Only)</label>
-                    <input type="url" class="settings-row__input notice-msg-image" value="${escapeHtml(imgVal)}" placeholder="https://example.com/banner-image.jpg">
+                <div class="banner-field banner-field--full">
+                    ${imgVal ? `<div class="banner-preview"><img src="${escapeHtml(imgVal)}" alt="Banner preview"></div>` : '<div class="banner-preview banner-preview--empty"><i class="bi bi-image muted"></i> No image uploaded</div>'}
+                    <input type="hidden" class="notice-msg-image" value="${escapeHtml(imgVal)}">
+                    <div class="banner-upload-ctrl" style="margin-top:8px;">
+                        <label class="btn btn--secondary btn--sm banner-upload-btn">
+                            <i class="bi bi-cloud-upload"></i> ${imgVal ? 'Change Image' : 'Upload Image'}
+                            <input type="file" class="banner-file-input" accept="image/*" style="display:none;">
+                        </label>
+                        <span class="banner-upload-status muted" style="font-size:12px; margin-left:8px;"></span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -183,29 +183,54 @@ function addNoticeRow() {
     if (!container) return;
     const count = container.querySelectorAll('.banner-message-row').length + 1;
     const div = document.createElement('div');
-    div.innerHTML = messageInputRow(count, { text: '', image: '' });
+    div.innerHTML = messageInputRow(count, { image: '' });
     const newRow = div.firstElementChild;
     container.appendChild(newRow);
-    wireNoticeDeleteButtons();
-    newRow.querySelector('input')?.focus();
+    wireNoticeUploadAndButtons();
 }
 
-function wireNoticeDeleteButtons() {
+function wireNoticeUploadAndButtons() {
     const container = document.getElementById('notice-messages-container');
     if (!container) return;
     const rows = container.querySelectorAll('.banner-message-row');
     rows.forEach((row, i) => {
         const numLabel = row.querySelector('.banner-message-num');
-        if (numLabel) numLabel.textContent = `Item ${i + 1}`;
+        if (numLabel) numLabel.textContent = `Banner ${i + 1}`;
+
+        const fileInput = row.querySelector('.banner-file-input');
+        const hiddenInput = row.querySelector('.notice-msg-image');
+        const previewBox = row.querySelector('.banner-preview');
+        const statusSpan = row.querySelector('.banner-upload-status');
+        const uploadBtn = row.querySelector('.banner-upload-btn');
+
+        if (fileInput && !fileInput.dataset.wired) {
+            fileInput.dataset.wired = 'true';
+            fileInput.addEventListener('change', async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                if (statusSpan) statusSpan.textContent = 'Uploading…';
+                try {
+                    const formData = new FormData();
+                    formData.append('image', file);
+                    const res = await api.adminUploadBannerImage(formData);
+                    if (res && res.url) {
+                        hiddenInput.value = res.url;
+                        previewBox.className = 'banner-preview';
+                        previewBox.innerHTML = `<img src="${escapeHtml(res.url)}" alt="Banner preview">`;
+                        if (statusSpan) statusSpan.textContent = 'Uploaded!';
+                    }
+                } catch (err) {
+                    if (statusSpan) statusSpan.textContent = err.message || 'Upload failed.';
+                    showFlash(err.message || 'Failed to upload image.', 'error');
+                }
+            });
+        }
+
         const delBtn = row.querySelector('.remove-notice-btn');
         if (delBtn) {
             delBtn.onclick = () => {
-                if (container.querySelectorAll('.banner-message-row').length > 1) {
-                    row.remove();
-                    wireNoticeDeleteButtons();
-                } else {
-                    showFlash('At least one banner item is required.', 'warning');
-                }
+                row.remove();
+                wireNoticeUploadAndButtons();
             };
         }
     });
@@ -268,14 +293,13 @@ async function saveAll() {
 
     const rows = Array.from(document.querySelectorAll('.banner-message-row'));
     const noticesList = rows.map(row => {
-        const text = row.querySelector('.notice-msg-text')?.value.trim() || '';
         const image = row.querySelector('.notice-msg-image')?.value.trim() || '';
-        return { text, image };
-    }).filter(item => item.text !== '' || item.image !== '');
+        return { image };
+    }).filter(item => item.image !== '');
 
     const noticeUpdates = {
         interval: document.getElementById('notice-interval')?.value || 4,
-        notices: noticesList.length ? noticesList : [{ text: 'Complete tasks, watch ads, refer friends, and withdraw anytime.', image: '' }],
+        notices: noticesList,
     };
 
     const btn = document.getElementById('settings-save-btn');

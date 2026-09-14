@@ -44,36 +44,33 @@ async function renderDynamicBanner(root) {
         bannerTimer = null;
     }
 
-    const banner = el('div', 'welcome-popup welcome-popup--banner', '');
-    banner.innerHTML = `
-        <div id="notice-banner-content" class="welcome-popup__content">
-            <span id="notice-banner-text">Loading updates…</span>
-        </div>
-        <button class="welcome-popup__close" aria-label="Close">Got it</button>
-    `;
-    banner.querySelector('button').addEventListener('click', () => {
-        if (bannerTimer) {
-            clearInterval(bannerTimer);
-            bannerTimer = null;
-        }
-        banner.remove();
-    });
-    root.appendChild(banner);
-
-    const contentBox = banner.querySelector('#notice-banner-content');
-
     try {
         const res = await api.notices();
         let rawNotices = Array.isArray(res.notices) && res.notices.length ? res.notices : [];
         const notices = rawNotices.map(item => {
-            if (typeof item === 'string') return { text: item, image: '' };
-            return { text: item.text || '', image: item.image || '' };
-        }).filter(item => item.text || item.image);
+            if (typeof item === 'string') return { image: item };
+            return { image: item.image || '' };
+        }).filter(item => item.image && item.image.trim());
 
         if (!notices.length) {
-            notices.push({ text: 'Complete tasks, watch ads, refer friends, and withdraw anytime.', image: '' });
+            return; // No banner images uploaded/configured
         }
 
+        const banner = el('div', 'welcome-popup welcome-popup--banner', '');
+        banner.innerHTML = `
+            <div id="notice-banner-content" class="welcome-popup__content"></div>
+            <button class="welcome-popup__close" aria-label="Close">Got it</button>
+        `;
+        banner.querySelector('button').addEventListener('click', () => {
+            if (bannerTimer) {
+                clearInterval(bannerTimer);
+                bannerTimer = null;
+            }
+            banner.remove();
+        });
+        root.appendChild(banner);
+
+        const contentBox = banner.querySelector('#notice-banner-content');
         const intervalSec = (typeof res.interval === 'number' && res.interval > 0) ? res.interval : 4;
 
         let index = 0;
@@ -94,33 +91,19 @@ async function renderDynamicBanner(root) {
             }, intervalSec * 1000);
         }
     } catch (e) {
-        renderBannerItem(contentBox, { text: 'Complete tasks, watch ads, refer friends, and withdraw anytime.', image: '' });
+        // Silently skip if error loading notices
     }
 }
 
 function renderBannerItem(container, item) {
     container.innerHTML = '';
-    const hasText = Boolean(item.text && item.text.trim());
-    const hasImage = Boolean(item.image && item.image.trim());
-
-    if (hasImage) {
+    if (item && item.image) {
         const img = document.createElement('img');
         img.className = 'welcome-popup__image';
         img.src = item.image;
-        img.alt = item.text || 'Banner Notice';
+        img.alt = 'Banner Notice';
         img.onerror = () => { img.style.display = 'none'; };
         container.appendChild(img);
-    }
-
-    if (hasText) {
-        const textWrap = document.createElement('div');
-        textWrap.className = 'welcome-popup__text-wrap';
-        textWrap.innerHTML = `<strong>JM Job:</strong> <span>${escapeHtml(item.text)}</span>`;
-        container.appendChild(textWrap);
-    }
-
-    if (!hasText && !hasImage) {
-        container.innerHTML = `<strong>JM Job:</strong> <span>Complete tasks, watch ads, refer friends, and withdraw anytime.</span>`;
     }
 }
 

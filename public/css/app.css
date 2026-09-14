@@ -1585,25 +1585,35 @@ button { font-family: inherit; cursor: pointer; }
     font-weight: 700;
     color: var(--primary);
 }
-.banner-message-row__fields {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
+.banner-field--full {
+    width: 100%;
 }
-.banner-field {
+.banner-preview {
+    width: 100%;
+    max-height: 140px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--card);
+    border: 1px solid var(--border);
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    justify-content: center;
 }
-.banner-field__label {
-    font-size: 12px;
-    font-weight: 600;
+.banner-preview img {
+    width: 100%;
+    max-height: 140px;
+    object-fit: cover;
+    display: block;
+}
+.banner-preview--empty {
+    padding: 16px;
     color: var(--muted);
+    font-size: 13px;
+    gap: 8px;
 }
-@media (max-width: 600px) {
-    .banner-message-row__fields {
-        grid-template-columns: 1fr;
-    }
+.banner-upload-ctrl {
+    display: flex;
+    align-items: center;
 }
 
 /* Categories page */

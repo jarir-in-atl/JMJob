@@ -133,6 +133,7 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
             $r->add('POST', '/admin/settings',                        [AdminSettingsController::class, 'updateSettings']);
             $r->add('POST', '/admin/social-links',                    [SocialLinksController::class, 'update']);
             $r->add('POST', '/admin/notices',                         [SocialLinksController::class, 'updateNotices']);
+            $r->add('POST', '/admin/notices/upload',                  [SocialLinksController::class, 'uploadBannerImage']);
 
             // Transactions ledger + revenue stats
             $r->get('/admin/transactions',                           [AdminSettingsController::class, 'transactions'],    'admin.transactions');

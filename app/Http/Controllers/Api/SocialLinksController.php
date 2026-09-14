@@ -90,20 +90,13 @@ class SocialLinksController extends Controller
 
         foreach ($rawNotices as $item) {
             if (is_array($item)) {
-                $text = isset($item['text']) ? trim((string)$item['text']) : '';
                 $image = isset($item['image']) ? trim((string)$item['image']) : '';
-                if ($text !== '' || $image !== '') {
-                    $noticesList[] = ['text' => $text, 'image' => $image];
+                if ($image !== '') {
+                    $noticesList[] = ['image' => $image];
                 }
             } elseif (is_string($item) && trim($item) !== '') {
-                $noticesList[] = ['text' => trim($item), 'image' => ''];
+                $noticesList[] = ['image' => trim($item)];
             }
-        }
-
-        if (empty($noticesList)) {
-            $noticesList = [
-                ['text' => 'Complete tasks, watch ads, refer friends, and withdraw anytime.', 'image' => '']
-            ];
         }
 
         return Response::json([
@@ -121,26 +114,14 @@ class SocialLinksController extends Controller
         if (is_array($rawNotices)) {
             foreach ($rawNotices as $item) {
                 if (is_array($item)) {
-                    $text = isset($item['text']) ? trim((string)$item['text']) : '';
                     $image = isset($item['image']) ? trim((string)$item['image']) : '';
-                    if ($text !== '' || $image !== '') {
-                        $noticesList[] = ['text' => $text, 'image' => $image];
+                    if ($image !== '') {
+                        $noticesList[] = ['image' => $image];
                     }
                 } elseif (is_string($item) && trim($item) !== '') {
-                    $noticesList[] = ['text' => trim($item), 'image' => ''];
+                    $noticesList[] = ['image' => trim($item)];
                 }
             }
-        } elseif (is_string($rawNotices)) {
-            $lines = array_values(array_filter(array_map('trim', explode("\n", $rawNotices))));
-            foreach ($lines as $line) {
-                $noticesList[] = ['text' => $line, 'image' => ''];
-            }
-        }
-
-        if (empty($noticesList)) {
-            $noticesList = [
-                ['text' => 'Complete tasks, watch ads, refer friends, and withdraw anytime.', 'image' => '']
-            ];
         }
 
         $interval = isset($data['interval']) && (string)$data['interval'] !== '' ? (int)$data['interval'] : 4;
@@ -155,8 +136,50 @@ class SocialLinksController extends Controller
         file_put_contents($filePath, json_encode($validated, JSON_PRETTY_PRINT));
 
         return Response::json([
-            'message' => 'Notices updated successfully',
+            'message' => 'Banner images updated successfully',
             'data' => $validated
+        ]);
+    }
+
+    public function uploadBannerImage(Request $request): Response
+    {
+        if (empty($_FILES['image']) || $_FILES['image']['error'] !== UPLOAD_ERR_OK) {
+            return Response::json(['message' => 'No valid image file uploaded.'], 400);
+        }
+
+        $file = $_FILES['image'];
+        $tmpPath = $file['tmp_name'];
+        $origName = $file['name'];
+        $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+
+        $allowedExts = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+        if (!in_array($ext, $allowedExts, true)) {
+            return Response::json(['message' => 'Invalid image format. Allowed: JPG, PNG, GIF, WEBP.'], 400);
+        }
+
+        // Upload directory in public/uploads/banners
+        if (function_exists('public_path')) {
+            $uploadDir = public_path('uploads/banners');
+        } else {
+            $uploadDir = dirname(__DIR__, 3) . '/public/uploads/banners';
+        }
+
+        if (!is_dir($uploadDir)) {
+            mkdir($uploadDir, 0755, true);
+        }
+
+        $newFilename = 'banner_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+        $destPath = $uploadDir . '/' . $newFilename;
+
+        if (!move_uploaded_file($tmpPath, $destPath)) {
+            return Response::json(['message' => 'Failed to save uploaded banner image.'], 500);
+        }
+
+        $url = '/uploads/banners/' . $newFilename;
+
+        return Response::json([
+            'message' => 'Image uploaded successfully',
+            'url' => $url
         ]);
     }
 }

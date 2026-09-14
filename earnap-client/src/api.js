@@ -169,9 +169,19 @@ export const api = {
     socialLinks:          () => request('/social-links'),
     adminUpdateSocialLinks: (body) => request('/admin/social-links', { method: 'POST', body }),
 
-    // Dynamic Notices
+    // Dynamic Notices & Banners
     notices:              () => request('/notices'),
     adminUpdateNotices:   (body) => request('/admin/notices', { method: 'POST', body }),
+    adminUploadBannerImage: async (formData) => {
+        const url = cfg.apiBase + '/admin/notices/upload';
+        const headers = {};
+        const token = getAuthToken();
+        if (token) headers.Authorization = `Bearer ${token}`;
+        const res = await fetch(url, { method: 'POST', headers, body: formData });
+        const data = await res.json();
+        if (!res.ok) throw new ApiError(data.message || 'Upload failed', res.status, data);
+        return data;
+    },
 
     adminJobs:                  (status = '') => request(`/admin/jobs${status ? `?status=${encodeURIComponent(status)}` : ''}`),
     adminFlagJobDispute:        (id) => request(`/admin/jobs/${id}/dispute`, { method: 'POST' }),
