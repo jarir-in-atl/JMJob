@@ -35,13 +35,10 @@ export function PostJobPage() {
                         <label>Budget (৳)
                             <input name="budget" type="number" min="1" step="0.01" required placeholder="100.00">
                         </label>
-                        <label>Bidding window
-                            <select name="bidding_window_hours">
-                                <option value="24">24 hours</option>
-                                <option value="72" selected>3 days</option>
-                                <option value="168">7 days</option>
-                                <option value="336">14 days</option>
-                            </select>
+                        <label>
+                            Bidding window (hours)
+                            <i class="bi bi-info-circle" title="Set 0 for unlimited" style="margin-left: 5px; color: var(--muted, #6b7280); cursor: help;"></i>
+                            <input name="bidding_window_hours" type="number" min="0" step="1" value="72" placeholder="72 (Set 0 for unlimited)" required>
                         </label>
                     </div>
                     <label>Deadline (optional)

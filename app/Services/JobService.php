@@ -260,8 +260,8 @@ class JobService
         if ($category === null || !$category->isActive()) {
             return ['success' => false, 'message' => 'Invalid or inactive category.'];
         }
-        $windowHours = $biddingWindowHours ?? (int) SettingService::get('ad_bidding_window_hours', 72);
-        $biddingClosesAt = date('Y-m-d H:i:s', time() + $windowHours * 3600);
+        $windowHours = $biddingWindowHours !== null ? (int) $biddingWindowHours : (int) SettingService::get('ad_bidding_window_hours', 72);
+        $biddingClosesAt = $windowHours > 0 ? date('Y-m-d H:i:s', time() + $windowHours * 3600) : null;
         $slug = self::makeUniqueSlug($title);
 
         $id = (int) Fluent::table('jobs')->insert([
