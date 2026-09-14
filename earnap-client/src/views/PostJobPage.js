@@ -35,11 +35,21 @@ export function PostJobPage() {
                         <label>Budget (৳)
                             <input name="budget" type="number" min="1" step="0.01" required placeholder="100.00">
                         </label>
-                        <label>
-                            Bidding window (hours)
-                            <i class="bi bi-info-circle" title="Set 0 for unlimited" style="margin-left: 5px; color: var(--muted, #6b7280); cursor: help;"></i>
-                            <input name="bidding_window_hours" type="number" min="0" step="1" value="72" placeholder="72 (Set 0 for unlimited)" required>
-                        </label>
+                        <div class="poster-form__field">
+                            <label for="bidding-window-val" style="display:inline-flex; align-items:center; gap:6px; font-weight:600; margin-bottom:6px;">
+                                <span>Bidding window</span>
+                                <i class="bi bi-info-circle" title="Set 0 for unlimited" style="color: var(--muted, #6b7280); cursor: help; font-size: 14px;"></i>
+                            </label>
+                            <div style="display:flex; gap:8px;">
+                                <input id="bidding-window-val" type="number" min="0" step="any" value="3" placeholder="3" style="flex:1;" required>
+                                <select id="bidding-window-unit" style="width:120px;">
+                                    <option value="minutes">Minutes</option>
+                                    <option value="hours">Hours</option>
+                                    <option value="days" selected>Days</option>
+                                    <option value="months">Months</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
                     <label>Deadline (optional)
                         <input name="deadline_at" type="datetime-local">
@@ -79,6 +89,17 @@ function wireForm(root) {
         const button = root.querySelector('#post-job-submit');
         button.disabled = true;
         button.textContent = 'Publishing…';
+
+        const val = Number(root.querySelector('#bidding-window-val')?.value || 0);
+        const unit = root.querySelector('#bidding-window-unit')?.value || 'days';
+        let windowHours = 0;
+        if (val > 0) {
+            if (unit === 'minutes') windowHours = val / 60;
+            else if (unit === 'hours') windowHours = val;
+            else if (unit === 'days') windowHours = val * 24;
+            else if (unit === 'months') windowHours = val * 24 * 30;
+        }
+
         try {
             await api.posterCreateJob({
                 category_id: Number(fields.get('category_id')),
@@ -87,7 +108,7 @@ function wireForm(root) {
                 requirements: String(fields.get('requirements') || '').trim() || null,
                 budget: Number(fields.get('budget')),
                 deadline_at: toSqlDate(fields.get('deadline_at')),
-                bidding_window_hours: Number(fields.get('bidding_window_hours')),
+                bidding_window_hours: windowHours,
             });
             showFlash('Job published successfully.', 'success');
             navigate('/poster/jobs');

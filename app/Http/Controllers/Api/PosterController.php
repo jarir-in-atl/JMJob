@@ -65,7 +65,7 @@ class PosterController extends Controller
         $requirements   = isset($body['requirements']) ? (string) $body['requirements'] : null;
         $budget         = (float)  ($body['budget'] ?? 0);
         $deadlineAt     = isset($body['deadline_at']) ? (string) $body['deadline_at'] : null;
-        $windowHours    = isset($body['bidding_window_hours']) ? (int) $body['bidding_window_hours'] : null;
+        $windowHours    = isset($body['bidding_window_hours']) ? (float) $body['bidding_window_hours'] : null;
 
         if ($categoryId <= 0 || $title === '' || $description === '' || $budget <= 0) {
             return Response::json(['success' => false, 'message' => 'category_id, title, description, budget are required.'], 422);
