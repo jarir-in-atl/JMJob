@@ -48,12 +48,16 @@ async function renderDynamicBanner(root) {
         const res = await api.notices();
         let rawNotices = Array.isArray(res.notices) && res.notices.length ? res.notices : [];
         const notices = rawNotices.map(item => {
-            if (typeof item === 'string') return { image: item };
-            return { image: item.image || '' };
-        }).filter(item => item.image && item.image.trim());
+            if (typeof item === 'string') {
+                const val = item.trim();
+                if (val.startsWith('/') || val.startsWith('http')) return { image: val, text: '' };
+                return { image: '', text: val };
+            }
+            return { image: item.image || '', text: item.text || '' };
+        }).filter(item => (item.image && item.image.trim()) || (item.text && item.text.trim()));
 
         if (!notices.length) {
-            return; // No banner images uploaded/configured
+            notices.push({ text: 'Complete tasks, watch ads, refer friends, and withdraw anytime.', image: '' });
         }
 
         const banner = el('div', 'welcome-popup welcome-popup--banner', '');
@@ -97,13 +101,23 @@ async function renderDynamicBanner(root) {
 
 function renderBannerItem(container, item) {
     container.innerHTML = '';
-    if (item && item.image) {
+    const hasText = Boolean(item && item.text && item.text.trim());
+    const hasImage = Boolean(item && item.image && item.image.trim());
+
+    if (hasImage) {
         const img = document.createElement('img');
         img.className = 'welcome-popup__image';
         img.src = item.image;
-        img.alt = 'Banner Notice';
+        img.alt = item.text || 'Banner Notice';
         img.onerror = () => { img.style.display = 'none'; };
         container.appendChild(img);
+    }
+
+    if (hasText) {
+        const textWrap = document.createElement('div');
+        textWrap.className = 'welcome-popup__text-wrap';
+        textWrap.innerHTML = `<strong>JM Job:</strong> <span>${escapeHtml(item.text)}</span>`;
+        container.appendChild(textWrap);
     }
 }
 

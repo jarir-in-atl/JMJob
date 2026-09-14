@@ -90,12 +90,19 @@ class SocialLinksController extends Controller
 
         foreach ($rawNotices as $item) {
             if (is_array($item)) {
+                $text = isset($item['text']) ? trim((string)$item['text']) : '';
                 $image = isset($item['image']) ? trim((string)$item['image']) : '';
-                if ($image !== '') {
-                    $noticesList[] = ['image' => $image];
+                if ($text !== '' || $image !== '') {
+                    $noticesList[] = ['text' => $text, 'image' => $image];
                 }
             } elseif (is_string($item) && trim($item) !== '') {
-                $noticesList[] = ['image' => trim($item)];
+                // If it's a URL (starts with / or http), treat as image, otherwise text
+                $val = trim($item);
+                if (str_starts_with($val, '/') || str_starts_with($val, 'http')) {
+                    $noticesList[] = ['text' => '', 'image' => $val];
+                } else {
+                    $noticesList[] = ['text' => $val, 'image' => ''];
+                }
             }
         }
 

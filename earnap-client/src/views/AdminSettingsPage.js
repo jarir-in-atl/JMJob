@@ -62,9 +62,15 @@ function render() {
     let noticesList = [];
     if (Array.isArray(nd.notices) && nd.notices.length) {
         noticesList = nd.notices.map(item => {
-            if (typeof item === 'string') return { image: item };
-            return { image: item.image || '' };
-        }).filter(item => item.image);
+            if (typeof item === 'string') {
+                if (item.startsWith('/') || item.startsWith('http')) return { image: item, text: '' };
+                return { image: '', text: item };
+            }
+            return { image: item.image || '', text: item.text || '' };
+        });
+    }
+    if (!noticesList.length) {
+        noticesList = [{ image: '', text: '' }];
     }
     
     html += `
@@ -151,8 +157,19 @@ function render() {
     wireNoticeUploadAndButtons();
 }
 
-function messageInputRow(num, item = { image: '' }) {
-    const imgVal = typeof item === 'string' ? item : (item?.image || '');
+function messageInputRow(num, item = { image: '', text: '' }) {
+    const imgVal = typeof item === 'string' ? (item.startsWith('/') || item.startsWith('http') ? item : '') : (item?.image || '');
+    const textVal = typeof item === 'string' ? (!item.startsWith('/') && !item.startsWith('http') ? item : '') : (item?.text || '');
+    
+    let previewHtml = '';
+    if (imgVal) {
+        previewHtml = `<div class="banner-preview"><img src="${escapeHtml(imgVal)}" alt="Banner preview"></div>`;
+    } else if (textVal) {
+        previewHtml = `<div class="banner-preview banner-preview--text"><strong>Text Notice:</strong> <span>${escapeHtml(textVal)}</span></div>`;
+    } else {
+        previewHtml = `<div class="banner-preview banner-preview--empty"><i class="bi bi-image muted"></i> No image uploaded</div>`;
+    }
+
     return `
         <div class="banner-message-row card">
             <div class="banner-message-row__header">
@@ -163,7 +180,7 @@ function messageInputRow(num, item = { image: '' }) {
             </div>
             <div class="banner-message-row__fields">
                 <div class="banner-field banner-field--full">
-                    ${imgVal ? `<div class="banner-preview"><img src="${escapeHtml(imgVal)}" alt="Banner preview"></div>` : '<div class="banner-preview banner-preview--empty"><i class="bi bi-image muted"></i> No image uploaded</div>'}
+                    ${previewHtml}
                     <input type="hidden" class="notice-msg-image" value="${escapeHtml(imgVal)}">
                     <div class="banner-upload-ctrl" style="margin-top:8px;">
                         <label class="btn btn--secondary btn--sm banner-upload-btn">
