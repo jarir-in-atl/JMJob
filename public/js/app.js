@@ -2,7 +2,7 @@ var tr=Object.defineProperty;var f=(e,t)=>()=>(e&&(t=e(e=0)),t);var w=(e,t)=>{fo
         <strong>JM Job:</strong>
         <span id="notice-banner-text">Loading updates\u2026</span>
         <button class="welcome-popup__close" aria-label="Close">Got it</button>
-    `,t.querySelector("button").addEventListener("click",()=>{X&&(clearInterval(X),X=null),t.remove()}),e.appendChild(t);let a=t.querySelector("#notice-banner-text");try{let s=await c.notices(),r=Array.isArray(s.notices)&&s.notices.length?s.notices:["Complete tasks, watch ads, refer friends, and withdraw anytime."],i=typeof s.interval=="number"&&s.interval>0?s.interval:4,n=0;a.textContent=r[0],r.length>1&&(X=setInterval(()=>{n=(n+1)%r.length,a.style.opacity="0",setTimeout(()=>{a.textContent=r[n],a.style.opacity="1"},200)},i*1e3))}catch{a.textContent="Complete tasks, watch ads, refer friends, and withdraw anytime."}}function gr(e){let t=Y("div","card card--user-header"),a=Y("div","user-header__stats");return a.innerHTML=`
+    `,t.querySelector("button").addEventListener("click",()=>{X&&(clearInterval(X),X=null),t.remove()}),e.appendChild(t);let a=t.querySelector("#notice-banner-text");try{let s=await c.notices(),r=Array.isArray(s.notices)&&s.notices.length?s.notices:["Complete tasks, watch ads, refer friends, and withdraw anytime."],i=typeof s.interval=="number"&&s.interval>0?s.interval:4,n=0;a.textContent=r[0],r.length>1&&(X=setInterval(()=>{let o;do o=Math.floor(Math.random()*r.length);while(o===n&&r.length>1);n=o,a.style.opacity="0",setTimeout(()=>{a.textContent=r[n],a.style.opacity="1"},200)},i*1e3))}catch{a.textContent="Complete tasks, watch ads, refer friends, and withdraw anytime."}}function gr(e){let t=Y("div","card card--user-header"),a=Y("div","user-header__stats");return a.innerHTML=`
         <div class="user-header__stat">
             <span class="metric__label">Balance</span>
             <strong class="metric__value--primary">$${e?parseFloat(e.balance).toFixed(2):"0.00"}</strong>
@@ -1366,13 +1366,13 @@ var tr=Object.defineProperty;var f=(e,t)=>()=>(e&&(t=e(e=0)),t);var w=(e,t)=>{fo
     `).join(""),s=O.noticesData,r=Array.isArray(s.notices)?s.notices.join(`
 `):"";a+=`
         <div class="card settings-group" style="margin-top:20px;">
-            <h3 class="card__title"><i class="bi bi-megaphone me-2"></i>Homepage Popup Banner Notices</h3>
-            <p class="muted mb-3" style="font-size:13px;">Manage notices displayed at the top of the user dashboard. Enter <strong>one notice per line</strong> to show multiple notices in rotaton.</p>
+            <h3 class="card__title"><i class="bi bi-megaphone me-2"></i>Banner Message Setting</h3>
+            <p class="muted mb-3" style="font-size:13px;">Manage banner messages displayed on the homepage dashboard. Enter <strong>multiple messages (one per line)</strong> to rotate them randomly after every specified interval.</p>
             <div class="settings-group__rows">
                 <div class="settings-row">
                     <label for="notice-interval" class="settings-row__label">
                         <strong>Rotation Interval (seconds)</strong>
-                        <span class="muted">Time period each notice stays visible before changing (default: 4 seconds if left blank).</span>
+                        <span class="muted">Time period before switching to a random banner message (default: 4 seconds).</span>
                     </label>
                     <div class="settings-row__control">
                         <input type="number" min="1" step="1" id="notice-interval" value="${s.interval||4}" placeholder="4" class="settings-row__input">
@@ -1380,11 +1380,11 @@ var tr=Object.defineProperty;var f=(e,t)=>()=>(e&&(t=e(e=0)),t);var w=(e,t)=>{fo
                 </div>
                 <div class="settings-row">
                     <label for="notice-messages" class="settings-row__label">
-                        <strong>Notice Messages (One per line)</strong>
-                        <span class="muted">Write multiple lines to rotate automatically.</span>
+                        <strong>Banner Messages (One message per line)</strong>
+                        <span class="muted">Write multiple lines (Message 1, Message 2, Message 3...). A message will be chosen randomly after every interval.</span>
                     </label>
                     <div class="settings-row__control">
-                        <textarea id="notice-messages" rows="4" class="settings-row__input" placeholder="Complete tasks, watch ads, refer friends, and withdraw anytime.">${P(r)}</textarea>
+                        <textarea id="notice-messages" rows="5" class="settings-row__input" placeholder="Message 1: Complete tasks, watch ads, refer friends, and withdraw anytime.&#10;Message 2: Join our Telegram community for daily bonus codes!&#10;Message 3: Post jobs now to hire skilled workers fast.">${P(r)}</textarea>
                     </div>
                 </div>
             </div>

@@ -71,7 +71,11 @@ async function renderDynamicBanner(root) {
 
         if (notices.length > 1) {
             bannerTimer = setInterval(() => {
-                index = (index + 1) % notices.length;
+                let nextIndex;
+                do {
+                    nextIndex = Math.floor(Math.random() * notices.length);
+                } while (nextIndex === index && notices.length > 1);
+                index = nextIndex;
                 span.style.opacity = '0';
                 setTimeout(() => {
                     span.textContent = notices[index];

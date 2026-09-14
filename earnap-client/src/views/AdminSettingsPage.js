@@ -57,18 +57,18 @@ function render() {
         </div>
     `).join('');
 
-    // Dynamic Homepage Popup Notices section
+    // Dynamic Banner Message Setting section
     const nd = _state.noticesData;
     const noticeText = Array.isArray(nd.notices) ? nd.notices.join('\n') : '';
     html += `
         <div class="card settings-group" style="margin-top:20px;">
-            <h3 class="card__title"><i class="bi bi-megaphone me-2"></i>Homepage Popup Banner Notices</h3>
-            <p class="muted mb-3" style="font-size:13px;">Manage notices displayed at the top of the user dashboard. Enter <strong>one notice per line</strong> to show multiple notices in rotaton.</p>
+            <h3 class="card__title"><i class="bi bi-megaphone me-2"></i>Banner Message Setting</h3>
+            <p class="muted mb-3" style="font-size:13px;">Manage banner messages displayed on the homepage dashboard. Enter <strong>multiple messages (one per line)</strong> to rotate them randomly after every specified interval.</p>
             <div class="settings-group__rows">
                 <div class="settings-row">
                     <label for="notice-interval" class="settings-row__label">
                         <strong>Rotation Interval (seconds)</strong>
-                        <span class="muted">Time period each notice stays visible before changing (default: 4 seconds if left blank).</span>
+                        <span class="muted">Time period before switching to a random banner message (default: 4 seconds).</span>
                     </label>
                     <div class="settings-row__control">
                         <input type="number" min="1" step="1" id="notice-interval" value="${nd.interval || 4}" placeholder="4" class="settings-row__input">
@@ -76,11 +76,11 @@ function render() {
                 </div>
                 <div class="settings-row">
                     <label for="notice-messages" class="settings-row__label">
-                        <strong>Notice Messages (One per line)</strong>
-                        <span class="muted">Write multiple lines to rotate automatically.</span>
+                        <strong>Banner Messages (One message per line)</strong>
+                        <span class="muted">Write multiple lines (Message 1, Message 2, Message 3...). A message will be chosen randomly after every interval.</span>
                     </label>
                     <div class="settings-row__control">
-                        <textarea id="notice-messages" rows="4" class="settings-row__input" placeholder="Complete tasks, watch ads, refer friends, and withdraw anytime.">${escapeHtml(noticeText)}</textarea>
+                        <textarea id="notice-messages" rows="5" class="settings-row__input" placeholder="Message 1: Complete tasks, watch ads, refer friends, and withdraw anytime.&#10;Message 2: Join our Telegram community for daily bonus codes!&#10;Message 3: Post jobs now to hire skilled workers fast.">${escapeHtml(noticeText)}</textarea>
                     </div>
                 </div>
             </div>
