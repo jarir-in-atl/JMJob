@@ -233,31 +233,26 @@ button { font-family: inherit; cursor: pointer; }
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     font-size: 13px;
 }
-.welcome-popup strong { color: #92400e; }
-.welcome-popup__content {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex: 1;
-    min-width: 0;
-    transition: opacity 0.2s ease;
+.welcome-popup--banner {
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin-bottom: 16px;
+    box-shadow: none;
+    width: 100%;
 }
-.welcome-popup__image {
-    max-height: 100px;
-    max-width: 220px;
+.welcome-popup--banner .welcome-popup__content {
+    width: 100%;
+    justify-content: center;
+}
+.welcome-popup--banner .welcome-popup__image {
+    width: 100%;
+    max-width: 100%;
+    max-height: 200px;
     object-fit: cover;
-    border-radius: 8px;
-    border: 1px solid rgba(0, 0, 0, 0.08);
-}
-.welcome-popup__text-wrap {
-    flex: 1;
-    min-width: 0;
-}
-.welcome-popup__close {
-    margin-left: auto; padding: 6px 12px;
-    background: #fbbf24; color: #fff; border: none; border-radius: 6px;
-    font-weight: 600; cursor: pointer;
-    flex-shrink: 0;
+    border-radius: var(--radius);
+    border: none;
+    display: block;
 }
 
 /* ---------- Ad progress ---------- */
