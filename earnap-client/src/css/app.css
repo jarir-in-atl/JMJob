@@ -234,16 +234,19 @@ button { font-family: inherit; cursor: pointer; }
     font-size: 13px;
 }
 .welcome-popup--banner {
-    background: transparent;
-    border: none;
-    padding: 0;
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
     margin-bottom: 16px;
-    box-shadow: none;
+    box-shadow: none !important;
     width: 100%;
 }
 .welcome-popup--banner .welcome-popup__content {
     width: 100%;
     justify-content: center;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
 }
 .welcome-popup--banner .welcome-popup__image {
     width: 100%;
@@ -251,8 +254,10 @@ button { font-family: inherit; cursor: pointer; }
     max-height: 200px;
     object-fit: cover;
     border-radius: var(--radius);
-    border: none;
+    border: none !important;
+    box-shadow: none !important;
     display: block;
+    background: transparent !important;
 }
 
 /* ---------- Ad progress ---------- */
