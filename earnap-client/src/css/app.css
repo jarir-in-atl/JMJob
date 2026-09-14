@@ -1415,12 +1415,26 @@ button { font-family: inherit; cursor: pointer; }
 .badge--green { background: #d1fae5; color: #065f46; }
 
 /* ---------- Responsive ---------- */
+@media (max-width: 640px) {
+    .settings-row { flex-direction: column; align-items: stretch; gap: 8px; }
+    .settings-row__input { min-width: 100%; width: 100%; }
+}
+
 @media (max-width: 540px) {
     .topbar { padding: 10px 12px; }
     .topbar__user-info strong { font-size: 12px; }
     .topbar__user-balance { font-size: 11px; }
     .auth-card { padding: 24px 18px; }
     .card { padding: 14px; }
+    .cat-row { flex-wrap: wrap; }
+    .cat-row__actions { width: 100%; justify-content: flex-end; }
+}
+
+@media (max-width: 480px) {
+    .user-header__stats { gap: 6px; }
+    .user-header__stat { padding: 10px 4px; }
+    .user-header__stat strong { font-size: 15px; }
+    .admin-revenue-grid, .admin-operations-grid, .poster-stat-grid, .stat-grid { grid-template-columns: 1fr; }
 }
 
 /* ---------- Footer ---------- */
