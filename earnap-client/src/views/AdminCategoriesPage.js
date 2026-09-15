@@ -115,6 +115,7 @@ function renderCategoriesTab(container, root) {
                                     <td style="padding:0.75rem 0.5rem; font-size:0.85rem;" class="muted">${escapeHtml(c.created_at || '-')}</td>
                                     <td style="padding:0.75rem 0.5rem; font-size:0.85rem;" class="muted">${escapeHtml(c.updated_at || '-')}</td>
                                     <td style="padding:0.75rem 0.5rem;">
+                                        <button class="btn btn--ghost btn--sm edit-cat-btn" data-id="${c.id}"><i class="bi bi-pencil"></i> Edit</button>
                                         <button class="btn btn--ghost btn--sm toggle-cat-btn" data-id="${c.id}">${c.is_active ? 'Disable' : 'Enable'}</button>
                                         <button class="btn btn--danger btn--sm del-cat-btn" data-id="${c.id}">Delete</button>
                                     </td>
@@ -155,6 +156,26 @@ function renderCategoriesTab(container, root) {
             </form>
         </div>
     `;
+
+    container.querySelectorAll('.edit-cat-btn').forEach(b => {
+        b.addEventListener('click', async () => {
+            const id = b.getAttribute('data-id');
+            const cat = _state.categories.find(c => String(c.id) === String(id));
+            if (!cat) return;
+            const newMinCost = prompt(`Update Min Cost (৳) for Main Category "${cat.name}":`, String(cat.min_cost || 1.00));
+            if (newMinCost === null) return;
+            const costVal = parseFloat(newMinCost);
+            if (isNaN(costVal) || costVal < 0) {
+                showFlash('Please enter a valid positive cost amount.', 'error');
+                return;
+            }
+            try {
+                await api.adminUpdateCategory(id, { min_cost: costVal });
+                showFlash(`Min cost updated for ${cat.name}.`, 'success');
+                await loadData(root);
+            } catch (e) { showFlash(e.message, 'error'); }
+        });
+    });
 
     container.querySelectorAll('.toggle-cat-btn').forEach(b => {
         b.addEventListener('click', async () => {
@@ -238,6 +259,7 @@ function renderSubcategoriesTab(container, root) {
                                     <td style="padding:0.75rem 0.5rem; font-size:0.85rem;" class="muted">${escapeHtml(s.created_at || '-')}</td>
                                     <td style="padding:0.75rem 0.5rem; font-size:0.85rem;" class="muted">${escapeHtml(s.updated_at || '-')}</td>
                                     <td style="padding:0.75rem 0.5rem;">
+                                        <button class="btn btn--ghost btn--sm edit-subcat-btn" data-id="${s.id}"><i class="bi bi-pencil"></i> Edit</button>
                                         <button class="btn btn--ghost btn--sm toggle-subcat-btn" data-id="${s.id}">${s.is_active ? 'Disable' : 'Enable'}</button>
                                         <button class="btn btn--danger btn--sm del-subcat-btn" data-id="${s.id}">Delete</button>
                                     </td>
@@ -286,6 +308,26 @@ function renderSubcategoriesTab(container, root) {
             </form>
         </div>
     `;
+
+    container.querySelectorAll('.edit-subcat-btn').forEach(b => {
+        b.addEventListener('click', async () => {
+            const id = b.getAttribute('data-id');
+            const sub = _state.subcategories.find(s => String(s.id) === String(id));
+            if (!sub) return;
+            const newMinCost = prompt(`Update Min Cost (৳) for Subcategory "${sub.name}":`, String(sub.min_cost || 1.00));
+            if (newMinCost === null) return;
+            const costVal = parseFloat(newMinCost);
+            if (isNaN(costVal) || costVal < 0) {
+                showFlash('Please enter a valid positive cost amount.', 'error');
+                return;
+            }
+            try {
+                await api.adminUpdateSubcategory(id, { min_cost: costVal });
+                showFlash(`Min cost updated for ${sub.name}.`, 'success');
+                await loadData(root);
+            } catch (e) { showFlash(e.message, 'error'); }
+        });
+    });
 
     container.querySelectorAll('.toggle-subcat-btn').forEach(b => {
         b.addEventListener('click', async () => {
