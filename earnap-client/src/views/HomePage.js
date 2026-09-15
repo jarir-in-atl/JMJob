@@ -162,9 +162,8 @@ function renderIconGrid() {
 
     const items = [
         { path: '/poster/post-job', label: 'Post Job',  icon: 'bi-plus-square-fill', tone: 'purple' },
+        { path: '/worker/active-jobs', label: 'Active Jobs', icon: 'bi-briefcase-fill', tone: 'blue' },
         { path: '/earn',      label: 'Earn Ad',     icon: 'bi-play-circle-fill',  tone: 'green' },
-        { path: '/tasks',     label: 'Web Task',    icon: 'bi-link-45deg',         tone: 'blue' },
-        { path: '/webtask',   label: 'Tasks',       icon: 'bi-telegram',           tone: 'blue' },
         { path: '/withdraw',  label: 'Withdraw',    icon: 'bi-wallet2',            tone: 'amber' },
         { path: '/refer',     label: 'Referral',    icon: 'bi-gift-fill',          tone: 'pink' },
         { path: '/profile',   label: 'Profile',     icon: 'bi-person-bounding-box', tone: 'gray' },
