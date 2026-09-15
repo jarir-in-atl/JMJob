@@ -226,15 +226,18 @@ class AdminController extends Controller
     {
         $status = strtolower(trim((string) ($request->query('status') ?? '')));
         $allowedStatuses = [
-            Job::STATUS_OPEN, Job::STATUS_IN_REVIEW, Job::STATUS_ASSIGNED,
-            Job::STATUS_SUBMITTED, Job::STATUS_REVISION, Job::STATUS_COMPLETED,
-            Job::STATUS_CANCELLED, Job::STATUS_DISPUTED, Job::STATUS_EXPIRED,
+            Job::STATUS_PENDING_APPROVAL, Job::STATUS_OPEN, Job::STATUS_DECLINED,
+            Job::STATUS_IN_REVIEW, Job::STATUS_ASSIGNED, Job::STATUS_SUBMITTED,
+            Job::STATUS_REVISION, Job::STATUS_COMPLETED, Job::STATUS_CANCELLED,
+            Job::STATUS_DISPUTED, Job::STATUS_EXPIRED,
         ];
         $limit = max(1, min(200, (int) ($request->query('limit') ?? 100)));
 
         $sql = "SELECT j.id, j.title, j.description, j.budget, j.currency, j.status,
                     j.bid_count, j.view_count, j.deadline_at, j.bidding_closes_at,
                     j.assigned_worker_id, j.created_at, j.updated_at,
+                    j.worker_count, j.cost_per_worker, j.total_payable_amount,
+                    j.proof_requirements, j.decline_reason,
                     p.id AS poster_id, p.name AS poster_name, p.email AS poster_email,
                     w.name AS worker_name, w.email AS worker_email,
                     c.name AS category_name
@@ -256,31 +259,57 @@ class AdminController extends Controller
         $stmt->execute();
 
         $items = [];
+        $now = time();
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $workerCount = (int) ($row['worker_count'] ?: 1);
+            $bidCount    = (int) ($row['bid_count'] ?: 0);
+            $remainingTasks = max(0, $workerCount - $bidCount);
+
+            $deadlineStr = $row['deadline_at'] ?: $row['bidding_closes_at'];
+            $daysRemaining = 'No deadline';
+            if ($deadlineStr) {
+                $target = strtotime($deadlineStr);
+                $diff = $target - $now;
+                if ($diff <= 0) {
+                    $daysRemaining = 'Expired';
+                } else {
+                    $days = (int) ceil($diff / 86400);
+                    $daysRemaining = $days === 1 ? '1 day remaining' : "{$days} days remaining";
+                }
+            }
+
             $items[] = [
-                'id'                => (int) $row['id'],
-                'title'             => $row['title'],
-                'description'       => $row['description'],
-                'budget'            => (float) $row['budget'],
-                'currency'          => $row['currency'],
-                'status'            => $row['status'],
-                'bid_count'         => (int) $row['bid_count'],
-                'view_count'        => (int) $row['view_count'],
-                'deadline_at'       => $row['deadline_at'],
-                'bidding_closes_at' => $row['bidding_closes_at'],
-                'created_at'        => $row['created_at'],
-                'updated_at'        => $row['updated_at'],
-                'poster'            => [
+                'id'                   => (int) $row['id'],
+                'title'                => $row['title'],
+                'description'          => $row['description'],
+                'budget'               => (float) $row['budget'],
+                'currency'             => $row['currency'],
+                'status'               => $row['status'],
+                'bid_count'            => $bidCount,
+                'view_count'           => (int) $row['view_count'],
+                'deadline_at'          => $row['deadline_at'],
+                'bidding_closes_at'    => $row['bidding_closes_at'],
+                'worker_count'         => $workerCount,
+                'cost_per_worker'      => (float) ($row['cost_per_worker'] ?: 0),
+                'total_payable_amount' => (float) ($row['total_payable_amount'] ?: $row['budget']),
+                'proof_requirements'   => $row['proof_requirements'] ? json_decode($row['proof_requirements'], true) : [],
+                'decline_reason'       => $row['decline_reason'],
+                'days_remaining'       => $daysRemaining,
+                'active_workers_count' => $bidCount,
+                'remaining_tasks_count'=> $remainingTasks,
+                'created_at'           => $row['created_at'],
+                'updated_at'           => $row['updated_at'],
+                'poster'               => [
                     'id'    => (int) $row['poster_id'],
                     'name'  => $row['poster_name'] ?: '(deleted)',
                     'email' => $row['poster_email'],
                 ],
-                'worker'            => $row['assigned_worker_id'] ? [
+                'worker'               => $row['assigned_worker_id'] ? [
                     'id'    => (int) $row['assigned_worker_id'],
                     'name'  => $row['worker_name'] ?: '(deleted)',
                     'email' => $row['worker_email'],
                 ] : null,
-                'category_name'     => $row['category_name'],
+                'category_name'        => $row['category_name'],
             ];
         }
 

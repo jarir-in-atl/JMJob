@@ -19,6 +19,8 @@ const USER_NAV_ITEMS = [
 
 const ADMIN_NAV_ITEMS = [
     { path: '/admin', label: 'Overview', icon: 'bi-speedometer2' },
+    { path: '/admin/pending-jobs', label: 'Job Post', icon: 'bi-file-earmark-plus' },
+    { path: '/admin/active-jobs', label: 'Active Job', icon: 'bi-lightning-charge' },
     { path: '/admin/payments', label: 'Payments & TRX', icon: 'bi-cash-stack' },
     { path: '/admin/jobs', label: 'Job Moderation', icon: 'bi-shield-check' },
     { path: '/admin/transactions', label: 'Ledger Audit', icon: 'bi-receipt' },

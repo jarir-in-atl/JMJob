@@ -175,22 +175,48 @@ class PosterController extends Controller
 
     private function serializeJob(Job $job): array
     {
+        $now = time();
+        $workerCount = (int) ($job->worker_count ?: 1);
+        $bidCount    = (int) ($job->bid_count ?: 0);
+        $remainingTasks = max(0, $workerCount - $bidCount);
+
+        $deadlineStr = $job->deadline_at ?: $job->bidding_closes_at;
+        $daysRemaining = 'No deadline';
+        if ($deadlineStr) {
+            $target = strtotime($deadlineStr);
+            $diff = $target - $now;
+            if ($diff <= 0) {
+                $daysRemaining = 'Expired';
+            } else {
+                $days = (int) ceil($diff / 86400);
+                $daysRemaining = $days === 1 ? '1 day remaining' : "{$days} days remaining";
+            }
+        }
+
         return [
-            'id'                => (int) $job->id,
-            'title'             => $job->title,
-            'description'       => $job->description,
-            'requirements'      => $job->requirements,
-            'budget'            => (float) $job->budget,
-            'currency'          => $job->currency,
-            'category_id'       => (int) $job->category_id,
-            'status'            => $job->status,
-            'bid_count'         => (int) $job->bid_count,
-            'view_count'        => (int) $job->view_count,
-            'deadline_at'       => $job->deadline_at,
-            'bidding_closes_at' => $job->bidding_closes_at,
-            'assigned_worker_id'=> $job->assigned_worker_id ? (int) $job->assigned_worker_id : null,
-            'created_at'        => $job->created_at,
-            'updated_at'        => $job->updated_at,
+            'id'                   => (int) $job->id,
+            'title'                => $job->title,
+            'description'          => $job->description,
+            'requirements'         => $job->requirements,
+            'budget'               => (float) $job->budget,
+            'currency'             => $job->currency,
+            'category_id'          => (int) $job->category_id,
+            'status'               => $job->status,
+            'bid_count'            => $bidCount,
+            'view_count'           => (int) $job->view_count,
+            'deadline_at'          => $job->deadline_at,
+            'bidding_closes_at'    => $job->bidding_closes_at,
+            'worker_count'         => $workerCount,
+            'cost_per_worker'      => (float) ($job->cost_per_worker ?: 0),
+            'total_payable_amount' => (float) ($job->total_payable_amount ?: $job->budget),
+            'proof_requirements'   => $job->proof_requirements ? json_decode((string) $job->proof_requirements, true) : [],
+            'decline_reason'       => $job->decline_reason,
+            'days_remaining'       => $daysRemaining,
+            'active_workers_count' => $bidCount,
+            'remaining_tasks_count'=> $remainingTasks,
+            'assigned_worker_id'   => $job->assigned_worker_id ? (int) $job->assigned_worker_id : null,
+            'created_at'           => $job->created_at,
+            'updated_at'           => $job->updated_at,
         ];
     }
 
