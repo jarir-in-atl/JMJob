@@ -24,8 +24,8 @@ export function HomePage() {
         // Referral, Profile, Support, Deposit) — matches reference
         root.appendChild(renderIconGrid());
 
-        // Section 3: Quick action cards (Daily Mission)
-        root.appendChild(renderDailyMission(u));
+        // Section 3: Quick action cards (Daily Mission) — hidden as requested
+        // root.appendChild(renderDailyMission(u));
     };
 }
 
