@@ -444,8 +444,7 @@ function renderStep3(container, root, state) {
         }
 
         try {
-            // Using workflow or posterCreateJob endpoint
-            await api.posterCreateJob({
+            const res = await api.posterCreateJob({
                 category_id: Number(state.mainCategoryId),
                 subcategory_id: state.subCategoryId ? Number(state.subCategoryId) : null,
                 title: state.title.trim(),
@@ -459,8 +458,35 @@ function renderStep3(container, root, state) {
                 bidding_window_hours: windowHours,
             });
 
-            showFlash('Job published successfully.', 'success');
-            navigate('/poster/jobs');
+            showFlash('Job submitted for admin review.', 'success');
+            
+            const user = currentUser.get();
+            const username = user ? (user.username || user.name || 'User') : 'User';
+            const jobId = res?.data?.id || '';
+            const jobLink = `${window.location.origin}/#/poster/jobs/${jobId}`;
+            const message = `I, the user ${username}, has submitted this job ${jobLink} for publishing. Let's talk about payment and approval`;
+            const waUrl = `https://wa.me/8801775722083?text=${encodeURIComponent(message)}`;
+
+            const cardBody = root.querySelector('#wizard-card-body');
+            if (cardBody) {
+                cardBody.innerHTML = `
+                    <div style="text-align:center; padding: 2rem 1rem;">
+                        <div style="font-size:3rem; color:#f59e0b; margin-bottom:1rem;"><i class="bi bi-clock-history"></i></div>
+                        <h2 style="margin-bottom:0.5rem;">Job Submitted & Pending Approval</h2>
+                        <p class="muted" style="max-width:500px; margin:0 auto 1.5rem;">Your job has been submitted to the admin panel for review. Contact the admin on WhatsApp to talk about payment and job approval.</p>
+                        
+                        <div style="margin-bottom:1.5rem;">
+                            <a href="${waUrl}" target="_blank" rel="noopener noreferrer" class="btn btn--primary btn--xl" style="background:#25D366; border-color:#25D366; color:#fff; display:inline-flex; align-items:center; gap:0.5rem; text-decoration:none;">
+                                <i class="bi bi-whatsapp" style="font-size:1.25rem;"></i> Contact Whatsapp
+                            </a>
+                        </div>
+
+                        <div>
+                            <a href="#/poster/jobs" class="btn btn--ghost">Go to My Jobs</a>
+                        </div>
+                    </div>
+                `;
+            }
         } catch (error) {
             showFlash(error.message || 'Could not publish job.', 'error');
             submitBtn.disabled = false;
