@@ -149,6 +149,20 @@ function renderStep1(container, root, state) {
             showFlash('Please select a main category.', 'error');
             return;
         }
+
+        const cat = state.categories.find(c => Number(c.id) === Number(state.mainCategoryId));
+        let minCost = cat ? Number(cat.min_cost || 1.00) : 1.00;
+        if (state.subCategoryId && cat && cat.subcategories) {
+            const sub = cat.subcategories.find(s => Number(s.id) === Number(state.subCategoryId));
+            if (sub && sub.min_cost) {
+                minCost = Number(sub.min_cost);
+            }
+        }
+        state.minCost = minCost;
+        if (state.costPerWorker < state.minCost) {
+            state.costPerWorker = state.minCost;
+        }
+
         state.currentStep = 2;
         renderWizard(root, state);
     });
@@ -297,7 +311,8 @@ function renderStep3(container, root, state) {
                 </label>
 
                 <label>Cost Per Worker (৳)
-                    <input id="cost-per-worker-input" type="number" min="0.01" step="0.01" required value="${state.costPerWorker}">
+                    <input id="cost-per-worker-input" type="number" min="${state.minCost}" step="0.01" required value="${Math.max(state.costPerWorker, state.minCost)}">
+                    <small class="muted">Minimum cost per worker for selected category: ৳${Number(state.minCost).toFixed(2)}</small>
                 </label>
             </div>
 

@@ -63,14 +63,15 @@ class AdminSettingsController extends Controller
         if ($stmt->fetch()) {
             return Response::json(['success' => false, 'message' => 'A category with that slug already exists.'], 422);
         }
-        $stmt = $pdo->prepare("INSERT INTO categories (name, slug, description, icon_class, is_active, display_order, created_at) VALUES (:name, :slug, :desc, :icon, :active, :order, NOW())");
+        $stmt = $pdo->prepare("INSERT INTO categories (name, slug, description, icon_class, is_active, display_order, min_cost, created_at, updated_at) VALUES (:name, :slug, :desc, :icon, :active, :order, :min_cost, NOW(), NOW())");
         $stmt->execute([
-            ':name'  => $name,
-            ':slug'  => $slug,
-            ':desc'  => $body['description'] ?? null,
-            ':icon'  => $body['icon_class'] ?? null,
-            ':active'=> (int) ($body['is_active'] ?? 1),
-            ':order' => (int) ($body['display_order'] ?? 0),
+            ':name'     => $name,
+            ':slug'     => $slug,
+            ':desc'     => $body['description'] ?? null,
+            ':icon'     => $body['icon_class'] ?? null,
+            ':active'   => (int) ($body['is_active'] ?? 1),
+            ':order'    => (int) ($body['display_order'] ?? 0),
+            ':min_cost' => (float) ($body['min_cost'] ?? 1.00),
         ]);
         $id = (int) $pdo->lastInsertId();
         $stmt = $pdo->prepare("SELECT * FROM categories WHERE id = :id");
@@ -87,17 +88,19 @@ class AdminSettingsController extends Controller
         if (!$row) return Response::json(['success' => false, 'message' => 'Category not found.'], 404);
         $body = (array) $this->readJson($request);
         $update = ['updated_at' => date('Y-m-d H:i:s')];
-        if (isset($body['name']))    $update['name']      = (string) $body['name'];
+        if (isset($body['name']))          $update['name']          = (string) $body['name'];
         if (isset($body['slug'])) {
             $chk = $pdo->prepare("SELECT id FROM categories WHERE slug = :slug AND id != :id");
             $chk->execute([':slug' => $body['slug'], ':id' => $id]);
             if ($chk->fetch()) return Response::json(['success' => false, 'message' => 'Another category uses that slug.'], 422);
             $update['slug'] = (string) $body['slug'];
         }
-        if (isset($body['description'])) $update['description'] = (string) $body['description'];
-        if (isset($body['icon_class']))  $update['icon_class']  = (string) $body['icon_class'];
-        if (isset($body['display_order']))$update['display_order'] = (int) $body['display_order'];
-        if (isset($body['is_active']))    $update['is_active']   = (int) (bool) $body['is_active'];
+        if (isset($body['description']))   $update['description']   = (string) $body['description'];
+        if (isset($body['icon_class']))    $update['icon_class']    = (string) $body['icon_class'];
+        if (isset($body['display_order'])) $update['display_order'] = (int) $body['display_order'];
+        if (isset($body['is_active']))      $update['is_active']     = (int) (bool) $body['is_active'];
+        if (isset($body['min_cost']))       $update['min_cost']      = (float) $body['min_cost'];
+
         $set = []; $vals = [];
         foreach ($update as $k => $v) { $set[] = "`$k` = :$k"; $vals[":$k"] = $v; }
         $vals[':id'] = $id;
@@ -124,6 +127,84 @@ class AdminSettingsController extends Controller
         }
         $pdo->prepare("DELETE FROM categories WHERE id = :id")->execute([':id' => $id]);
         return Response::json(['success' => true, 'message' => 'Category deleted.']);
+    }
+
+    // -------------------------------------------------------------------
+    // Subcategories Admin CRUD
+    // -------------------------------------------------------------------
+
+    public function subcategories(Request $request): Response
+    {
+        $pdo = Database::connect();
+        $stmt = $pdo->query("SELECT s.*, c.name AS category_name FROM subcategories s LEFT JOIN categories c ON c.id = s.category_id ORDER BY c.display_order, s.display_order, s.name");
+        return Response::json(['success' => true, 'data' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
+    }
+
+    public function createSubcategory(Request $request): Response
+    {
+        $body = (array) $this->readJson($request);
+        $catId = (int) ($body['category_id'] ?? 0);
+        $name  = trim((string) ($body['name'] ?? ''));
+        $slug  = trim((string) ($body['slug'] ?? ''));
+        if ($catId <= 0 || $name === '' || $slug === '') {
+            return Response::json(['success' => false, 'message' => 'category_id, name, and slug are required.'], 422);
+        }
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare("INSERT INTO subcategories (category_id, name, slug, description, is_active, display_order, min_cost, created_at, updated_at) VALUES (:cat_id, :name, :slug, :desc, :active, :order, :min_cost, NOW(), NOW())");
+        $stmt->execute([
+            ':cat_id'   => $catId,
+            ':name'     => $name,
+            ':slug'     => $slug,
+            ':desc'     => $body['description'] ?? null,
+            ':active'   => (int) ($body['is_active'] ?? 1),
+            ':order'    => (int) ($body['display_order'] ?? 0),
+            ':min_cost' => (float) ($body['min_cost'] ?? 1.00),
+        ]);
+        $id = (int) $pdo->lastInsertId();
+        $stmt = $pdo->prepare("SELECT s.*, c.name AS category_name FROM subcategories s LEFT JOIN categories c ON c.id = s.category_id WHERE s.id = :id");
+        $stmt->execute([':id' => $id]);
+        return Response::json(['success' => true, 'message' => 'Subcategory created.', 'data' => $stmt->fetch(\PDO::FETCH_ASSOC)]);
+    }
+
+    public function updateSubcategory(Request $request, int $id): Response
+    {
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare("SELECT * FROM subcategories WHERE id = :id");
+        $stmt->execute([':id' => $id]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$row) return Response::json(['success' => false, 'message' => 'Subcategory not found.'], 404);
+
+        $body = (array) $this->readJson($request);
+        $update = ['updated_at' => date('Y-m-d H:i:s')];
+        if (isset($body['category_id']))   $update['category_id']   = (int) $body['category_id'];
+        if (isset($body['name']))          $update['name']          = (string) $body['name'];
+        if (isset($body['slug']))          $update['slug']          = (string) $body['slug'];
+        if (isset($body['description']))   $update['description']   = (string) $body['description'];
+        if (isset($body['display_order'])) $update['display_order'] = (int) $body['display_order'];
+        if (isset($body['is_active']))      $update['is_active']     = (int) (bool) $body['is_active'];
+        if (isset($body['min_cost']))       $update['min_cost']      = (float) $body['min_cost'];
+
+        $set = []; $vals = [];
+        foreach ($update as $k => $v) { $set[] = "`$k` = :$k"; $vals[":$k"] = $v; }
+        $vals[':id'] = $id;
+        $stmt = $pdo->prepare("UPDATE subcategories SET " . implode(', ', $set) . " WHERE id = :id");
+        $stmt->execute($vals);
+
+        $stmt = $pdo->prepare("SELECT s.*, c.name AS category_name FROM subcategories s LEFT JOIN categories c ON c.id = s.category_id WHERE s.id = :id");
+        $stmt->execute([':id' => $id]);
+        return Response::json(['success' => true, 'message' => 'Subcategory updated.', 'data' => $stmt->fetch(\PDO::FETCH_ASSOC)]);
+    }
+
+    public function deleteSubcategory(Request $request, int $id): Response
+    {
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare("SELECT * FROM subcategories WHERE id = :id");
+        $stmt->execute([':id' => $id]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$row) return Response::json(['success' => false, 'message' => 'Subcategory not found.'], 404);
+
+        $pdo->prepare("DELETE FROM subcategories WHERE id = :id")->execute([':id' => $id]);
+        return Response::json(['success' => true, 'message' => 'Subcategory deleted.']);
     }
 
     public function transactions(Request $request): Response

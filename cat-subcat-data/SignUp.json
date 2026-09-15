@@ -1,0 +1,26 @@
+[
+    {
+        "id": 14,
+        "category_id": 6,
+        "name": "Email submit only",
+        "min_cost": "2.00",
+        "created_at": "2026-03-13 13:51:11",
+        "updated_at": "2026-09-06 23:03:11"
+    },
+    {
+        "id": 15,
+        "category_id": 6,
+        "name": "Simple Sign up",
+        "min_cost": "1.50",
+        "created_at": "2026-03-13 13:51:38",
+        "updated_at": "2026-09-06 23:03:19"
+    },
+    {
+        "id": 16,
+        "category_id": 6,
+        "name": "Complex Sign up",
+        "min_cost": "4.00",
+        "created_at": "2026-03-13 13:51:53",
+        "updated_at": "2026-09-06 23:03:30"
+    }
+]

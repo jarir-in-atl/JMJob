@@ -17,7 +17,7 @@ class Subcategory extends Model
         parent::__construct($attributes);
     }
 
-    protected $fillable = ['category_id', 'name', 'slug', 'description', 'is_active', 'display_order'];
+    protected $fillable = ['category_id', 'name', 'slug', 'description', 'is_active', 'display_order', 'min_cost'];
 
     public function category(): ?Category
     {

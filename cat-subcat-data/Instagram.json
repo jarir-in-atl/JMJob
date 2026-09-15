@@ -1,0 +1,50 @@
+[
+    {
+        "id": 30,
+        "category_id": 15,
+        "name": "Follow",
+        "min_cost": "1.00",
+        "created_at": "2026-03-13 14:01:45",
+        "updated_at": "2026-03-13 14:01:45"
+    },
+    {
+        "id": 31,
+        "category_id": 15,
+        "name": "Like",
+        "min_cost": "1.00",
+        "created_at": "2026-03-13 14:01:54",
+        "updated_at": "2026-03-13 14:01:54"
+    },
+    {
+        "id": 32,
+        "category_id": 15,
+        "name": "Account Create",
+        "min_cost": "2.00",
+        "created_at": "2026-03-13 14:02:13",
+        "updated_at": "2026-09-06 23:04:56"
+    },
+    {
+        "id": 33,
+        "category_id": 15,
+        "name": "Gmail Account + Account Create",
+        "min_cost": "14.00",
+        "created_at": "2026-03-13 14:02:31",
+        "updated_at": "2026-03-13 14:02:31"
+    },
+    {
+        "id": 34,
+        "category_id": 15,
+        "name": "Old Instagram Account",
+        "min_cost": "10.00",
+        "created_at": "2026-03-13 14:02:49",
+        "updated_at": "2026-03-13 14:02:49"
+    },
+    {
+        "id": 35,
+        "category_id": 15,
+        "name": "Instagram video + Like + comment + share",
+        "min_cost": "2.50",
+        "created_at": "2026-03-13 14:03:07",
+        "updated_at": "2026-03-13 14:03:07"
+    }
+]

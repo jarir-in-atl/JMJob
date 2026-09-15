@@ -198,16 +198,18 @@ class JobController extends Controller
         return Response::json([
             'success' => true,
             'data'    => array_map(fn($c) => [
-                'id'           => (int) $c->id,
-                'name'         => $c->name,
-                'slug'         => $c->slug,
-                'description'  => $c->description,
-                'icon_class'   => $c->icon_class,
+                'id'            => (int) $c->id,
+                'name'          => $c->name,
+                'slug'          => $c->slug,
+                'description'   => $c->description,
+                'icon_class'    => $c->icon_class,
                 'display_order' => (int) $c->display_order,
-                'subcategories'=> array_map(fn($s) => [
-                    'id'   => (int) $s->id,
-                    'name' => $s->name,
-                    'slug' => $s->slug,
+                'min_cost'      => (float) ($c->min_cost ?? 1.00),
+                'subcategories' => array_map(fn($s) => [
+                    'id'       => (int) $s->id,
+                    'name'     => $s->name,
+                    'slug'     => $s->slug,
+                    'min_cost' => (float) ($s->min_cost ?? 1.00),
                 ], \App\Models\Subcategory::forCategory((int) $c->id)),
             ], $cats),
         ]);

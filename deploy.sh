@@ -156,11 +156,11 @@ echo -e "  📄 Blade:  views/app.blade.php"
 echo ""
 
 # ============================================================
-# Step 4: Run migrations
+# Step 4: Run migrations & seed categories
 # ============================================================
-echo -e "${YELLOW}▶ Step 4: Running migrations...${NC}"
+echo -e "${YELLOW}▶ Step 4: Running migrations and category seeder...${NC}"
 echo ""
-curl -s "https://jmjob.xyz/migration_runner.php" 2>&1
+curl -s "https://jmjob.xyz/migration_runner.php?seed_categories=1" 2>&1
 echo ""
 
 # ============================================================

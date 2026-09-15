@@ -117,12 +117,33 @@ try {
             echo "▶ Running migrations...\n\n";
             $manager->migrate();
 
+            if (isset($_GET['seed_categories']) && $_GET['seed_categories'] === '1') {
+                echo "\n▶ Running SeedCategoriesFromDataCommand...\n\n";
+                $cmd = new \App\Console\Commands\SeedCategoriesFromDataCommand();
+                $output = new \Nemesis\Console\Output();
+                $ref = new ReflectionClass($cmd);
+                $prop = $ref->getProperty('output');
+                $prop->setAccessible(true);
+                $prop->setValue($cmd, $output);
+                $cmd->handle();
+            }
+
             if (isset($_GET['seed']) && $_GET['seed'] === '1') {
                 echo "\n▶ Running EarnAppSeeder...\n\n";
                 require_once $projectRoot . '/database/seeders/EarnAppSeeder.php';
                 $seeder = new \EarnAppSeeder();
                 $seeder->run();
             }
+            break;
+        case 'seed_categories':
+            echo "▶ Running SeedCategoriesFromDataCommand...\n\n";
+            $cmd = new \App\Console\Commands\SeedCategoriesFromDataCommand();
+            $output = new \Nemesis\Console\Output();
+            $ref = new ReflectionClass($cmd);
+            $prop = $ref->getProperty('output');
+            $prop->setAccessible(true);
+            $prop->setValue($cmd, $output);
+            $cmd->handle();
             break;
         case 'seed':
             echo "▶ Running EarnAppSeeder...\n\n";

@@ -149,21 +149,8 @@ class EarnAppSeeder extends Seeder
         }
 
         // ----- Subcategories & Jobs Demo Data -----
-        $catExists = (int) (Fluent::table('categories')->select(['COUNT(*) AS c'])->first()['c'] ?? 0);
-        if ($catExists === 0) {
-            $catSocial = Fluent::table('categories')->insert(['name' => 'Social Media Marketing', 'slug' => 'social-media', 'description' => 'YouTube, Facebook, Telegram promotion', 'is_active' => 1]);
-            $catApp    = Fluent::table('categories')->insert(['name' => 'App Installation', 'slug' => 'app-install', 'description' => 'Mobile app installs & reviews', 'is_active' => 1]);
-        } else {
-            $catSocial = (int) (Fluent::table('categories')->first()['id'] ?? 1);
-            $catApp    = $catSocial;
-        }
-
-        $subcatExists = (int) (Fluent::table('subcategories')->select(['COUNT(*) AS c'])->first()['c'] ?? 0);
-        if ($subcatExists === 0) {
-            Fluent::table('subcategories')->insert(['category_id' => $catSocial, 'name' => 'YouTube Subscription', 'slug' => 'youtube-subscription', 'is_active' => 1]);
-            Fluent::table('subcategories')->insert(['category_id' => $catSocial, 'name' => 'Facebook Page Like', 'slug' => 'facebook-like', 'is_active' => 1]);
-            Fluent::table('subcategories')->insert(['category_id' => $catApp, 'name' => 'Android App Install', 'slug' => 'android-install', 'is_active' => 1]);
-        }
+        $catSocial = (int) (Fluent::table('categories')->first()['id'] ?? 1);
+        $catApp    = $catSocial;
 
         $jobExists = (int) (Fluent::table('jobs')->select(['COUNT(*) AS c'])->first()['c'] ?? 0);
         if ($jobExists === 0) {

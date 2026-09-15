@@ -128,6 +128,12 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
             $r->add('POST', '/admin/categories/{id}',                 [AdminSettingsController::class, 'updateCategory']);
             $r->add('POST', '/admin/categories/{id}/delete',          [AdminSettingsController::class, 'deleteCategory']);
 
+            // Subcategories admin
+            $r->get('/admin/subcategories',                          [AdminSettingsController::class, 'subcategories'],   'admin.subcategories');
+            $r->add('POST', '/admin/subcategories',                   [AdminSettingsController::class, 'createSubcategory']);
+            $r->add('POST', '/admin/subcategories/{id}',              [AdminSettingsController::class, 'updateSubcategory']);
+            $r->add('POST', '/admin/subcategories/{id}/delete',       [AdminSettingsController::class, 'deleteSubcategory']);
+
             // Platform settings
             $r->get('/admin/settings',                               [AdminSettingsController::class, 'listSettings'],    'admin.settings');
             $r->add('POST', '/admin/settings',                        [AdminSettingsController::class, 'updateSettings']);

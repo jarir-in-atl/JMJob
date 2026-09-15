@@ -1,8 +1,13 @@
-// AdminCategoriesPage — CRUD interface for job categories.
+// AdminCategoriesPage — CRUD interface for job categories and subcategories with min_cost, created_at, updated_at.
 import { api } from '../api.js';
 import { showFlash, currentUser } from '../state.js';
 
-let _state = { categories: [], loading: false };
+let _state = {
+    activeTab: 'categories', // 'categories' | 'subcategories'
+    categories: [],
+    subcategories: [],
+    loading: false
+};
 
 export function AdminCategoriesPage() {
     return async () => {
@@ -16,129 +21,317 @@ export function AdminCategoriesPage() {
             return;
         }
         root.innerHTML = `
-            <h1 class="page-title">Categories</h1>
-            <p class="muted">Manage job categories. Inactive categories stay attached to old jobs but disappear from the post-job dropdown.</p>
-            <div class="card" id="cat-list"><div class="spinner"></div></div>
-            <div class="card" id="cat-form-card" style="margin-top: 16px;">
-                <h3 class="card__title">Add new category</h3>
-                <form id="cat-form" class="cat-form">
-                    <label class="cat-form__label">
-                        Name
-                        <input name="name" type="text" required maxlength="80" placeholder="e.g. SEO Writing">
-                    </label>
-                    <label class="cat-form__label">
-                        Slug (URL-safe, lowercase, hyphenated)
-                        <input name="slug" type="text" required maxlength="80" placeholder="seo-writing">
-                    </label>
-                    <label class="cat-form__label">
-                        Description
-                        <input name="description" type="text" maxlength="255" placeholder="Short description">
-                    </label>
-                    <label class="cat-form__label">
-                        Icon class (Bootstrap Icons)
-                        <input name="icon_class" type="text" maxlength="80" placeholder="bi-pencil">
-                    </label>
-                    <label class="cat-form__label">
-                        Display order
-                        <input name="display_order" type="number" value="0">
-                    </label>
-                    <label class="cat-form__label cat-form__label--checkbox">
-                        <input name="is_active" type="checkbox" checked> Active
-                    </label>
-                    <button type="submit" class="btn btn--primary" id="cat-save-btn">Create Category</button>
-                </form>
+            <h1 class="page-title">Categories & Subcategories</h1>
+            <p class="muted">Manage main categories, subcategories, and minimum cost limits.</p>
+            
+            <div class="tabs" style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                <button class="btn ${state.activeTab === 'categories' ? 'btn--primary' : 'btn--ghost'}" id="tab-cats-btn">Main Categories</button>
+                <button class="btn ${state.activeTab === 'subcategories' ? 'btn--primary' : 'btn--ghost'}" id="tab-subcats-btn">Subcategories</button>
+            </div>
+
+            <div id="tab-content">
+                <div class="card" id="cat-list"><div class="spinner"></div></div>
             </div>
         `;
 
-        wireForm();
-        await load();
+        root.querySelector('#tab-cats-btn').addEventListener('click', () => {
+            _state.activeTab = 'categories';
+            renderView(root);
+        });
+
+        root.querySelector('#tab-subcats-btn').addEventListener('click', () => {
+            _state.activeTab = 'subcategories';
+            renderView(root);
+        });
+
+        await loadData(root);
     };
 }
 
-async function load() {
-    const list = document.getElementById('cat-list');
-    if (!list) return;
-    list.innerHTML = '<div class="spinner"></div>';
+async function loadData(root) {
     try {
-        const res = await api.adminCategories();
-        _state.categories = res.data || [];
-        render();
+        const [catRes, subcatRes] = await Promise.all([
+            api.adminCategories(),
+            api.adminSubcategories()
+        ]);
+        _state.categories = catRes.data || [];
+        _state.subcategories = subcatRes.data || [];
+        renderView(root);
     } catch (e) {
-        list.innerHTML = `<p class="muted">Failed to load: ${escapeHtml(e.message || 'unknown')}</p>`;
+        showFlash(e.message || 'Failed to load category data.', 'error');
     }
 }
 
-function render() {
-    const list = document.getElementById('cat-list');
-    if (!list) return;
-    if (_state.categories.length === 0) {
-        list.innerHTML = '<p class="muted">No categories yet. Add one below.</p>';
-        return;
+function renderView(root) {
+    const tabCatsBtn = root.querySelector('#tab-cats-btn');
+    const tabSubcatsBtn = root.querySelector('#tab-subcats-btn');
+    const container = root.querySelector('#tab-content');
+
+    if (!container) return;
+
+    if (_state.activeTab === 'categories') {
+        if (tabCatsBtn) { tabCatsBtn.className = 'btn btn--primary'; }
+        if (tabSubcatsBtn) { tabSubcatsBtn.className = 'btn btn--ghost'; }
+        renderCategoriesTab(container, root);
+    } else {
+        if (tabCatsBtn) { tabCatsBtn.className = 'btn btn--ghost'; }
+        if (tabSubcatsBtn) { tabSubcatsBtn.className = 'btn btn--primary'; }
+        renderSubcategoriesTab(container, root);
     }
-    list.innerHTML = _state.categories.map(c => `
-        <div class="cat-row" data-id="${c.id}">
-            <div class="cat-row__icon"><i class="bi ${escapeHtml(c.icon_class || 'bi-tag')}"></i></div>
-            <div class="cat-row__main">
-                <div class="cat-row__name">${escapeHtml(c.name)} ${c.is_active ? '' : '<span class="badge">INACTIVE</span>'}</div>
-                <div class="cat-row__slug muted">/${escapeHtml(c.slug)}</div>
-                <div class="cat-row__desc muted">${escapeHtml(c.description || '')}</div>
-            </div>
-            <div class="cat-row__actions">
-                <button class="btn btn--ghost btn--sm" data-toggle="${c.id}">${c.is_active ? 'Disable' : 'Enable'}</button>
-                <button class="btn btn--danger btn--sm" data-delete="${c.id}">Delete</button>
-            </div>
+}
+
+// -----------------------------------------------------------------------------
+// Categories Tab
+// -----------------------------------------------------------------------------
+function renderCategoriesTab(container, root) {
+    container.innerHTML = `
+        <div class="card" style="margin-bottom: 1rem;">
+            <h3>Main Categories List</h3>
+            ${_state.categories.length === 0 ? '<p class="muted">No categories yet.</p>' : `
+                <div class="table-responsive">
+                    <table class="table" style="width:100%; text-align:left; border-collapse:collapse;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid #e5e7eb; padding: 0.5rem;">
+                                <th>Name</th>
+                                <th>Slug</th>
+                                <th>Min Cost (৳)</th>
+                                <th>Status</th>
+                                <th>Created At</th>
+                                <th>Updated At</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${_state.categories.map(c => `
+                                <tr style="border-bottom: 1px solid #f3f4f6;">
+                                    <td style="padding:0.75rem 0.5rem;"><strong>${escapeHtml(c.name)}</strong></td>
+                                    <td style="padding:0.75rem 0.5rem;" class="muted">/${escapeHtml(c.slug)}</td>
+                                    <td style="padding:0.75rem 0.5rem;">৳${Number(c.min_cost || 1).toFixed(2)}</td>
+                                    <td style="padding:0.75rem 0.5rem;">
+                                        <span class="badge ${c.is_active ? 'badge--success' : 'badge--warning'}">
+                                            ${c.is_active ? 'Active' : 'Inactive'}
+                                        </span>
+                                    </td>
+                                    <td style="padding:0.75rem 0.5rem; font-size:0.85rem;" class="muted">${escapeHtml(c.created_at || '-')}</td>
+                                    <td style="padding:0.75rem 0.5rem; font-size:0.85rem;" class="muted">${escapeHtml(c.updated_at || '-')}</td>
+                                    <td style="padding:0.75rem 0.5rem;">
+                                        <button class="btn btn--ghost btn--sm toggle-cat-btn" data-id="${c.id}">${c.is_active ? 'Disable' : 'Enable'}</button>
+                                        <button class="btn btn--danger btn--sm del-cat-btn" data-id="${c.id}">Delete</button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `}
         </div>
-    `).join('');
-    list.querySelectorAll('[data-toggle]').forEach(b => b.addEventListener('click', () => toggle(b.getAttribute('data-toggle'))));
-    list.querySelectorAll('[data-delete]').forEach(b => b.addEventListener('click', () => del(b.getAttribute('data-delete'))));
-}
 
-function wireForm() {
-    const form = document.getElementById('cat-form');
-    if (!form) return;
+        <div class="card">
+            <h3>Add New Main Category</h3>
+            <form id="add-cat-form" class="poster-form">
+                <div class="poster-form__grid">
+                    <label>Category Name
+                        <input name="name" type="text" required maxlength="80" placeholder="e.g. Website">
+                    </label>
+                    <label>Slug
+                        <input name="slug" type="text" required maxlength="80" placeholder="e.g. website">
+                    </label>
+                </div>
+                <div class="poster-form__grid">
+                    <label>Min Cost Per Task (৳)
+                        <input name="min_cost" type="number" step="0.01" min="0" value="1.00" required>
+                    </label>
+                    <label>Display Order
+                        <input name="display_order" type="number" value="0">
+                    </label>
+                </div>
+                <label>Description
+                    <input name="description" type="text" placeholder="Short description">
+                </label>
+                <label class="cat-form__label--checkbox">
+                    <input name="is_active" type="checkbox" checked> Active
+                </label>
+                <button type="submit" class="btn btn--primary" id="save-cat-btn">Create Main Category</button>
+            </form>
+        </div>
+    `;
+
+    container.querySelectorAll('.toggle-cat-btn').forEach(b => {
+        b.addEventListener('click', async () => {
+            const id = b.getAttribute('data-id');
+            const cat = _state.categories.find(c => String(c.id) === String(id));
+            if (!cat) return;
+            try {
+                await api.adminUpdateCategory(id, { is_active: !cat.is_active });
+                showFlash('Category updated.', 'success');
+                await loadData(root);
+            } catch (e) { showFlash(e.message, 'error'); }
+        });
+    });
+
+    container.querySelectorAll('.del-cat-btn').forEach(b => {
+        b.addEventListener('click', async () => {
+            const id = b.getAttribute('data-id');
+            if (!confirm('Delete category?')) return;
+            try {
+                const res = await api.adminDeleteCategory(id);
+                showFlash(res.message || 'Deleted.', 'success');
+                await loadData(root);
+            } catch (e) { showFlash(e.message, 'error'); }
+        });
+    });
+
+    const form = container.querySelector('#add-cat-form');
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const fd = new FormData(form);
         const body = {
             name: String(fd.get('name') || '').trim(),
             slug: String(fd.get('slug') || '').trim().toLowerCase(),
-            description: String(fd.get('description') || '').trim() || null,
-            icon_class: String(fd.get('icon_class') || '').trim() || null,
+            min_cost: parseFloat(fd.get('min_cost') || '1.00'),
             display_order: parseInt(fd.get('display_order') || '0', 10),
-            is_active: fd.get('is_active') === 'on',
+            description: String(fd.get('description') || '').trim() || null,
+            is_active: fd.get('is_active') === 'on'
         };
-        const btn = document.getElementById('cat-save-btn');
-        btn.disabled = true; btn.textContent = 'Creating…';
         try {
             await api.adminCreateCategory(body);
-            showFlash('Category created.', 'success');
-            form.reset();
-            await load();
+            showFlash('Main Category created.', 'success');
+            await loadData(root);
         } catch (err) {
-            showFlash(err.message || 'Failed.', 'error');
-        } finally {
-            btn.disabled = false; btn.textContent = 'Create Category';
+            showFlash(err.message, 'error');
         }
     });
 }
 
-async function toggle(id) {
-    const cat = _state.categories.find(c => String(c.id) === String(id));
-    if (!cat) return;
-    try {
-        await api.adminUpdateCategory(id, { is_active: !cat.is_active });
-        showFlash(cat.is_active ? 'Category disabled.' : 'Category enabled.', 'success');
-        await load();
-    } catch (e) { showFlash(e.message || 'Failed.', 'error'); }
-}
+// -----------------------------------------------------------------------------
+// Subcategories Tab
+// -----------------------------------------------------------------------------
+function renderSubcategoriesTab(container, root) {
+    container.innerHTML = `
+        <div class="card" style="margin-bottom: 1rem;">
+            <h3>Subcategories List</h3>
+            ${_state.subcategories.length === 0 ? '<p class="muted">No subcategories yet.</p>' : `
+                <div class="table-responsive">
+                    <table class="table" style="width:100%; text-align:left; border-collapse:collapse;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid #e5e7eb;">
+                                <th>Subcategory Name</th>
+                                <th>Main Category</th>
+                                <th>Min Cost (৳)</th>
+                                <th>Status</th>
+                                <th>Created At</th>
+                                <th>Updated At</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${_state.subcategories.map(s => `
+                                <tr style="border-bottom: 1px solid #f3f4f6;">
+                                    <td style="padding:0.75rem 0.5rem;"><strong>${escapeHtml(s.name)}</strong></td>
+                                    <td style="padding:0.75rem 0.5rem;"><span class="badge" style="background:#e0e7ff; color:#3730a3;">${escapeHtml(s.category_name || '-')}</span></td>
+                                    <td style="padding:0.75rem 0.5rem;">৳${Number(s.min_cost || 1).toFixed(2)}</td>
+                                    <td style="padding:0.75rem 0.5rem;">
+                                        <span class="badge ${s.is_active ? 'badge--success' : 'badge--warning'}">
+                                            ${s.is_active ? 'Active' : 'Inactive'}
+                                        </span>
+                                    </td>
+                                    <td style="padding:0.75rem 0.5rem; font-size:0.85rem;" class="muted">${escapeHtml(s.created_at || '-')}</td>
+                                    <td style="padding:0.75rem 0.5rem; font-size:0.85rem;" class="muted">${escapeHtml(s.updated_at || '-')}</td>
+                                    <td style="padding:0.75rem 0.5rem;">
+                                        <button class="btn btn--ghost btn--sm toggle-subcat-btn" data-id="${s.id}">${s.is_active ? 'Disable' : 'Enable'}</button>
+                                        <button class="btn btn--danger btn--sm del-subcat-btn" data-id="${s.id}">Delete</button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `}
+        </div>
 
-async function del(id) {
-    if (!confirm('Delete this category? It will be deactivated if jobs are attached.')) return;
-    try {
-        const res = await api.adminDeleteCategory(id);
-        showFlash(res.message || 'Done.', 'success');
-        await load();
-    } catch (e) { showFlash(e.message || 'Failed.', 'error'); }
+        <div class="card">
+            <h3>Add New Subcategory</h3>
+            <form id="add-subcat-form" class="poster-form">
+                <label>Parent Main Category
+                    <select name="category_id" required>
+                        <option value="">Select Main Category…</option>
+                        ${_state.categories.map(c => `
+                            <option value="${c.id}">${escapeHtml(c.name)}</option>
+                        `).join('')}
+                    </select>
+                </label>
+
+                <div class="poster-form__grid">
+                    <label>Subcategory Name
+                        <input name="name" type="text" required maxlength="100" placeholder="e.g. Website Search & 1-3 Article Visit">
+                    </label>
+                    <label>Slug
+                        <input name="slug" type="text" required maxlength="120" placeholder="e.g. website-search-article-visit">
+                    </label>
+                </div>
+
+                <div class="poster-form__grid">
+                    <label>Min Cost Per Task (৳)
+                        <input name="min_cost" type="number" step="0.01" min="0" value="1.00" required>
+                    </label>
+                    <label>Display Order
+                        <input name="display_order" type="number" value="0">
+                    </label>
+                </div>
+
+                <label class="cat-form__label--checkbox">
+                    <input name="is_active" type="checkbox" checked> Active
+                </label>
+                <button type="submit" class="btn btn--primary" id="save-subcat-btn">Create Subcategory</button>
+            </form>
+        </div>
+    `;
+
+    container.querySelectorAll('.toggle-subcat-btn').forEach(b => {
+        b.addEventListener('click', async () => {
+            const id = b.getAttribute('data-id');
+            const sub = _state.subcategories.find(s => String(s.id) === String(id));
+            if (!sub) return;
+            try {
+                await api.adminUpdateSubcategory(id, { is_active: !sub.is_active });
+                showFlash('Subcategory updated.', 'success');
+                await loadData(root);
+            } catch (e) { showFlash(e.message, 'error'); }
+        });
+    });
+
+    container.querySelectorAll('.del-subcat-btn').forEach(b => {
+        b.addEventListener('click', async () => {
+            const id = b.getAttribute('data-id');
+            if (!confirm('Delete subcategory?')) return;
+            try {
+                const res = await api.adminDeleteSubcategory(id);
+                showFlash(res.message || 'Deleted.', 'success');
+                await loadData(root);
+            } catch (e) { showFlash(e.message, 'error'); }
+        });
+    });
+
+    const form = container.querySelector('#add-subcat-form');
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(form);
+        const body = {
+            category_id: parseInt(fd.get('category_id') || '0', 10),
+            name: String(fd.get('name') || '').trim(),
+            slug: String(fd.get('slug') || '').trim().toLowerCase(),
+            min_cost: parseFloat(fd.get('min_cost') || '1.00'),
+            display_order: parseInt(fd.get('display_order') || '0', 10),
+            is_active: fd.get('is_active') === 'on'
+        };
+        try {
+            await api.adminCreateSubcategory(body);
+            showFlash('Subcategory created.', 'success');
+            await loadData(root);
+        } catch (err) {
+            showFlash(err.message, 'error');
+        }
+    });
 }
 
 function escapeHtml(s) {

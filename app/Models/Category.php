@@ -17,7 +17,7 @@ class Category extends Model
         parent::__construct($attributes);
     }
 
-    protected $fillable = ['name', 'slug', 'description', 'icon_class', 'is_active', 'display_order'];
+    protected $fillable = ['name', 'slug', 'description', 'icon_class', 'is_active', 'display_order', 'min_cost'];
 
     public function isActive(): bool
     {

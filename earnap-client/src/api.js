@@ -157,11 +157,15 @@ export const api = {
     posterReleasePayment: (id, body = {}) => request(`/poster/jobs/${id}/release`, { method: 'POST', body }),
     posterCancelJob:       (id, body = {}) => request(`/poster/jobs/${id}/cancel`, { method: 'POST', body }),
 
-    // Admin categories + settings
+    // Admin categories + subcategories + settings
     adminCategories:           () => request('/admin/categories'),
     adminCreateCategory:        (body) => request('/admin/categories', { method: 'POST', body }),
     adminUpdateCategory:        (id, body) => request(`/admin/categories/${id}`, { method: 'POST', body }),
     adminDeleteCategory:        (id) => request(`/admin/categories/${id}/delete`, { method: 'POST' }),
+    adminSubcategories:        () => request('/admin/subcategories'),
+    adminCreateSubcategory:     (body) => request('/admin/subcategories', { method: 'POST', body }),
+    adminUpdateSubcategory:     (id, body) => request(`/admin/subcategories/${id}`, { method: 'POST', body }),
+    adminDeleteSubcategory:     (id) => request(`/admin/subcategories/${id}/delete`, { method: 'POST' }),
     adminSettings:              () => request('/admin/settings'),
     adminUpdateSettings:        (body) => request('/admin/settings', { method: 'POST', body }),
 

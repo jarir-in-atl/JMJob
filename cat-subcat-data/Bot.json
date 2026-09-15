@@ -1,0 +1,26 @@
+[
+  {
+    "id": 7,
+    "category_id": 5,
+    "name": "Join Bot",
+    "min_cost": "1.00",
+    "created_at": "2026-03-12 04:34:11",
+    "updated_at": "2026-09-06 23:02:31"
+  },
+  {
+    "id": 8,
+    "category_id": 5,
+    "name": "Gleam Offer",
+    "min_cost": "1.00",
+    "created_at": "2026-03-12 04:34:19",
+    "updated_at": "2026-09-06 23:02:39"
+  },
+  {
+    "id": 9,
+    "category_id": 5,
+    "name": "Post Comment",
+    "min_cost": "1.00",
+    "created_at": "2026-03-12 04:34:28",
+    "updated_at": "2026-09-06 23:02:45"
+  }
+]
