@@ -7,7 +7,7 @@
     <title>JMJob — Work. Earn. Grow.</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
-    <link rel="stylesheet" href="/css/app-v2.css">
+    <link rel="stylesheet" href="/css/app-v2.css?v={{ time() }}">
     <link rel="icon" type="image/jpeg" href="/favicon.jpeg">
 </head>
 <body>
@@ -23,6 +23,6 @@
             referralCode: new URLSearchParams(window.location.search).get('ref') || ''
         };
     </script>
-    <script type="module" src="/js/app.js"></script>
+    <script type="module" src="/js/app.js?v={{ time() }}"></script>
 </body>
 </html>

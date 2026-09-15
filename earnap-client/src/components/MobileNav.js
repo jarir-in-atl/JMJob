@@ -5,19 +5,16 @@ import { route, navigate, isAuthenticated, currentUser } from '../state.js';
 
 const USER_NAV_ITEMS = [
     { path: '/', label: 'Dashboard', icon: 'bi-house-door' },
-    { path: '/tasks', label: 'Tasks', icon: 'bi-list-check' },
+    { path: '/worker/active-jobs', label: 'Active Jobs', icon: 'bi-briefcase-fill' },
+    { path: '/poster/post-job', label: 'Post a Job', icon: 'bi-plus-square-fill' },
     { path: '/earn', label: 'Watch Ads', icon: 'bi-play-circle' },
     { path: '/refer', label: 'Refer & Earn', icon: 'bi-people' },
     { path: '/deposit', label: 'Deposit', icon: 'bi-cash-coin' },
     { path: '/withdraw', label: 'Withdraw', icon: 'bi-wallet2' },
     { path: '/wallet', label: 'Wallet', icon: 'bi-wallet' },
     { path: '/notifications', label: 'Notifications', icon: 'bi-bell' },
-    { path: '/jobs/available', label: 'Browse Jobs', icon: 'bi-briefcase' },
-    { path: '/poster/post-job', label: 'Post a Job', icon: 'bi-plus-square-fill' },
-    { path: '/worker/bids', label: 'My Bids', icon: 'bi-clipboard-check' },
-    { path: '/worker/active-jobs', label: 'Active Jobs', icon: 'bi-hammer' },
+    { path: '/worker/bids', label: 'My Submissions', icon: 'bi-clipboard-check' },
     { path: '/leaderboard', label: 'Leaderboard', icon: 'bi-bar-chart' },
-    { path: '/achievements', label: 'Achievements', icon: 'bi-trophy' },
     { path: '/support', label: 'Support', icon: 'bi-question-circle' },
     { path: '/settings', label: 'Settings', icon: 'bi-gear' },
 ];
