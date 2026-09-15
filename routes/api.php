@@ -105,6 +105,7 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
             $r->get('/admin/users',                 [AdminController::class, 'users'],     'admin.users');
             $r->add('POST', '/admin/users/{id}/role', [AdminController::class, 'updateRole']);
             $r->get('/admin/jobs',                  [AdminController::class, 'jobs'],      'admin.jobs');
+            $r->get('/admin/jobs/{id}/submissions', [AdminController::class, 'jobSubmissions'], 'admin.job-submissions');
             $r->add('POST', '/admin/jobs/{id}/approve', [AdminController::class, 'approveJob']);
             $r->add('POST', '/admin/jobs/{id}/decline', [AdminController::class, 'declineJob']);
             $r->add('POST', '/admin/applications/{id}/approve', [AdminController::class, 'approveApplication']);

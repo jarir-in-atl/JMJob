@@ -1,4 +1,4 @@
-// AdminJobsPage — Job Post (Pending Approval), Active Job management, and Moderation.
+// AdminJobsPage — Job Post (Pending Approval), Active Job management, Moderation, and Worker Proof Viewer.
 
 import { api } from '../api.js';
 import { showFlash, currentUser } from '../state.js';
@@ -42,7 +42,7 @@ export function AdminJobsPage() {
             <div class="page-heading-row">
                 <div>
                     <h1 class="page-title">Job Management Center</h1>
-                    <p class="muted">Review pending user job postings, activate approved jobs, and monitor live active jobs.</p>
+                    <p class="muted">Review pending user job postings, activate approved jobs, track live active jobs, and inspect worker proofs & screenshots.</p>
                 </div>
             </div>
 
@@ -68,6 +68,7 @@ export function AdminJobsPage() {
             </div>
 
             <div class="admin-list" id="admin-jobs-list"><div class="spinner"></div></div>
+            <div id="admin-proof-modal-container"></div>
         `;
 
         const tabs = root.querySelectorAll('.admin-tab');
@@ -155,6 +156,10 @@ function renderJob(job) {
 
     const actions = row.querySelector('.admin-row__actions');
 
+    if (!isPending && !isDeclined) {
+        actions.appendChild(actionButton('View Proofs & Screenshots', 'btn--ghost', () => viewProofSubmissions(job.id, job.title)));
+    }
+
     if (isPending) {
         actions.appendChild(actionButton('Activate Job', 'btn--success', () => approveJob(job.id)));
         actions.appendChild(actionButton('Decline', 'btn--danger', () => declineJob(job.id)));
@@ -174,6 +179,72 @@ function actionButton(label, style, handler) {
     button.textContent = label;
     button.addEventListener('click', handler);
     return button;
+}
+
+async function viewProofSubmissions(jobId, jobTitle) {
+    const container = document.getElementById('admin-proof-modal-container');
+    if (!container) return;
+    container.innerHTML = `
+        <div class="modal-backdrop" style="position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:99999;">
+            <div class="modal-card" style="background:#fff; width:90%; max-width:800px; max-height:85vh; border-radius:12px; padding:24px; overflow-y:auto; box-shadow:0 10px 30px rgba(0,0,0,0.2);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                    <h2 style="margin:0; font-size:18px;"><i class="bi bi-file-earmark-check"></i> Proof Submissions for "${escapeHtml(jobTitle)}"</h2>
+                    <button class="btn btn--ghost btn--sm" id="close-proof-modal"><i class="bi bi-x-lg"></i> Close</button>
+                </div>
+                <div id="proof-modal-content"><div class="spinner"></div></div>
+            </div>
+        </div>
+    `;
+
+    const closeBtn = container.querySelector('#close-proof-modal');
+    closeBtn.addEventListener('click', () => { container.innerHTML = ''; });
+
+    const content = container.querySelector('#proof-modal-content');
+    try {
+        const res = await api.adminJobSubmissions(jobId);
+        const data = res.data || {};
+        const submissions = data.submissions || [];
+
+        if (!submissions.length) {
+            content.innerHTML = '<p class="muted" style="text-align:center; padding:30px;">No worker submissions or proof screenshots submitted yet for this job.</p>';
+            return;
+        }
+
+        content.innerHTML = submissions.map(sub => {
+            const proofData = sub.work_proof_data || {};
+            const attachment = sub.attachment_path ? (sub.attachment_path.startsWith('http') ? sub.attachment_path : `/storage/${sub.attachment_path}`) : null;
+            const isImage = attachment && /\.(jpg|jpeg|png|gif|webp)$/i.test(attachment);
+
+            return `
+                <div class="card" style="margin-bottom:16px; padding:16px; border:1px solid #e2e8f0; border-radius:8px; background:#f9fafb;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                        <div>
+                            <strong><i class="bi bi-person"></i> ${escapeHtml(sub.worker_name)}</strong>
+                            <span class="muted">(${escapeHtml(sub.worker_email || sub.worker_username || '')})</span>
+                        </div>
+                        <span class="badge badge--${sub.status === 'approved' ? 'success' : 'warning'}">${escapeHtml(sub.status.toUpperCase())}</span>
+                    </div>
+
+                    ${sub.description ? `<p style="margin:8px 0; font-size:14px; background:#fff; padding:10px; border-radius:6px; border:1px solid #edf2f7;"><strong>Proof Description:</strong><br>${escapeHtml(sub.description)}</p>` : ''}
+
+                    ${sub.external_link ? `<div style="margin:8px 0;"><a href="${escapeHtml(sub.external_link)}" target="_blank" class="btn btn--ghost btn--sm"><i class="bi bi-box-arrow-up-right"></i> Open External Proof Link</a></div>` : ''}
+
+                    ${attachment ? `
+                        <div style="margin:10px 0;">
+                            <strong>Proof Screenshot / Attachment:</strong><br>
+                            ${isImage ? `<a href="${escapeHtml(attachment)}" target="_blank"><img src="${escapeHtml(attachment)}" alt="Proof screenshot" style="max-width:100%; max-height:300px; border-radius:6px; border:1px solid #cbd5e1; margin-top:6px; object-fit:contain;"></a>` : `<a href="${escapeHtml(attachment)}" target="_blank" class="btn btn--ghost btn--sm"><i class="bi bi-download"></i> Download Attachment</a>`}
+                        </div>
+                    ` : ''}
+
+                    ${sub.trx_id ? `<div style="font-size:12px; color:#475569; margin-top:6px;"><strong>TrxID:</strong> ${escapeHtml(sub.trx_id)} | <strong>bKash:</strong> ${escapeHtml(sub.bkash_number || 'N/A')}</div>` : ''}
+
+                    <div style="font-size:12px; color:#64748b; margin-top:8px;">Submitted on: ${formatDate(sub.created_at)}</div>
+                </div>
+            `;
+        }).join('');
+    } catch (error) {
+        content.innerHTML = `<p class="muted">Failed to load submissions: ${escapeHtml(error.message || 'unknown error')}</p>`;
+    }
 }
 
 async function approveJob(id) {

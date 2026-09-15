@@ -316,6 +316,68 @@ class AdminController extends Controller
         return Response::json(['success' => true, 'data' => $items]);
     }
 
+    public function jobSubmissions(Request $request, string $id): Response
+    {
+        $jobId = (int) $id;
+        $job = Job::find($jobId);
+        if ($job === null) {
+            return Response::json(['success' => false, 'message' => 'Job not found.'], 404);
+        }
+
+        $sql = "SELECT s.id, s.job_id, s.worker_id, s.bid_id, s.description,
+                    s.attachment_path, s.external_link, s.status, s.reviewed_at,
+                    s.reviewer_note, s.created_at,
+                    w.name AS worker_name, w.email AS worker_email, w.username AS worker_username,
+                    b.work_proof_data, b.trx_id, b.bkash_number
+                FROM job_submissions s
+                LEFT JOIN users w ON w.id = s.worker_id
+                LEFT JOIN job_bids b ON b.id = s.bid_id
+                WHERE s.job_id = :job_id
+                ORDER BY s.id DESC";
+
+        $stmt = Database::connect()->prepare($sql);
+        $stmt->bindValue(':job_id', $jobId, \PDO::PARAM_INT);
+        $stmt->execute();
+
+        $submissions = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $proofData = $row['work_proof_data'] ? json_decode($row['work_proof_data'], true) : null;
+            $submissions[] = [
+                'id'              => (int) $row['id'],
+                'job_id'          => (int) $row['job_id'],
+                'worker_id'       => (int) $row['worker_id'],
+                'worker_name'     => $row['worker_name'] ?: 'Unknown Worker',
+                'worker_email'    => $row['worker_email'],
+                'worker_username' => $row['worker_username'],
+                'description'     => $row['description'],
+                'attachment_path' => $row['attachment_path'],
+                'external_link'   => $row['external_link'],
+                'status'          => $row['status'],
+                'reviewed_at'     => $row['reviewed_at'],
+                'reviewer_note'   => $row['reviewer_note'],
+                'created_at'      => $row['created_at'],
+                'work_proof_data' => $proofData,
+                'trx_id'          => $row['trx_id'],
+                'bkash_number'    => $row['bkash_number'],
+            ];
+        }
+
+        return Response::json([
+            'success' => true,
+            'data'    => [
+                'job'         => [
+                    'id'            => (int) $job->id,
+                    'title'         => $job->title,
+                    'status'        => $job->status,
+                    'worker_count'  => (int) ($job->worker_count ?: 1),
+                    'budget'        => (float) $job->budget,
+                    'currency'      => $job->currency,
+                ],
+                'submissions' => $submissions,
+            ],
+        ]);
+    }
+
     public function approveJob(Request $request, string $id): Response
     {
         $admin = $request->getMeta('auth.user');

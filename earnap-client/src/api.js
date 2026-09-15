@@ -188,6 +188,7 @@ export const api = {
     },
 
     adminJobs:                  (status = '') => request(`/admin/jobs${status ? `?status=${encodeURIComponent(status)}` : ''}`),
+    adminJobSubmissions:        (id) => request(`/admin/jobs/${id}/submissions`),
     adminApproveJob:            (id, body = {}) => request(`/admin/jobs/${id}/approve`, { method: 'POST', body }),
     adminDeclineJob:            (id, body = {}) => request(`/admin/jobs/${id}/decline`, { method: 'POST', body }),
     adminFlagJobDispute:        (id) => request(`/admin/jobs/${id}/dispute`, { method: 'POST' }),
