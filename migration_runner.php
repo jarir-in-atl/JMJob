@@ -120,11 +120,6 @@ try {
             if (isset($_GET['seed_categories']) && $_GET['seed_categories'] === '1') {
                 echo "\n▶ Running SeedCategoriesFromDataCommand...\n\n";
                 $cmd = new \App\Console\Commands\SeedCategoriesFromDataCommand();
-                $output = new \Nemesis\Console\Output();
-                $ref = new ReflectionClass($cmd);
-                $prop = $ref->getProperty('output');
-                $prop->setAccessible(true);
-                $prop->setValue($cmd, $output);
                 $cmd->handle();
             }
 
@@ -138,11 +133,6 @@ try {
         case 'seed_categories':
             echo "▶ Running SeedCategoriesFromDataCommand...\n\n";
             $cmd = new \App\Console\Commands\SeedCategoriesFromDataCommand();
-            $output = new \Nemesis\Console\Output();
-            $ref = new ReflectionClass($cmd);
-            $prop = $ref->getProperty('output');
-            $prop->setAccessible(true);
-            $prop->setValue($cmd, $output);
             $cmd->handle();
             break;
         case 'seed':

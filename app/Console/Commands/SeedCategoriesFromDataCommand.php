@@ -16,13 +16,19 @@ class SeedCategoriesFromDataCommand extends Command
     {
         $baseDir = base_path('cat-subcat-data');
         if (!is_dir($baseDir)) {
-            $this->output->error("Directory cat-subcat-data not found at {$baseDir}");
+            $msg = "Directory cat-subcat-data not found at {$baseDir}";
+            if (isset($this->output) && method_exists($this->output, 'error')) {
+                try { $this->output->error($msg); } catch (\Throwable $e) { echo "[ERROR] {$msg}\n"; }
+            } else { echo "[ERROR] {$msg}\n"; }
             return self::FAILURE;
         }
 
         $files = glob($baseDir . '/*.json');
         if (empty($files)) {
-            $this->output->warn("No JSON files found in {$baseDir}");
+            $msg = "No JSON files found in {$baseDir}";
+            if (isset($this->output) && method_exists($this->output, 'warn')) {
+                try { $this->output->warn($msg); } catch (\Throwable $e) { echo "[WARN] {$msg}\n"; }
+            } else { echo "[WARN] {$msg}\n"; }
             return self::SUCCESS;
         }
 
@@ -32,7 +38,7 @@ class SeedCategoriesFromDataCommand extends Command
         // Check if min_cost column exists in categories & subcategories, if not add it
         $this->ensureTablesAndColumns($pdo);
 
-        $this->output->info("Clearing existing Categories & Subcategories...");
+        echo "Clearing existing Categories & Subcategories...\n";
         $driver = strtolower((string) getenv('DB_DRIVER'));
         if ($driver === 'sqlite') {
             $pdo->exec("DELETE FROM subcategories");
@@ -116,7 +122,8 @@ class SeedCategoriesFromDataCommand extends Command
             }
         }
 
-        $this->output->info("Successfully seeded {$totalCats} Categories and {$totalSubcats} Subcategories.");
+        echo "Successfully seeded {$totalCats} Categories and {$totalSubcats} Subcategories.\n";
+        return self::SUCCESS;
         return self::SUCCESS;
     }
 
