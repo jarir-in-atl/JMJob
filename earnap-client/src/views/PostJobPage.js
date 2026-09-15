@@ -199,11 +199,18 @@ function renderStep2(container, root, state) {
                 <div id="proof-pairs-container">
                     ${state.proofRequirements.map((proof, idx) => `
                         <div class="proof-pair-row" style="display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem;" data-index="${idx}">
-                            <input type="text" class="proof-title-input" placeholder="Proof Requirement Title (e.g. Provide Username)" value="${escapeHtml(proof.title)}" style="flex:2;" required>
                             <select class="proof-type-select" style="flex:1;">
                                 <option value="text" ${proof.type === 'text' ? 'selected' : ''}>Text Proof</option>
                                 <option value="screenshot" ${proof.type === 'screenshot' ? 'selected' : ''}>Screenshot Proof</option>
                             </select>
+                            ${proof.type === 'screenshot' ? `
+                                <div style="flex:2; display:flex; align-items:center; gap:0.5rem;">
+                                    <input type="file" class="proof-file-input" accept="image/*" style="flex:1;">
+                                    ${proof.fileBase64 ? `<img src="${proof.fileBase64}" style="max-height:40px; max-width:60px; border-radius:4px; border:1px solid #ccc;">` : ''}
+                                </div>
+                            ` : `
+                                <input type="text" class="proof-title-input" placeholder="Proof Requirement Title (e.g. Provide Username)" value="${escapeHtml(proof.title || '')}" style="flex:2;" required>
+                            `}
                             ${state.proofRequirements.length > 1 ? `
                                 <button type="button" class="btn btn--ghost remove-proof-btn" data-index="${idx}" style="color:#ef4444;"><i class="bi bi-trash"></i></button>
                             ` : ''}
@@ -224,6 +231,27 @@ function renderStep2(container, root, state) {
 
     // Proof pairs logic
     const pairsContainer = container.querySelector('#proof-pairs-container');
+
+    // Dynamic dropdown type change
+    pairsContainer.addEventListener('change', (e) => {
+        if (e.target.classList.contains('proof-type-select')) {
+            saveStep2Inputs(container, state);
+            renderStep2(container, root, state);
+        } else if (e.target.classList.contains('proof-file-input')) {
+            const row = e.target.closest('.proof-pair-row');
+            const idx = Number(row.getAttribute('data-index'));
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    state.proofRequirements[idx].fileBase64 = evt.target.result;
+                    state.proofRequirements[idx].title = file.name;
+                    renderStep2(container, root, state);
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+    });
 
     container.querySelector('#add-proof-btn').addEventListener('click', () => {
         saveStep2Inputs(container, state);
@@ -285,10 +313,16 @@ function saveStep2Inputs(container, state) {
     state.description = container.querySelector('#job-desc-input')?.value || '';
 
     const rows = container.querySelectorAll('.proof-pair-row');
-    state.proofRequirements = Array.from(rows).map(row => {
+    state.proofRequirements = Array.from(rows).map((row, idx) => {
+        const type = row.querySelector('.proof-type-select')?.value || 'text';
+        const titleInput = row.querySelector('.proof-title-input');
+        const title = titleInput ? titleInput.value : (state.proofRequirements[idx]?.title || 'Screenshot Proof');
+        const fileBase64 = state.proofRequirements[idx]?.fileBase64 || null;
+
         return {
-            title: row.querySelector('.proof-title-input')?.value || '',
-            type: row.querySelector('.proof-type-select')?.value || 'text'
+            title,
+            type,
+            fileBase64
         };
     });
 }
