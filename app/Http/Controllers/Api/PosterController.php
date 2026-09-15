@@ -62,15 +62,25 @@ class PosterController extends Controller
         $categoryId     = (int)    ($body['category_id'] ?? 0);
         $title          = (string) ($body['title'] ?? '');
         $description    = (string) ($body['description'] ?? '');
-        $requirements   = isset($body['requirements']) ? (string) $body['requirements'] : null;
-        $budget         = (float)  ($body['budget'] ?? 0);
-        $deadlineAt     = isset($body['deadline_at']) ? (string) $body['deadline_at'] : null;
-        $windowHours    = isset($body['bidding_window_hours']) ? (float) $body['bidding_window_hours'] : null;
+        $subcategoryId  = isset($body['subcategory_id']) ? (int) $body['subcategory_id'] : null;
+        $proofReqs      = isset($body['proof_requirements']) ? (array) $body['proof_requirements'] : [];
+        $workerCount    = isset($body['worker_count']) ? (int) $body['worker_count'] : 1;
+        $costPerWorker  = isset($body['cost_per_worker']) ? (float) $body['cost_per_worker'] : 0;
 
-        if ($categoryId <= 0 || $title === '' || $description === '' || $budget <= 0) {
-            return Response::json(['success' => false, 'message' => 'category_id, title, description, budget are required.'], 422);
+        if ($categoryId <= 0 || $title === '' || $description === '') {
+            return Response::json(['success' => false, 'message' => 'category_id, title, and description are required.'], 422);
         }
-        $result = $this->jobService->create($user, $categoryId, $title, $description, $requirements, $budget, $deadlineAt, $windowHours);
+
+        if ($workerCount > 0 && $costPerWorker > 0) {
+            $deadline = $deadlineAt ?? date('Y-m-d H:i:s', time() + 7 * 86400);
+            $result = $this->jobService->createWorkflowJob($user, $categoryId, $subcategoryId, $title, $description, $proofReqs, $workerCount, $costPerWorker, $deadline);
+        } else {
+            if ($budget <= 0) {
+                return Response::json(['success' => false, 'message' => 'budget is required.'], 422);
+            }
+            $result = $this->jobService->create($user, $categoryId, $title, $description, $requirements, $budget, $deadlineAt, $windowHours);
+        }
+
         if (!$result['success']) return Response::json($result, 422);
         return Response::json(['success' => true, 'message' => $result['message'], 'data' => $result['job']]);
     }
