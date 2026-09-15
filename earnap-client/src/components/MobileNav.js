@@ -46,7 +46,7 @@ function getNavItems() {
     }
 
     const items = [...USER_NAV_ITEMS];
-    if (u && u.role === 'poster') {
+    if (u) {
         items.push({ separator: true }, ...POSTER_NAV_ITEMS);
     }
     return items;

@@ -22,14 +22,8 @@ export function PosterDashboardPage() {
         root.className = 'view view--poster-dashboard';
 
         const user = currentUser.get();
-        if (!user || (!user.is_admin && user.role !== 'poster')) {
-            root.innerHTML = `
-                <div class="card" style="max-width: 560px; margin: 40px auto; text-align: center;">
-                    <h2>Poster access required</h2>
-                    <p class="muted">This workspace is available to job posters and administrators.</p>
-                    <a class="btn btn--primary" href="#/">Go home</a>
-                </div>
-            `;
+        if (!user) {
+            root.innerHTML = `<div class="card"><h2>Access required</h2><a class="btn btn--primary" href="#/login">Log in</a></div>`;
             return;
         }
 

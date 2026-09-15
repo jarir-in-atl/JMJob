@@ -166,11 +166,11 @@ class PosterController extends Controller
     private function posterGuard(Request $request): ?Response
     {
         $user = $request->getMeta('auth.user');
-        if ($user && ($user->isAdmin() || ($user->role ?? null) === 'poster')) return null;
+        if ($user) return null;
         return Response::json([
             'success' => false,
-            'message' => 'Poster access required.',
-        ], 403);
+            'message' => 'Authentication required.',
+        ], 401);
     }
 
     private function serializeJob(Job $job): array
