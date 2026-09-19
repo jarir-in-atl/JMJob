@@ -39,6 +39,7 @@ class SocialLinksController extends Controller
 
     public function update(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $data = $request->all();
         $validated = [
             'facebook'  => isset($data['facebook']) ? (string)$data['facebook'] : '',
@@ -121,6 +122,7 @@ class SocialLinksController extends Controller
 
     public function updateNotices(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $data = $request->all();
         $rawNotices = $data['notices'] ?? [];
         $noticesList = [];
@@ -163,6 +165,7 @@ class SocialLinksController extends Controller
 
     public function uploadBannerImage(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         if (empty($_FILES['image']) || $_FILES['image']['error'] !== UPLOAD_ERR_OK) {
             return Response::json(['message' => 'No valid image file uploaded.'], 400);
         }
@@ -203,5 +206,24 @@ class SocialLinksController extends Controller
             'message' => 'Image uploaded successfully',
             'url' => $url
         ]);
+    }
+
+    private function adminGuard(Request $request): ?Response
+    {
+        $admin = $request->getMeta('auth.user');
+        if ($admin === null) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Authentication required.',
+            ], 401);
+        }
+        if (!$admin->isAdmin()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Administrator access required.',
+                'error' => 'forbidden',
+            ], 403);
+        }
+        return null;
     }
 }

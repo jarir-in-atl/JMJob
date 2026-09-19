@@ -34,7 +34,7 @@ npx esbuild src/index.js --bundle --minify --format=esm \
 
 # 4. Serve
 cd ..
-php -S 127.0.0.1:8080 -t public/
+php -S 127.0.0.1:8080 -t public/ public/index.php
 ```
 
 Open http://127.0.0.1:8080/.

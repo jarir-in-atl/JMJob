@@ -94,7 +94,9 @@ class AdminVideoAdController extends Controller
     {
         $title = trim((string) ($body['title'] ?? ''));
         if ($requiresFile && $file === null) return 'A video file is required.';
-        if ($title === '' || strlen($title) > 160) return 'title is required and must be 160 characters or fewer.';
+        if (($requiresFile || array_key_exists('title', $body)) && ($title === '' || strlen($title) > 160)) {
+            return 'title is required and must be 160 characters or fewer.';
+        }
         if (isset($body['duration_seconds']) && ((int) $body['duration_seconds'] < 1 || (int) $body['duration_seconds'] > 86400)) return 'duration_seconds must be between 1 and 86400.';
         if (isset($body['reward_amount']) && ((float) $body['reward_amount'] < 0 || (float) $body['reward_amount'] > 1000000)) return 'reward_amount is invalid.';
         foreach (['daily_limit', 'total_limit'] as $key) {

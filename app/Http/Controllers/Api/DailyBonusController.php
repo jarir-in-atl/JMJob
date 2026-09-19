@@ -144,8 +144,9 @@ class DailyBonusController extends Controller
      *
      * Cron example: 0 0 * * * curl -X POST https://jmjob.xyz/api/admin/reset-daily-counters
      */
-    public function resetCounters(): Response
+    public function resetCounters(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $today = date('Y-m-d');
 
         // Reset all users' daily counters
@@ -166,5 +167,24 @@ class DailyBonusController extends Controller
                 'date' => $today,
             ],
         ]);
+    }
+
+    private function adminGuard(Request $request): ?Response
+    {
+        $admin = $request->getMeta('auth.user');
+        if ($admin === null) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Authentication required.',
+            ], 401);
+        }
+        if (!$admin->isAdmin()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Administrator access required.',
+                'error' => 'forbidden',
+            ], 403);
+        }
+        return null;
     }
 }

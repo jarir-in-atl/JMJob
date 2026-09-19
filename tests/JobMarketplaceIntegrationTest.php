@@ -29,14 +29,18 @@ use App\Http\Controllers\Api\AdminSettingsController;
 use App\Http\Controllers\Api\AdminVideoAdController;
 use App\Http\Controllers\Api\AdController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\DailyBonusController;
 use App\Http\Controllers\Api\JobController;
+use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PosterController;
+use App\Http\Controllers\Api\SocialLinksController;
 use App\Http\Controllers\Api\VideoAdController;
 use App\Models\Job;
 use App\Models\JobAssignment;
 use App\Models\JobBid;
 use App\Models\Session;
 use App\Models\User;
+use App\Models\VideoAd;
 use App\Services\JobService;
 use App\Services\NotificationService;
 use App\Services\RewardService;
@@ -204,6 +208,19 @@ try {
     ] as $operation => $response) {
         $assert($response->getStatus() === 403, "A worker reached the admin settings endpoint for {$operation}.");
     }
+    foreach ([
+        'payment_list' => (new PaymentController())->adminList($workerPosterRequest),
+        'payment_approve' => (new PaymentController())->adminApprove($workerPosterRequest, 999999),
+        'payment_reject' => (new PaymentController())->adminReject($workerPosterRequest, 999999),
+        'daily_counter_reset' => (new DailyBonusController())->resetCounters($workerPosterRequest),
+        'social_links_update' => (new SocialLinksController())->update($workerPosterRequest),
+        'notices_update' => (new SocialLinksController())->updateNotices($workerPosterRequest),
+        'notice_banner_upload' => (new SocialLinksController())->uploadBannerImage($workerPosterRequest),
+    ] as $operation => $response) {
+        $assert($response->getStatus() === 403, "A worker reached the protected admin endpoint for {$operation}.");
+    }
+    $assert((new PaymentController())->adminList($adminWorkerRequest)->getStatus() === 200, 'An authenticated administrator could not list payment submissions.');
+    $assert((new DailyBonusController())->resetCounters($adminWorkerRequest)->getStatus() === 200, 'An authenticated administrator could not reset daily counters.');
     $adminController = new AdminController();
     foreach ([
         'withdrawals' => $adminController->withdrawals($workerPosterRequest),
@@ -766,6 +783,28 @@ try {
     $videoCounts->execute([$videoAdIds[0], $videoAdIds[0]]);
     $videoState = $videoCounts->fetch(PDO::FETCH_ASSOC);
     $assert((int) $videoState['total_views'] === 1 && (int) $videoState['view_count'] === 1, 'The lifetime video limit did not preserve one reserved view.');
+
+    // The admin UI sends a status-only multipart update when pausing or
+    // activating an existing video ad; partial updates must not require the
+    // title or another upload field.
+    $_POST = ['status' => VideoAd::STATUS_PAUSED];
+    $adminVideoController = new AdminVideoAdController();
+    $pauseVideoRequest = new Request();
+    $pauseVideoRequest->setMeta('auth.user', User::find($userIds['admin']));
+    $pauseVideoResponse = $adminVideoController->update($pauseVideoRequest, $videoAdIds[0]);
+    $pauseVideoBody = json_decode($pauseVideoResponse->getContent(), true);
+    $assert(($pauseVideoBody['success'] ?? false) === true
+        && ($pauseVideoBody['data']['status'] ?? '') === VideoAd::STATUS_PAUSED,
+        'Admin video-ad status-only pause update was rejected.');
+
+    $_POST = ['status' => VideoAd::STATUS_ACTIVE];
+    $activateVideoRequest = new Request();
+    $activateVideoRequest->setMeta('auth.user', User::find($userIds['admin']));
+    $activateVideoResponse = $adminVideoController->update($activateVideoRequest, $videoAdIds[0]);
+    $activateVideoBody = json_decode($activateVideoResponse->getContent(), true);
+    $assert(($activateVideoBody['success'] ?? false) === true
+        && ($activateVideoBody['data']['status'] ?? '') === VideoAd::STATUS_ACTIVE,
+        'Admin video-ad status-only activation update was rejected.');
     $_POST = [];
 
     // Database notifications expose unread state and can be marked read for

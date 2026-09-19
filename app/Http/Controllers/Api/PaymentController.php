@@ -103,6 +103,7 @@ class PaymentController extends Controller
 
     public function adminList(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $status = $request->query('status');
         $subs = $this->payments->list($status, 200);
 
@@ -114,6 +115,7 @@ class PaymentController extends Controller
 
     public function adminApprove(Request $request, int $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
         $body = (array) $this->readJson($request);
         $note = isset($body['note']) ? (string) $body['note'] : null;
@@ -132,6 +134,7 @@ class PaymentController extends Controller
 
     public function adminReject(Request $request, int $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
         $body = (array) $this->readJson($request);
         $note = isset($body['note']) ? (string) $body['note'] : null;
@@ -179,5 +182,24 @@ class PaymentController extends Controller
         }
 
         return $data;
+    }
+
+    private function adminGuard(Request $request): ?Response
+    {
+        $admin = $request->getMeta('auth.user');
+        if ($admin === null) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Authentication required.',
+            ], 401);
+        }
+        if (!$admin->isAdmin()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Administrator access required.',
+                'error' => 'forbidden',
+            ], 403);
+        }
+        return null;
     }
 }

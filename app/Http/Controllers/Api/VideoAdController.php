@@ -270,7 +270,26 @@ class VideoAdController extends Controller
     {
         $user = $request->getMeta('auth.user');
         $ad = VideoAd::find($id);
-        if ($ad === null || (!$user->isAdmin() && !$ad->isActive())) {
+        $hasPendingView = false;
+        if ($ad !== null && $user !== null && !$user->isAdmin()) {
+            // Starting the final lifetime slot increments total_views before
+            // the client fetches the stream. Allow that same worker to finish
+            // loading its already-reserved view without making an exhausted
+            // ad generally streamable to other users.
+            $pending = Database::connect()->prepare(
+                'SELECT id FROM video_ad_views
+                 WHERE video_ad_id = :video_ad_id
+                   AND user_id = :user_id
+                   AND claimed_at IS NULL
+                 ORDER BY id DESC LIMIT 1'
+            );
+            $pending->execute([
+                ':video_ad_id' => (int) $id,
+                ':user_id' => (int) $user->id,
+            ]);
+            $hasPendingView = $pending->fetchColumn() !== false;
+        }
+        if ($ad === null || (!$user?->isAdmin() && !$ad->isActive() && !$hasPendingView)) {
             return Response::json(['success' => false, 'message' => 'Video ad not found or inactive.'], 404);
         }
 
