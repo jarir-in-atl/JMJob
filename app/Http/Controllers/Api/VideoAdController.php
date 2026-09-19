@@ -22,10 +22,13 @@ class VideoAdController extends Controller
     public function index(Request $request): Response
     {
         $user = $request->getMeta('auth.user');
-        if (!SettingService::get('advertisement_system_enabled', true)) {
+        if ($guard = $this->bannedGuard($user)) return $guard;
+        if (!SettingService::advertisementSystemEnabled()
+            || !SettingService::videoAdsEnabled()) {
             return Response::json(['success' => true, 'data' => [], 'meta' => ['enabled' => false]]);
         }
-        if (!SettingService::get('watch_earn_enabled', true)) {
+        if (!SettingService::get('watch_earn_enabled', true)
+            || !SettingService::rewardSystemEnabled()) {
             return Response::json(['success' => true, 'data' => [], 'meta' => ['enabled' => false, 'watch_earn_enabled' => false]]);
         }
 
@@ -56,7 +59,11 @@ class VideoAdController extends Controller
     public function start(Request $request): Response
     {
         $user = $request->getMeta('auth.user');
-        if (!SettingService::get('advertisement_system_enabled', true) || !SettingService::get('watch_earn_enabled', true)) {
+        if ($guard = $this->bannedGuard($user)) return $guard;
+        if (!SettingService::advertisementSystemEnabled()
+            || !SettingService::videoAdsEnabled()
+            || !SettingService::get('watch_earn_enabled', true)
+            || !SettingService::rewardSystemEnabled()) {
             return Response::json(['success' => false, 'message' => 'Watch-and-earn is currently disabled.'], 403);
         }
 
@@ -169,7 +176,11 @@ class VideoAdController extends Controller
     public function claim(Request $request): Response
     {
         $user = $request->getMeta('auth.user');
-        if (!SettingService::get('advertisement_system_enabled', true) || !SettingService::get('watch_earn_enabled', true)) {
+        if ($guard = $this->bannedGuard($user)) return $guard;
+        if (!SettingService::advertisementSystemEnabled()
+            || !SettingService::videoAdsEnabled()
+            || !SettingService::get('watch_earn_enabled', true)
+            || !SettingService::rewardSystemEnabled()) {
             return Response::json(['success' => false, 'message' => 'Watch-and-earn is currently disabled.'], 403);
         }
 
@@ -233,7 +244,8 @@ class VideoAdController extends Controller
                 'video_ad',
                 (float) $view['reward_amount'],
                 $view['ip_address'] ?? ($_SERVER['REMOTE_ADDR'] ?? null),
-                $view['user_agent'] ?? substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 250)
+                $view['user_agent'] ?? substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 250),
+                false
             );
             if (!($result['success'] ?? false)) {
                 Database::rollbackWriteTransaction($db);
@@ -269,6 +281,13 @@ class VideoAdController extends Controller
     public function stream(Request $request, int $id): Response
     {
         $user = $request->getMeta('auth.user');
+        if ($guard = $this->bannedGuard($user)) return $guard;
+        if (!SettingService::advertisementSystemEnabled()
+            || !SettingService::videoAdsEnabled()
+            || !SettingService::get('watch_earn_enabled', true)
+            || !SettingService::rewardSystemEnabled()) {
+            return Response::json(['success' => false, 'message' => 'Watch-and-earn is currently disabled.'], 403);
+        }
         $ad = VideoAd::find($id);
         $hasPendingView = false;
         if ($ad !== null && $user !== null && !$user->isAdmin()) {
@@ -349,6 +368,18 @@ class VideoAdController extends Controller
         $data['ads_remaining'] = $user->adsRemainingToday();
         $data['is_admin'] = $user->isAdmin();
         return $data;
+    }
+
+    private function bannedGuard(?User $user): ?Response
+    {
+        if ($user !== null && $user->isBanned()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'This account is banned.',
+                'error' => 'banned',
+            ], 403);
+        }
+        return null;
     }
 
     private function readJson(Request $request): array

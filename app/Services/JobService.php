@@ -155,6 +155,7 @@ class JobService
             'bi-check-circle',
             '/poster/jobs/' . $job->id
         );
+        $this->notifyWorkersAboutNewJob($job);
 
         return ['success' => true, 'job' => Job::find($jobId), 'message' => 'Job approved successfully.'];
     }
@@ -1483,10 +1484,13 @@ class JobService
         $db = Database::connect();
         try {
             $this->beginWriteTransaction($db);
-            Fluent::table('job_submissions')
+            $updated = Fluent::table('job_submissions')
                 ->where('id', '=', $submission->id)
                 ->where('status', '=', JobSubmission::STATUS_PENDING_REVIEW)
                 ->update($updates);
+            if ($updated !== 1) {
+                throw new \RuntimeException('Submission has already been reviewed.');
+            }
 
             if ((int) ($submission->assignment_id ?? 0) > 0 && JobAssignment::isAvailable()) {
                 Fluent::table('job_assignments')
@@ -1591,6 +1595,9 @@ class JobService
             if (!$bid || !$worker) {
                 throw new \RuntimeException('Assignment payment participants could not be found.');
             }
+            if ($worker->isBanned()) {
+                throw new \RuntimeException('Banned workers cannot receive assignment payments.');
+            }
 
             $submission = null;
             if ($submissionId !== null) {
@@ -1653,13 +1660,24 @@ class JobService
                 'paid_at'         => $now,
                 'updated_at'      => $now,
             ]);
-            Fluent::table('job_submissions')->where('id', '=', $submission->id)->update([
+            $submissionUpdate = Fluent::table('job_submissions')
+                ->where('id', '=', $submission->id);
+            if ($submission->status === JobSubmission::STATUS_PENDING_REVIEW) {
+                // Approval and rejection may have been requested from two
+                // different surfaces. Only the request that still owns the
+                // pending review may release the held assignment payment.
+                $submissionUpdate->where('status', '=', JobSubmission::STATUS_PENDING_REVIEW);
+            }
+            $submissionUpdated = $submissionUpdate->update([
                 'status'        => JobSubmission::STATUS_APPROVED,
                 'reviewed_at'   => $submission->reviewed_at ?: $now,
                 'reviewed_by'   => $submission->reviewed_by ?: $actorId,
                 'reviewer_note' => $reviewerNote ?? $submission->reviewer_note,
                 'updated_at'    => $now,
             ]);
+            if ($submission->status === JobSubmission::STATUS_PENDING_REVIEW && $submissionUpdated !== 1) {
+                throw new \RuntimeException('Submission has already been reviewed.');
+            }
 
             self::logTransaction(
                 $worker->id,
@@ -1812,13 +1830,19 @@ class JobService
         $db = Database::connect();
         try {
             $this->beginWriteTransaction($db);
-            Fluent::table('job_submissions')->where('id', '=', $submission->id)->update([
+            $submissionUpdated = Fluent::table('job_submissions')
+                ->where('id', '=', $submission->id)
+                ->where('status', '=', JobSubmission::STATUS_PENDING_REVIEW)
+                ->update([
                 'status'        => JobSubmission::STATUS_REVISION,
                 'reviewer_note' => $note,
                 'reviewed_at'   => $now,
                 'reviewed_by'   => $poster->id,
                 'updated_at'    => $now,
             ]);
+            if ($submissionUpdated !== 1) {
+                throw new \RuntimeException('Submission is no longer awaiting review.');
+            }
             if ((int) ($submission->assignment_id ?? 0) > 0 && JobAssignment::isAvailable()) {
                 Fluent::table('job_assignments')->where('id', '=', (int) $submission->assignment_id)->update([
                     'status'        => JobAssignment::STATUS_REVISION,
@@ -1900,6 +1924,7 @@ class JobService
         if ($bid === null) return ['success' => false, 'message' => 'No assigned bid.'];
         $worker = User::find((int) $bid->worker_id);
         if ($worker === null) return ['success' => false, 'message' => 'Worker not found.'];
+        if ($worker->isBanned()) return ['success' => false, 'message' => 'Banned workers cannot receive assignment payments.'];
 
         $bidAmount = (float) $bid->amount;
         $escrowHeld = SettingService::escrowAmount($bidAmount);
@@ -2240,6 +2265,27 @@ class JobService
         ?string $actionUrl = null
     ): void {
         NotificationService::sendToAdmins($title, $message, $tone, $icon, $actionUrl);
+    }
+
+    private function notifyWorkersAboutNewJob(Job $job): void
+    {
+        try {
+            foreach (Fluent::table('users')->where('is_banned', '=', 0)->get() as $row) {
+                if ((int) ($row['is_admin'] ?? 0) === 1) continue;
+                $role = strtolower(trim((string) ($row['role'] ?? '')));
+                if ($role !== '' && $role !== 'worker') continue;
+                $this->notifyUser(
+                    User::find((int) $row['id']),
+                    'New job available',
+                    'A new job, “' . $job->title . '”, is now available for applications.',
+                    'info',
+                    'bi-briefcase',
+                    '/jobs/' . $job->id
+                );
+            }
+        } catch (\Throwable) {
+            // A worker notification failure must not undo job approval.
+        }
     }
 
     /**

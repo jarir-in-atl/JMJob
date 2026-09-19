@@ -145,6 +145,26 @@ class SettingService
         return (string) $val;
     }
 
+    public static function advertisementSystemEnabled(): bool
+    {
+        return (bool) self::get('advertisement_system_enabled', true);
+    }
+
+    public static function videoAdsEnabled(): bool
+    {
+        return (bool) self::get('video_ads_enabled', true);
+    }
+
+    public static function rewardSystemEnabled(): bool
+    {
+        return (bool) self::get('reward_system_enabled', true);
+    }
+
+    public static function adNetworkEnabled(): bool
+    {
+        return (bool) self::get('ad_network_enabled', true);
+    }
+
     /**
      * Returns the effective escrow amount to hold for a bid of $amount,
      * given the current escrow_mode and (if relevant) escrow_percent.

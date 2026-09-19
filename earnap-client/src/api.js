@@ -167,6 +167,9 @@ export const api = {
         return request(`/jobs${q ? '?' + q : ''}`);
     },
     job:                  (id) => request(`/jobs/${id}`),
+    createWorkflowJob:    (body) => request('/jobs/workflow', { method: 'POST', body }),
+    applyForJob:          (id, body = {}) => request(`/jobs/${id}/apply`, { method: 'POST', body }),
+    extendDeadline:       (id, body = {}) => request(`/jobs/${id}/extend-deadline`, { method: 'POST', body }),
     placeBid:             (id, body) => request(`/jobs/${id}/bid`, { method: 'POST', body }),
     withdrawBid:          (id) => request(`/bids/${id}`, { method: 'DELETE' }),
     workerBids:           () => request('/worker/bids'),
@@ -228,6 +231,7 @@ export const api = {
     adminReassignAssignment:    (id, body = {}) => request(`/admin/assignments/${id}/reassign`, { method: 'POST', body }),
     adminApproveJob:            (id, body = {}) => request(`/admin/jobs/${id}/approve`, { method: 'POST', body }),
     adminDeclineJob:            (id, body = {}) => request(`/admin/jobs/${id}/decline`, { method: 'POST', body }),
+    adminApproveApplication:    (id, body = {}) => request(`/admin/applications/${id}/approve`, { method: 'POST', body }),
     adminFlagJobDispute:        (id) => request(`/admin/jobs/${id}/dispute`, { method: 'POST' }),
     adminResolveJob:             (id, body) => request(`/admin/jobs/${id}/resolve`, { method: 'POST', body }),
     adminTransactions:          (params = {}) => {

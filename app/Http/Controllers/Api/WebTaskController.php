@@ -9,8 +9,10 @@ use Nemesis\Http\Response;
 use App\Models\WebTask;
 use App\Models\WebTaskCompletion;
 use App\Models\User;
+use Nemesis\Core\Database;
 use Nemesis\Core\Fluent;
 use App\Services\RewardService;
+use App\Services\SettingService;
 
 class WebTaskController extends Controller
 {
@@ -22,6 +24,7 @@ class WebTaskController extends Controller
     public function index(Request $request): Response
     {
         $user = $request->getMeta('auth.user');
+        if ($guard = $this->bannedGuard($user)) return $guard;
         $rows = Fluent::table('web_tasks')
             ->where('active', '=', 1)
             ->orderBy('id', 'asc')
@@ -48,6 +51,7 @@ class WebTaskController extends Controller
         return Response::json([
             'success' => true,
             'data'    => $items,
+            'meta'    => ['reward_system_enabled' => SettingService::rewardSystemEnabled()],
         ]);
     }
 
@@ -59,6 +63,10 @@ class WebTaskController extends Controller
     public function start(Request $request): Response
     {
         $user = $request->getMeta('auth.user');
+        if ($guard = $this->bannedGuard($user)) return $guard;
+        if (!SettingService::rewardSystemEnabled()) {
+            return Response::json(['success' => false, 'message' => 'The reward system is currently disabled.'], 403);
+        }
         $body = $this->readJson($request);
         $taskId = (int) ($body['task_id'] ?? 0);
         if ($taskId <= 0) {
@@ -107,6 +115,10 @@ class WebTaskController extends Controller
     public function claim(Request $request): Response
     {
         $user = $request->getMeta('auth.user');
+        if ($guard = $this->bannedGuard($user)) return $guard;
+        if (!SettingService::rewardSystemEnabled()) {
+            return Response::json(['success' => false, 'message' => 'The reward system is currently disabled.'], 403);
+        }
         $body = $this->readJson($request);
         $completionId = (int) ($body['completion_id'] ?? 0);
         if ($completionId <= 0) {
@@ -135,17 +147,57 @@ class WebTaskController extends Controller
             ], 422);
         }
 
-        // Mark completion
         $reward = (float) $completion->reward;
-        Fluent::table('web_task_completions')
-            ->where('id', '=', $completionId)
-            ->update([
-                'completed_at' => date('Y-m-d H:i:s'),
-                'claimed_at'   => date('Y-m-d H:i:s'),
-            ]);
+        $db = Database::connect();
+        try {
+            // Claim the completion and credit the reward in one serialized
+            // write boundary. This prevents two requests from both passing
+            // the preflight claimed_at check.
+            Database::beginWriteTransaction($db);
+            $now = date('Y-m-d H:i:s');
+            $claimed = Fluent::table('web_task_completions')
+                ->where('id', '=', $completionId)
+                ->where('user_id', '=', $user->id)
+                ->whereNull('claimed_at')
+                ->update([
+                    'completed_at' => $now,
+                    'claimed_at'   => $now,
+                ]);
+            if ($claimed !== 1) {
+                Database::rollbackWriteTransaction($db);
+                return Response::json(['success' => false, 'message' => 'Reward already claimed.'], 422);
+            }
 
-        // Credit reward
-        $result = $this->rewardService->creditWebTaskReward($user, $reward, $completionId);
+            // Re-check the daily limit after claiming this completion. The
+            // user row lock serializes separate eligible completions for the
+            // same account on transactional databases.
+            $userLockSql = 'SELECT id FROM users WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $userLockSql .= ' FOR UPDATE';
+            $userLock = $db->prepare($userLockSql);
+            $userLock->execute(['id' => (int) $user->id]);
+            $dailyCountStmt = $db->prepare(
+                'SELECT COUNT(*) FROM web_task_completions WHERE user_id = :user_id AND task_id = :task_id AND claimed_at IS NOT NULL AND DATE(started_at) = :today'
+            );
+            $dailyCountStmt->execute([
+                'user_id' => (int) $user->id,
+                'task_id' => (int) $task->id,
+                'today' => date('Y-m-d'),
+            ]);
+            if ((int) $dailyCountStmt->fetchColumn() > (int) $task->daily_limit_per_user) {
+                Database::rollbackWriteTransaction($db);
+                return Response::json(['success' => false, 'message' => 'Daily task limit reached.'], 422);
+            }
+
+            $result = $this->rewardService->creditWebTaskReward($user, $reward, $completionId);
+            if (!($result['success'] ?? false)) {
+                Database::rollbackWriteTransaction($db);
+                return Response::json($result, 422);
+            }
+            Database::commitWriteTransaction($db);
+        } catch (\Throwable $e) {
+            Database::rollbackWriteTransaction($db);
+            return Response::json(['success' => false, 'message' => 'Unable to claim web-task reward right now.'], 500);
+        }
 
         $user = User::find($user->id);
         return Response::json([
@@ -170,6 +222,14 @@ class WebTaskController extends Controller
         $array['can_withdraw']   = $user->canWithdraw();
         $array['is_admin']       = $user->isAdmin();
         return $array;
+    }
+
+    private function bannedGuard(?User $user): ?Response
+    {
+        if ($user !== null && $user->isBanned()) {
+            return Response::json(['success' => false, 'error' => 'banned', 'message' => 'Banned accounts cannot access tasks.'], 403);
+        }
+        return null;
     }
 
     private function readJson(Request $request): array

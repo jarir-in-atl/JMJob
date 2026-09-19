@@ -39,6 +39,7 @@ import { AdminJobPostPage }     from './views/AdminJobPostPage.js';
 import { AdminJobDetailPage }   from './views/AdminJobDetailPage.js';
 import { AdminTransactionsPage } from './views/AdminTransactionsPage.js';
 import { AdminReportsPage }     from './views/AdminReportsPage.js';
+import { AdminAdvertisementPage } from './views/AdminAdvertisementPage.js';
 import { PosterDashboardPage }  from './views/PosterDashboardPage.js';
 import { PostJobPage }          from './views/PostJobPage.js';
 import { PosterJobsPage }        from './views/PosterJobsPage.js';
@@ -60,9 +61,12 @@ const VIEW_MAP = {
     '/admin/categories': AdminCategoriesPage,
     '/admin/settings':   AdminSettingsPage,
     '/admin/jobs':       AdminJobsPage,
+    '/admin/pending-jobs': AdminJobsPage,
+    '/admin/active-jobs':  AdminJobsPage,
     '/admin/admin-job-post': AdminJobPostPage,
     '/admin/transactions': AdminTransactionsPage,
     '/admin/reports':      AdminReportsPage,
+    '/admin/advertisement': AdminAdvertisementPage,
     '/deposit':         DepositPage,
     '/leaderboard':     LeaderboardPage,
     '/achievements':    AchievementsPage,
@@ -110,12 +114,27 @@ async function renderCurrent() {
     if (!VIEW_MAP[path]) {
         const adminJobMatch = path.match(/^\/admin\/jobs\/(\d+)$/);
         if (adminJobMatch) {
+            // Dynamic routes return before the shared static-route gate, so
+            // enforce both authentication and administrator access here.
+            if (!isAuthenticated.get()) {
+                navigate('/login');
+                return;
+            }
+            const dynamicUser = currentUser.get();
+            if (!dynamicUser || !dynamicUser.is_admin) {
+                mainForbidden();
+                return;
+            }
             await invokeView(() => AdminJobDetailPage(adminJobMatch[1]), path);
             return;
         }
         // Dynamic routes: /jobs/{id}
         const jobMatch = path.match(/^\/jobs\/(\d+)$/);
         if (jobMatch) {
+            if (!isAuthenticated.get()) {
+                navigate('/login');
+                return;
+            }
             const mod = await import('./views/JobDetailPage.js');
             await invokeView(() => mod.JobDetailPage(jobMatch[1]), path);
             return;

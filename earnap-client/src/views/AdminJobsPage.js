@@ -226,7 +226,7 @@ async function viewProofSubmissions(jobId, jobTitle) {
                     <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
                         <div>
                             <strong><i class="bi bi-person"></i> ${escapeHtml(sub.worker_name)}</strong>
-                            <span class="muted">(${escapeHtml(sub.worker_email || sub.worker_username || '')})</span>
+                            <span class="muted">User ID #${escapeHtml(sub.worker_id)} · ${escapeHtml(sub.worker_phone || 'Phone unavailable')} · ${escapeHtml(sub.worker_email || sub.worker_username || '')}</span>
                         </div>
                         <span class="badge badge--${sub.status === 'approved' ? 'success' : 'warning'}">${escapeHtml(sub.status.toUpperCase())}</span>
                     </div>
@@ -244,7 +244,7 @@ async function viewProofSubmissions(jobId, jobTitle) {
 
                     ${sub.trx_id ? `<div style="font-size:12px; color:#475569; margin-top:6px;"><strong>TrxID:</strong> ${escapeHtml(sub.trx_id)} | <strong>bKash:</strong> ${escapeHtml(sub.bkash_number || 'N/A')}</div>` : ''}
 
-                    <div style="font-size:12px; color:#64748b; margin-top:8px;">Submitted on: ${formatDate(sub.created_at)}</div>
+                    <div style="font-size:12px; color:#64748b; margin-top:8px;">Submitted on: ${formatDate(sub.submitted_at || sub.created_at)} · Attempt ${Number(sub.attempt_number || 1)}</div>
                 </div>
             `;
         }).join('');

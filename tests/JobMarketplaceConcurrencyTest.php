@@ -30,6 +30,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 use App\Models\Job;
 use App\Models\JobAssignment;
 use App\Models\JobBid;
+use App\Models\JobSubmission;
 use App\Models\User;
 use App\Services\JobService;
 use Nemesis\Core\Config;
@@ -75,6 +76,32 @@ if (($argv[1] ?? '') === '--submit-child') {
     exit(0);
 }
 
+if (($argv[1] ?? '') === '--revision-child') {
+    $jobId = (int) ($argv[2] ?? 0);
+    $submissionId = (int) ($argv[3] ?? 0);
+    $posterId = (int) ($argv[4] ?? 0);
+    $poster = User::find($posterId);
+    $result = $poster === null
+        ? ['success' => false, 'message' => 'Revision race poster not found.']
+        : (new JobService())->requestRevision($poster, $jobId, $submissionId, 'Concurrent revision decision.');
+    echo json_encode([
+        'success' => (bool) ($result['success'] ?? false),
+        'message' => (string) ($result['message'] ?? ''),
+    ], JSON_UNESCAPED_UNICODE) . "\n";
+    exit(0);
+}
+
+if (($argv[1] ?? '') === '--review-child') {
+    $submissionId = (int) ($argv[2] ?? 0);
+    $adminId = (int) ($argv[3] ?? 0);
+    $result = (new JobService())->reviewSubmission($submissionId, $adminId, 'approve');
+    echo json_encode([
+        'success' => (bool) ($result['success'] ?? false),
+        'message' => (string) ($result['message'] ?? ''),
+    ], JSON_UNESCAPED_UNICODE) . "\n";
+    exit(0);
+}
+
 $requiredTables = ['users', 'jobs', 'job_bids', 'job_assignments', 'job_submissions', 'transactions', 'notifications'];
 foreach ($requiredTables as $table) {
     $check = $db->prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?");
@@ -94,6 +121,9 @@ $submissionJobId = 0;
 $submissionBidId = 0;
 $submissionAssignmentId = 0;
 $fraudJobId = 0;
+$moderationJobId = 0;
+$moderationSubmissionId = 0;
+$moderationAssignmentId = 0;
 $exitCode = 0;
 
 $assert = static function (bool $condition, string $message): void {
@@ -332,6 +362,105 @@ try {
     $duplicateFlagCount->execute([$fraudJobId]);
     $assert((int) $duplicateFlagCount->fetchColumn() >= 1, 'Concurrent duplicate content did not enter the fraud-review signal.');
 
+    // A poster revision and an administrator approval may race on the same
+    // pending submission. Exactly one decision may claim it, and the losing
+    // decision must not overwrite the finalized submission or payment state.
+    $moderationJob = $db->prepare(
+        'INSERT INTO jobs (poster_id,title,slug,description,budget,currency,status,worker_count,cost_per_worker,created_at) VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)'
+    );
+    $moderationJob->execute([$userIds['poster'], "Moderation race {$suffix}", "moderation-race-{$suffix}", 'Concurrent moderation check', 100, 'BDT', Job::STATUS_ENGAGED, 1, 100]);
+    $moderationJobId = (int) $db->lastInsertId();
+    $moderationBid = $db->prepare(
+        'INSERT INTO job_bids (job_id,worker_id,amount,currency,delivery_days,proposal,status,created_at) VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)'
+    );
+    $moderationBid->execute([$moderationJobId, $userIds['worker_a'], 100, 'BDT', 1, 'moderation race bid', JobBid::STATUS_ACCEPTED]);
+    $moderationBidId = (int) $db->lastInsertId();
+    $moderationAssignment = $db->prepare(
+        'INSERT INTO job_assignments (job_id,bid_id,worker_id,status,payment_status,payment_amount,assigned_by,created_at) VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)'
+    );
+    $moderationAssignment->execute([
+        $moderationJobId,
+        $moderationBidId,
+        $userIds['worker_a'],
+        JobAssignment::STATUS_ASSIGNED,
+        JobAssignment::PAYMENT_HELD,
+        100,
+        $userIds['admin'],
+    ]);
+    $moderationAssignmentId = (int) $db->lastInsertId();
+    $moderationSubmit = (new JobService())->submitWork(
+        User::find($userIds['worker_a']),
+        $moderationJobId,
+        'This is a sufficiently detailed moderation race submission.',
+        null,
+        null,
+        '10.0.0.77',
+        'JMJobModerationRace/1.0'
+    );
+    $assert(($moderationSubmit['success'] ?? false) === true, 'Moderation race fixture submission failed.');
+    $moderationSubmissionId = (int) ($moderationSubmit['submission']->id ?? 0);
+    $assert($moderationSubmissionId > 0, 'Moderation race fixture did not create a submission.');
+
+    unset(
+        $insertUser,
+        $insertJob,
+        $insertBid,
+        $moderationJob,
+        $moderationBid,
+        $moderationAssignment,
+        $moderationSubmit,
+        $duplicateSubmissionCount,
+        $duplicateFlagCount
+    );
+    $db = null;
+    Database::disconnect();
+    $moderationProcesses = [];
+    $moderationCommands = [
+        ['--revision-child', $moderationJobId, $moderationSubmissionId, $userIds['poster']],
+        ['--review-child', $moderationSubmissionId, $userIds['admin']],
+    ];
+    foreach ($moderationCommands as $arguments) {
+        $command = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__);
+        foreach ($arguments as $argument) $command .= ' ' . escapeshellarg((string) $argument);
+        $pipes = [];
+        $process = proc_open($command, $spec, $pipes, dirname(__DIR__), $env);
+        if (!is_resource($process)) throw new RuntimeException('Could not start moderation-race child process.');
+        $moderationProcesses[] = [$process, $pipes];
+    }
+
+    $moderationResults = [];
+    foreach ($moderationProcesses as [$process, $pipes]) {
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $status = proc_close($process);
+        $decoded = json_decode(trim((string) $stdout), true);
+        if (!is_array($decoded)) {
+            throw new RuntimeException('Moderation-race child returned invalid output: ' . trim((string) $stdout) . ' ' . trim((string) $stderr));
+        }
+        $moderationResults[] = $decoded + ['process_status' => $status, 'stderr' => trim((string) $stderr)];
+    }
+
+    $db = Database::connect();
+    $moderationSuccesses = count(array_filter($moderationResults, static fn(array $result): bool => ($result['success'] ?? false) === true));
+    $assert($moderationSuccesses === 1, 'Moderation race allowed more than one decision to claim the submission: ' . json_encode($moderationResults));
+    $moderationState = $db->prepare(
+        'SELECT s.status AS submission_status, a.status AS assignment_status, a.payment_status FROM job_submissions s JOIN job_assignments a ON a.id = s.assignment_id WHERE s.id = ?'
+    );
+    $moderationState->execute([$moderationSubmissionId]);
+    $moderationRow = $moderationState->fetch(PDO::FETCH_ASSOC);
+    $assert(in_array($moderationRow['submission_status'] ?? '', [JobSubmission::STATUS_APPROVED, JobSubmission::STATUS_REVISION], true), 'Moderation race left the submission pending or in an unknown state.');
+    if ($moderationRow['submission_status'] === JobSubmission::STATUS_APPROVED) {
+        $assert($moderationRow['assignment_status'] === JobAssignment::STATUS_COMPLETED
+            && $moderationRow['payment_status'] === JobAssignment::PAYMENT_RELEASED,
+            'Approval won the moderation race without completing and releasing the assignment.');
+    } else {
+        $assert($moderationRow['assignment_status'] === JobAssignment::STATUS_REVISION
+            && $moderationRow['payment_status'] === JobAssignment::PAYMENT_HELD,
+            'Revision won the moderation race without returning the assignment to revision with escrow held.');
+    }
+
     echo "Job marketplace capacity, submission, and fraud race checks passed.\n";
 } catch (Throwable $e) {
     fwrite(STDERR, "Job marketplace capacity/submission race checks failed: {$e->getMessage()}\n");
@@ -363,6 +492,13 @@ try {
         $db->prepare('DELETE FROM transactions WHERE job_id = ?')->execute([$fraudJobId]);
         $db->prepare('DELETE FROM job_bids WHERE job_id = ?')->execute([$fraudJobId]);
         $db->prepare('DELETE FROM jobs WHERE id = ?')->execute([$fraudJobId]);
+    }
+    if ($moderationJobId > 0) {
+        $db->prepare('DELETE FROM job_submissions WHERE job_id = ?')->execute([$moderationJobId]);
+        $db->prepare('DELETE FROM job_assignments WHERE job_id = ?')->execute([$moderationJobId]);
+        $db->prepare('DELETE FROM transactions WHERE job_id = ?')->execute([$moderationJobId]);
+        $db->prepare('DELETE FROM job_bids WHERE job_id = ?')->execute([$moderationJobId]);
+        $db->prepare('DELETE FROM jobs WHERE id = ?')->execute([$moderationJobId]);
     }
     if ($userIds) {
         $placeholders = implode(',', array_fill(0, count($userIds), '?'));

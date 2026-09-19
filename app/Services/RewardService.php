@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\AdView;
 use App\Models\AdProvider;
 use App\Models\ReferralCommission;
+use Nemesis\Core\Database;
 use Nemesis\Core\Fluent;
 
 /**
@@ -28,17 +29,21 @@ class RewardService
         string $provider,
         float $reward,
         ?string $ip = null,
-        ?string $ua = null
+        ?string $ua = null,
+        bool $manageTransaction = true
     ): array {
-        if ($user->isBanned()) {
-            return ['success' => false, 'message' => 'Banned accounts cannot receive rewards.'];
+        if (!SettingService::rewardSystemEnabled()) {
+            return ['success' => false, 'message' => 'The reward system is currently disabled.'];
         }
-        $user->resetDailyCountersIfNeeded();
-        if ($user->adsRemainingToday() <= 0) {
-            return [
-                'success' => false,
-                'message' => 'Daily ad limit reached. Try again tomorrow.',
-            ];
+        if (!SettingService::advertisementSystemEnabled()
+            || !SettingService::get('watch_earn_enabled', true)) {
+            return ['success' => false, 'message' => 'Watch-and-earn is currently disabled.'];
+        }
+        if ($provider === 'video_ad' && !SettingService::videoAdsEnabled()) {
+            return ['success' => false, 'message' => 'Video ads are currently disabled.'];
+        }
+        if ($provider !== 'video_ad' && !SettingService::adNetworkEnabled()) {
+            return ['success' => false, 'message' => 'The external ad network is currently disabled.'];
         }
         if ($reward <= 0) {
             return [
@@ -47,50 +52,79 @@ class RewardService
             ];
         }
 
-        $adViewId = $user->recordAdReward($provider, $reward, $ip, $ua);
+        $db = Database::connect();
+        $ownsTransaction = $manageTransaction && !$db->inTransaction();
+        try {
+            if ($ownsTransaction) Database::beginWriteTransaction($db);
 
-        // 50% commission to the direct referrer (if any)
-        $referrer = $user->referrer();
-        $commissionAmount = 0.0;
-        if ($referrer !== null) {
-            $rate = (float) (getenv('REFERRAL_COMMISSION_RATE') ?: 0.5);
-            $commissionAmount = round($reward * $rate, 4);
-            $newReferrerBalance  = round(((float) $referrer->balance) + $commissionAmount, 4);
-            $newReferrerLifetime = round(((float) $referrer->lifetime_earned) + $commissionAmount, 4);
+            $lockSql = 'SELECT * FROM users WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $lockSql .= ' FOR UPDATE';
+            $lock = $db->prepare($lockSql);
+            $lock->execute(['id' => (int) $user->id]);
+            $lockedRow = $lock->fetch(\PDO::FETCH_ASSOC);
+            if (!$lockedRow) throw new \RuntimeException('User not found.');
+            $user = new User($lockedRow);
+            if ($user->isBanned()) {
+                throw new \RuntimeException('Banned accounts cannot receive rewards.');
+            }
+            $user->resetDailyCountersIfNeeded();
+            if ($user->adsRemainingToday() <= 0) {
+                throw new \RuntimeException('Daily ad limit reached. Try again tomorrow.');
+            }
 
-            Fluent::table('users')
-                ->where('id', '=', $referrer->id)
-                ->update([
-                    'balance'         => $newReferrerBalance,
-                    'lifetime_earned' => $newReferrerLifetime,
-                    'updated_at'      => date('Y-m-d H:i:s'),
+            $adViewId = $user->recordAdReward($provider, $reward, $ip, $ua);
+
+            // 50% commission to the direct referrer (if any)
+            $referrer = $user->referrer();
+            $commissionAmount = 0.0;
+            if ($referrer !== null) {
+                $rate = (float) (getenv('REFERRAL_COMMISSION_RATE') ?: 0.5);
+                $commissionAmount = round($reward * $rate, 4);
+                $newReferrerBalance  = round(((float) $referrer->balance) + $commissionAmount, 4);
+                $newReferrerLifetime = round(((float) $referrer->lifetime_earned) + $commissionAmount, 4);
+
+                Fluent::table('users')
+                    ->where('id', '=', $referrer->id)
+                    ->update([
+                        'balance'         => $newReferrerBalance,
+                        'lifetime_earned' => $newReferrerLifetime,
+                        'updated_at'      => date('Y-m-d H:i:s'),
+                    ]);
+
+                Fluent::table('referral_commissions')->insert([
+                    'referrer_id'       => $referrer->id,
+                    'referred_id'       => $user->id,
+                    'source_type'       => 'ad',
+                    'source_id'         => $adViewId,
+                    'commission_rate'   => $rate,
+                    'commission_amount' => $commissionAmount,
+                    'created_at'        => date('Y-m-d H:i:s'),
                 ]);
+            }
 
-            Fluent::table('referral_commissions')->insert([
-                'referrer_id'       => $referrer->id,
-                'referred_id'       => $user->id,
-                'source_type'       => 'ad',
-                'source_id'         => $adViewId,
-                'commission_rate'   => $rate,
-                'commission_amount' => $commissionAmount,
-                'created_at'        => date('Y-m-d H:i:s'),
-            ]);
+            if ($ownsTransaction) Database::commitWriteTransaction($db);
+
+            return [
+                'success'          => true,
+                'reward'           => $reward,
+                'commission'       => $commissionAmount,
+                'ad_view_id'       => $adViewId,
+                'new_balance'      => (float) $user->balance,
+                'lifetime_earned'  => (float) $user->lifetime_earned,
+                'today_earned'     => (float) $user->today_earned,
+                'ads_remaining'    => $user->adsRemainingToday(),
+            ];
+        } catch (\Throwable $e) {
+            if ($ownsTransaction) Database::rollbackWriteTransaction($db);
+            return ['success' => false, 'message' => $e->getMessage()];
         }
-
-        return [
-            'success'          => true,
-            'reward'           => $reward,
-            'commission'       => $commissionAmount,
-            'ad_view_id'       => $adViewId,
-            'new_balance'      => (float) $user->balance,
-            'lifetime_earned'  => (float) $user->lifetime_earned,
-            'today_earned'     => (float) $user->today_earned,
-            'ads_remaining'    => $user->adsRemainingToday(),
-        ];
     }
 
     public function creditWebTaskReward(User $user, float $reward, int $completionId): array
     {
+        if (!SettingService::rewardSystemEnabled()) {
+            return ['success' => false, 'message' => 'The reward system is currently disabled.'];
+        }
         if ($user->isBanned()) {
             return ['success' => false, 'message' => 'Banned accounts cannot receive rewards.'];
         }
@@ -150,6 +184,9 @@ class RewardService
 
     public function creditTgTaskReward(User $user, float $reward, int $completionId): array
     {
+        if (!SettingService::rewardSystemEnabled()) {
+            return ['success' => false, 'message' => 'The reward system is currently disabled.'];
+        }
         if ($user->isBanned()) {
             return ['success' => false, 'message' => 'Banned accounts cannot receive rewards.'];
         }

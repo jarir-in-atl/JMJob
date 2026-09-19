@@ -13,6 +13,7 @@ use App\Models\AdView;
 use Nemesis\Core\Fluent;
 use Nemesis\Core\Validator;
 use App\Services\RewardService;
+use App\Services\SettingService;
 use App\Services\WithdrawalService;
 
 /**
@@ -48,6 +49,23 @@ class UserController extends Controller
     public function reward(Request $request): Response
     {
         $user = $request->getMeta('auth.user');
+        if ($user !== null && $user->isBanned()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'This account is banned.',
+                'error' => 'banned',
+            ], 403);
+        }
+        if (!SettingService::advertisementSystemEnabled()
+            || !SettingService::adNetworkEnabled()
+            || !SettingService::rewardSystemEnabled()
+            || !SettingService::get('watch_earn_enabled', true)) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Watch-and-earn is currently disabled.',
+            ], 403);
+        }
+
         $body = $this->readJson($request);
 
         $validator = new Validator();
@@ -215,19 +233,34 @@ class UserController extends Controller
             ->get();
 
         $items = [];
-        foreach ($rows as $ad) {
-            $items[] = [
-                'id'           => $ad->id,
-                'provider'     => $ad->provider,
-                'reward'       => (float) $ad->reward,
-                'started_at'   => $ad->started_at,
-                'completed_at' => $ad->completed_at,
-            ];
-        }
-        return Response::json([
-            'success' => true,
-            'data'    => $items,
-        ]);
+       foreach ($rows as $ad) {
+           $items[] = [
+               'id'           => $ad->id,
+               'provider'     => $ad->provider,
+               'reward'       => (float) $ad->reward,
+               'started_at'   => $ad->started_at,
+               'completed_at' => $ad->completed_at,
+           ];
+       }
+        $totalSummary = Fluent::table('ad_views')
+            ->where('user_id', '=', $user->id)
+            ->select(['COUNT(*) AS total_views', 'COALESCE(SUM(reward), 0) AS total_earnings'])
+            ->first() ?: [];
+        $todaySummary = Fluent::table('ad_views')
+            ->where('user_id', '=', $user->id)
+            ->where('completed_at', '>=', date('Y-m-d 00:00:00'))
+            ->select(['COUNT(*) AS today_views', 'COALESCE(SUM(reward), 0) AS today_earnings'])
+            ->first() ?: [];
+       return Response::json([
+           'success' => true,
+           'data'    => $items,
+            'meta'    => [
+                'total_views' => (int) ($totalSummary['total_views'] ?? 0),
+                'total_earnings' => (float) ($totalSummary['total_earnings'] ?? 0),
+                'today_views' => (int) ($todaySummary['today_views'] ?? 0),
+                'today_earnings' => (float) ($todaySummary['today_earnings'] ?? 0),
+            ],
+       ]);
     }
 
     private function buildReferralLink(string $code): string

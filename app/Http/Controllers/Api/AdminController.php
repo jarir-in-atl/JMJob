@@ -690,6 +690,7 @@ class AdminController extends Controller
                     s.reviewer_note, s.rejection_reason, s.risk_score,
                     s.risk_status, s.risk_flags, s.created_at,
                     w.name AS worker_name, w.email AS worker_email, w.username AS worker_username,
+                    w.phone AS worker_phone,
                     b.work_proof_data, b.trx_id, b.bkash_number
                 FROM job_submissions s
                 LEFT JOIN users w ON w.id = s.worker_id
@@ -712,6 +713,7 @@ class AdminController extends Controller
                 'worker_name'     => $row['worker_name'] ?: 'Unknown Worker',
                 'worker_email'    => $row['worker_email'],
                 'worker_username' => $row['worker_username'],
+                'worker_phone'    => $row['worker_phone'],
                 'description'     => $row['description'],
                 'attachment_path' => $row['attachment_path'],
                 'attachment_url'  => $row['attachment_path'] ? '/api/jobs/submissions/' . (int) $row['id'] . '/attachment' : null,
@@ -1060,12 +1062,15 @@ class AdminController extends Controller
         $withdrawals = (int) (Fluent::table('withdrawals')->select(['COUNT(*) AS c'])->first()['c'] ?? 0);
         $pending     = (int) (Fluent::table('withdrawals')->where('status', '=', 'pending')->select(['COUNT(*) AS c'])->first()['c'] ?? 0);
         $adViews     = (int) (Fluent::table('ad_views')->select(['COUNT(*) AS c'])->first()['c'] ?? 0);
+        $completedAdViews = (int) (Fluent::table('ad_views')->whereNotNull('completed_at')->select(['COUNT(*) AS c'])->first()['c'] ?? 0);
         $totalPaid   = (float) (Fluent::table('users')->select(['COALESCE(SUM(lifetime_earned), 0) AS s'])->first()['s'] ?? 0);
         $bannedUsers = 0;
+        $activeUsers = $users;
         $videoAds = 0;
         $videoViews = 0;
         $videoCompleted = 0;
         $videoRewards = 0.0;
+        $eligibleRewards = 0;
         $marketplace = [
             'total_jobs' => 0,
             'pending_jobs' => 0,
@@ -1115,10 +1120,16 @@ class AdminController extends Controller
         }
         try {
             $bannedUsers = (int) (Fluent::table('users')->where('is_banned', '=', 1)->select(['COUNT(*) AS c'])->first()['c'] ?? 0);
+            $activeUsers = max(0, $users - $bannedUsers);
             $videoAds = (int) (Fluent::table('video_ads')->select(['COUNT(*) AS c'])->first()['c'] ?? 0);
             $videoViews = (int) (Fluent::table('video_ad_views')->select(['COUNT(*) AS c'])->first()['c'] ?? 0);
             $videoCompleted = (int) (Fluent::table('video_ad_views')->whereNotNull('claimed_at')->select(['COUNT(*) AS c'])->first()['c'] ?? 0);
             $videoRewards = (float) (Fluent::table('video_ad_views')->whereNotNull('claimed_at')->select(['COALESCE(SUM(reward_amount), 0) AS s'])->first()['s'] ?? 0);
+            $eligibleRewards = (int) (Fluent::table('video_ad_views')
+                ->whereNotNull('completed_at')
+                ->whereNull('claimed_at')
+                ->select(['COUNT(*) AS c'])
+                ->first()['c'] ?? 0);
         } catch (\Throwable $e) {
             // These optional counters remain zero until their migrations exist.
         }
@@ -1128,9 +1139,13 @@ class AdminController extends Controller
             'success' => true,
             'data'    => [
                 'total_users'        => $users,
+                'active_users'       => $activeUsers,
                 'total_withdrawals'   => $withdrawals,
                 'pending_withdrawals' => $pending,
-                'total_ad_views'      => $adViews,
+                'total_ad_views'      => $adViews + $videoViews,
+                'completed_ad_views'  => $completedAdViews + $videoCompleted,
+                'eligible_rewards'    => $eligibleRewards,
+                'user_ad_rewards'     => (float) ($marketplace['ad_earnings'] ?? 0),
                 'total_lifetime_paid' => $totalPaid,
                 'banned_users'        => $bannedUsers,
                 'video_ads'           => $videoAds,

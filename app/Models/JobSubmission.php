@@ -68,6 +68,18 @@ class JobSubmission extends Model
         return $row ? new self((array) $row) : null;
     }
 
+    public static function latestForJobWorker(int $jobId, int $workerId): ?self
+    {
+        $rows = Fluent::table('job_submissions')
+            ->where('job_id', '=', $jobId)
+            ->where('worker_id', '=', $workerId)
+            ->orderBy('id', 'desc')
+            ->limit(1)
+            ->get()->all();
+        $row = $rows[0] ?? null;
+        return $row ? new self((array) $row) : null;
+    }
+
     public static function forJob(int $jobId): array
     {
         $rows = Fluent::table('job_submissions')

@@ -20,13 +20,17 @@ const USER_NAV_ITEMS = [
 ];
 
 const ADMIN_NAV_ITEMS = [
-    { path: '/admin', label: 'Admin Panel', icon: 'bi-shield-lock' },
-    { path: '/admin/payments', label: 'Payments', icon: 'bi-cash-stack' },
-    { path: '/admin/jobs', label: 'Job Oversight', icon: 'bi-briefcase' },
-    { path: '/admin/transactions', label: 'Transactions', icon: 'bi-receipt' },
-    { path: '/admin/reports', label: 'Reports', icon: 'bi-bar-chart-line' },
+    { path: '/admin', label: 'Overview', icon: 'bi-speedometer2' },
+    { path: '/admin/pending-jobs', label: 'Job Post', icon: 'bi-file-earmark-plus' },
+    { path: '/admin/admin-job-post', label: 'Admin Job Post', icon: 'bi-plus-square' },
+    { path: '/admin/active-jobs', label: 'Active Job', icon: 'bi-lightning-charge' },
+    { path: '/admin/payments', label: 'Payments & TRX', icon: 'bi-cash-stack' },
+    { path: '/admin/jobs', label: 'Job Moderation', icon: 'bi-shield-check' },
+    { path: '/admin/transactions', label: 'Ledger Audit', icon: 'bi-receipt' },
+    { path: '/admin/reports', label: 'Analytics & Reports', icon: 'bi-bar-chart-line' },
+    { path: '/admin/advertisement', label: 'Advertisement', icon: 'bi-megaphone' },
     { path: '/admin/categories', label: 'Categories', icon: 'bi-tags' },
-    { path: '/admin/settings', label: 'Settings', icon: 'bi-sliders' },
+    { path: '/admin/settings', label: 'Platform Settings', icon: 'bi-sliders' },
 ];
 
 const POSTER_NAV_ITEMS = [
@@ -43,7 +47,7 @@ function getNavItems() {
     }
 
     const items = [...USER_NAV_ITEMS];
-    if (u) {
+    if (u && (u.is_admin || u.role === 'poster')) {
         items.push({ separator: true }, ...POSTER_NAV_ITEMS);
     }
     return items;

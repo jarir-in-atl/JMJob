@@ -228,6 +228,7 @@ class JobMarketplaceTest extends TestCase
             '2026_09_19_000007_add_submission_risk_fields.php',
             '2026_09_19_000008_add_fraud_policy_settings.php',
             '2026_09_19_000009_reconcile_category_cost_fields.php',
+            '2026_09_19_000010_add_ad_control_switches.php',
         ];
         foreach ($expected as $f) {
             $path = base_path('database/migrations/' . $f);
@@ -255,6 +256,7 @@ class JobMarketplaceTest extends TestCase
             '2026_09_19_000007_add_submission_risk_fields.php',
             '2026_09_19_000008_add_fraud_policy_settings.php',
             '2026_09_19_000009_reconcile_category_cost_fields.php',
+            '2026_09_19_000010_add_ad_control_switches.php',
         ];
         foreach ($files as $f) {
             $path = base_path('database/migrations/' . $f);
@@ -381,6 +383,10 @@ class JobMarketplaceTest extends TestCase
     {
         $this->assertTrue(file_exists(base_path('earnap-client/src/views/AdminCategoriesPage.js')));
         $this->assertTrue(file_exists(base_path('earnap-client/src/views/AdminSettingsPage.js')));
+        $settings = file_get_contents(base_path('earnap-client/src/views/AdminSettingsPage.js'));
+        foreach (['Advertisement System', 'Video Ads', 'Reward System', 'External Ad Network'] as $label) {
+            $this->assertTrue(str_contains($settings, $label), "Admin settings is missing {$label}.");
+        }
     }
 
     public function testRouteLoaderIncludesJobRoutes(): void
@@ -389,19 +395,55 @@ class JobMarketplaceTest extends TestCase
         $this->assertTrue(str_contains($content, '/jobs/available'));
         $this->assertTrue(str_contains($content, '/worker/bids'));
         $this->assertTrue(str_contains($content, '/worker/active-jobs'));
+       $this->assertTrue(str_contains(file_get_contents(base_path('earnap-client/src/views/WorkerActiveJobsPage.js')), 'View job details'));
+        $workerActive = file_get_contents(base_path('earnap-client/src/views/WorkerActiveJobsPage.js'));
+        $this->assertTrue(str_contains($workerActive, 'assignment_status'));
+        $this->assertTrue(str_contains($workerActive, 'Available slots'));
+        $this->assertTrue(str_contains($workerActive, 'summary.slice'));
+        $jobDetail = file_get_contents(base_path('earnap-client/src/views/JobDetailPage.js'));
+        foreach (['Submit Work', 'screenshot', 'submitWork', 'assignment_status', 'my_submission'] as $label) {
+            $this->assertTrue(str_contains($jobDetail, $label), "Worker job detail is missing {$label}.");
+        }
         $this->assertTrue(str_contains($content, '/admin/categories'));
         $this->assertTrue(str_contains($content, '/admin/settings'));
-        // Dynamic /jobs/{id} matcher
+       $this->assertTrue(str_contains($content, '/admin/pending-jobs'));
+        $this->assertTrue(str_contains($content, '/admin/active-jobs'));
+        $this->assertTrue(str_contains($content, '/admin/advertisement'));
+        $horizontalNav = file_get_contents(base_path('earnap-client/src/components/HorizontalNav.js'));
+        foreach (['/admin/pending-jobs', '/admin/admin-job-post', '/admin/active-jobs'] as $adminNavRoute) {
+            $this->assertTrue(str_contains($horizontalNav, $adminNavRoute), "Horizontal admin navigation is missing {$adminNavRoute}.");
+        }
+        $advertisementPage = file_get_contents(base_path('earnap-client/src/views/AdminAdvertisementPage.js'));
+        foreach (['Advertisement', 'Manage Video Ads', 'Manage Providers', 'Monetization Settings'] as $label) {
+            $this->assertTrue(str_contains($advertisementPage, $label), "Advertisement hub is missing {$label}.");
+        }
+        $adminDetail = file_get_contents(base_path('earnap-client/src/views/AdminJobDetailPage.js'));
+       foreach (['Total job amount', 'Completed amount', 'Pending amount', 'Remaining amount', 'Proof requirements', 'Start date'] as $label) {
+           $this->assertTrue(str_contains($adminDetail, $label), "Admin job detail is missing {$label}.");
+       }
+        $earnPage = file_get_contents(base_path('earnap-client/src/views/EarnPage.js'));
+        foreach (['Available ads', 'Remaining limit', 'Today’s ad earnings', 'Total ad earnings'] as $label) {
+            $this->assertTrue(str_contains($earnPage, $label), "Earn page is missing {$label}.");
+        }
+        $adminPage = file_get_contents(base_path('earnap-client/src/views/AdminPage.js'));
+        foreach (['Total ad views', 'Completed ad views', 'Eligible rewards', 'User ad rewards'] as $label) {
+            $this->assertTrue(str_contains($adminPage, $label), "Admin dashboard is missing {$label}.");
+        }
+       // Dynamic /jobs/{id} matcher
         $this->assertTrue(str_contains($content, "match(/^\\/jobs\\/(\\d+)$/)"));
+        $this->assertTrue(str_contains($content, 'Dynamic routes return before the shared static-route gate'));
+        $this->assertTrue(str_contains($content, 'if (!dynamicUser || !dynamicUser.is_admin)'));
     }
 
     public function testApiJsExposesMarketplaceMethods(): void
     {
         $content = file_get_contents(base_path('earnap-client/src/api.js'));
         foreach (['jobs', 'job', 'placeBid', 'workerBids', 'workerActiveJobs', 'submitWork',
+                  'createWorkflowJob', 'applyForJob', 'extendDeadline',
                   'posterCreateJob', 'posterAcceptBid', 'posterReleasePayment',
                   'workerCancelAssignment', 'adminCategories', 'adminSettings', 'adminUpdateSettings',
-                  'videoAds', 'videoAdStart', 'videoAdClaim', 'adminVideoAds'] as $m) {
+                  'videoAds', 'videoAdStart', 'videoAdClaim', 'adminVideoAds',
+                  'adminApproveApplication'] as $m) {
             $this->assertTrue(str_contains($content, $m), "Missing api method: $m");
         }
     }

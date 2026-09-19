@@ -26,6 +26,7 @@ const ADMIN_NAV_ITEMS = [
     { path: '/admin/jobs', label: 'Job Moderation', icon: 'bi-shield-check' },
     { path: '/admin/transactions', label: 'Ledger Audit', icon: 'bi-receipt' },
     { path: '/admin/reports', label: 'Analytics & Reports', icon: 'bi-bar-chart-line' },
+    { path: '/admin/advertisement', label: 'Advertisement', icon: 'bi-megaphone' },
     { path: '/admin/categories', label: 'Categories', icon: 'bi-tags' },
     { path: '/admin/settings', label: 'Platform Settings', icon: 'bi-sliders' },
 ];

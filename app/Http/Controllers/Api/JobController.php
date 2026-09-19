@@ -8,6 +8,7 @@ use Nemesis\Http\Request;
 use Nemesis\Http\Response;
 use App\Models\Job;
 use App\Models\JobBid;
+use App\Models\JobAssignment;
 use App\Models\JobSubmission;
 use App\Models\Category;
 use App\Models\User;
@@ -39,6 +40,7 @@ class JobController extends Controller
 
     public function index(Request $request): Response
     {
+        if ($guard = $this->bannedGuard($request->getMeta('auth.user'))) return $guard;
         $categoryId = $request->query('category_id') !== null ? (int) $request->query('category_id') : null;
         $search     = trim((string) ($request->query('search') ?? ''));
         if (mb_strlen($search) > 80) {
@@ -96,6 +98,7 @@ class JobController extends Controller
 
     public function show(Request $request, int $id): Response
     {
+        if ($guard = $this->bannedGuard($request->getMeta('auth.user'))) return $guard;
         $job = Job::find($id);
         if ($job === null) return Response::json(['success' => false, 'message' => 'Job not found.'], 404);
         // Increment view_count
@@ -107,6 +110,18 @@ class JobController extends Controller
         $bids = JobBid::forJob($id);
         $user = $request->getMeta('auth.user');
         $myBid = $user ? JobBid::findForWorker($id, (int) $user->id) : null;
+        $assignment = ($user && $user->isWorker() && JobAssignment::isAvailable())
+            ? JobAssignment::findForJobWorker($id, (int) $user->id)
+            : null;
+        $mySubmission = null;
+        if ($assignment !== null) {
+            $job->worker_assignment_id = (int) $assignment->id;
+            $job->worker_assignment_status = $assignment->status;
+            $job->worker_assignment_payment_status = $assignment->payment_status;
+            $mySubmission = JobSubmission::latestForAssignment((int) $assignment->id);
+        } elseif ($user && $user->isWorker() && (int) $job->assigned_worker_id === (int) $user->id) {
+            $mySubmission = JobSubmission::latestForJobWorker($id, (int) $user->id);
+        }
 
         return Response::json([
             'success' => true,
@@ -115,6 +130,7 @@ class JobController extends Controller
                 'bids'       => array_map(fn($b) => $this->serializeBid($b), $bids),
                 'bid_count'  => count($bids),
                 'my_bid'     => $myBid ? $this->serializeBid($myBid) : null,
+                'my_submission' => $mySubmission ? $this->serializeSubmission($mySubmission) : null,
             ],
         ]);
     }
@@ -223,6 +239,7 @@ class JobController extends Controller
     public function submissionAttachment(Request $request, int $id): Response
     {
         $user = $request->getMeta('auth.user');
+        if ($guard = $this->bannedGuard($user)) return $guard;
         $submission = JobSubmission::find($id);
         if ($submission === null) return Response::json(['success' => false, 'message' => 'Submission not found.'], 404);
 
@@ -263,6 +280,7 @@ class JobController extends Controller
 
     public function categories(Request $request): Response
     {
+        if ($guard = $this->bannedGuard($request->getMeta('auth.user'))) return $guard;
         $cats = Category::activeOrdered();
         return Response::json([
             'success' => true,
@@ -511,6 +529,25 @@ class JobController extends Controller
                 'error' => 'forbidden',
             ], 403);
         }
+        if ($user->isBanned()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'This account is banned.',
+                'error' => 'banned',
+            ], 403);
+        }
+        return null;
+    }
+
+    private function bannedGuard(?User $user): ?Response
+    {
+        if ($user !== null && $user->isBanned()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'This account is banned.',
+                'error' => 'banned',
+            ], 403);
+        }
         return null;
     }
 
@@ -528,6 +565,13 @@ class JobController extends Controller
                 'success' => false,
                 'message' => 'Poster access required.',
                 'error' => 'forbidden',
+            ], 403);
+        }
+        if ($user->isBanned()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'This account is banned.',
+                'error' => 'banned',
             ], 403);
         }
         return null;

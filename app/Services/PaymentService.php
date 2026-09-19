@@ -34,6 +34,9 @@ class PaymentService
      */
     public function submit(User $user, string $gateway, string $senderNumber, float $amount, string $trxid): array
     {
+        if ($user->isBanned()) {
+            return ['success' => false, 'message' => 'Banned accounts cannot submit payments.'];
+        }
         $gateway = strtolower(trim($gateway));
         $trxid = strtoupper(trim($trxid));
 
@@ -136,6 +139,9 @@ class PaymentService
             $lockedUserRow = $userStmt->fetch(\PDO::FETCH_ASSOC);
             if (!$lockedUserRow) throw new RuntimeException('Submission user not found.');
             $user = new User($lockedUserRow);
+            if ($user->isBanned()) {
+                throw new RuntimeException('Banned accounts cannot receive payment credits.');
+            }
             $amount = (float) $submission->amount;
 
             // Deposits fund the role-specific available wallet. Workers use

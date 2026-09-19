@@ -86,7 +86,10 @@ class CreateVideoAdsAndSettings extends Migration
 
         $defaults = [
             ['advertisement_system_enabled', '1', 'boolean', 'advertisement', 'Master switch for configured website and app advertisements.'],
+            ['video_ads_enabled', '1', 'boolean', 'advertisement', 'Enable first-party video advertisement campaigns.'],
             ['watch_earn_enabled', '1', 'boolean', 'advertisement', 'Separate master switch for user watch-and-earn rewards.'],
+            ['reward_system_enabled', '1', 'boolean', 'advertisement', 'Master switch for all user reward credits.'],
+            ['ad_network_enabled', '1', 'boolean', 'advertisement', 'Enable external ad-network provider rotation and rewards.'],
             ['website_ads_enabled', '1', 'boolean', 'advertisement', 'Enable website ad placements.'],
             ['app_ads_enabled', '1', 'boolean', 'advertisement', 'Enable Android/app ad placements.'],
             ['website_publisher_id', '', 'string', 'advertisement', 'Website ad-network publisher ID.'],

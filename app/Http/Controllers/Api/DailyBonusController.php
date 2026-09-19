@@ -3,10 +3,13 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Models\User;
 use Nemesis\Core\Controller;
+use Nemesis\Core\Database;
 use Nemesis\Http\Request;
 use Nemesis\Http\Response;
 use Nemesis\Core\Fluent;
+use App\Services\SettingService;
 
 /**
  * DailyBonusController — handles daily bonus claims and counter resets.
@@ -30,64 +33,105 @@ class DailyBonusController extends Controller
                 'message' => 'Unauthorized.',
             ], 401);
         }
+        if ($user->isBanned()) {
+            return Response::json([
+                'success' => false,
+                'error' => 'banned',
+                'message' => 'Banned accounts cannot claim rewards.',
+            ], 403);
+        }
+        if (!SettingService::rewardSystemEnabled()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'The reward system is currently disabled.',
+            ], 403);
+        }
 
-        // Check if user already claimed today
         $today = date('Y-m-d');
-        $lastClaim = $user->last_daily_bonus_claim ?? null;
+        $db = Database::connect();
+        $todayAds = 0;
+        $bonus = 0.0;
+        $newBalance = 0.0;
 
-        if ($lastClaim === $today) {
-            return Response::json([
-                'success' => false,
-                'message' => 'Daily bonus already claimed today.',
-            ], 400);
-        }
+        try {
+            // Serialize the eligibility check and both writes so two
+            // simultaneous claims cannot credit the same daily bonus.
+            Database::beginWriteTransaction($db);
+            $lockSql = 'SELECT * FROM users WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $lockSql .= ' FOR UPDATE';
+            $lock = $db->prepare($lockSql);
+            $lock->execute(['id' => (int) $user->id]);
+            $lockedRow = $lock->fetch(\PDO::FETCH_ASSOC);
+            $currentUser = $lockedRow ? new User($lockedRow) : null;
+            if ($currentUser === null) {
+                throw new \RuntimeException('User not found.');
+            }
+            if ($currentUser->isBanned()) {
+                Database::rollbackWriteTransaction($db);
+                return Response::json([
+                    'success' => false,
+                    'error' => 'banned',
+                    'message' => 'Banned accounts cannot claim rewards.',
+                ], 403);
+            }
 
-        // Check if user has watched at least some ads today
-        $todayAds = (int) ($user->today_ads ?? 0);
-        $minAdsRequired = 10; // Require at least 10 ads for daily bonus
+            if (($currentUser->last_daily_bonus_claim ?? null) === $today) {
+                Database::rollbackWriteTransaction($db);
+                return Response::json([
+                    'success' => false,
+                    'message' => 'Daily bonus already claimed today.',
+                ], 400);
+            }
 
-        if ($todayAds < $minAdsRequired) {
-            return Response::json([
-                'success' => false,
-                'message' => "Watch at least {$minAdsRequired} ads to claim daily bonus.",
-                'data' => [
-                    'today_ads' => $todayAds,
-                    'required' => $minAdsRequired,
-                ],
-            ], 400);
-        }
+            $todayAds = (int) ($currentUser->today_ads ?? 0);
+            $minAdsRequired = 10;
+            if ($todayAds < $minAdsRequired) {
+                Database::rollbackWriteTransaction($db);
+                return Response::json([
+                    'success' => false,
+                    'message' => "Watch at least {$minAdsRequired} ads to claim daily bonus.",
+                    'data' => [
+                        'today_ads' => $todayAds,
+                        'required' => $minAdsRequired,
+                    ],
+                ], 400);
+            }
 
-        // Calculate bonus based on ads watched
-        // Base bonus: $0.05, +$0.01 for every 5 ads beyond 10
-        $baseBonus = 0.05;
-        $extraAds = max(0, $todayAds - 10);
-        $bonus = $baseBonus + floor($extraAds / 5) * 0.01;
-        $bonus = round($bonus, 4);
+            // Base bonus: $0.05, +$0.01 for every 5 ads beyond 10.
+            $baseBonus = 0.05;
+            $extraAds = max(0, $todayAds - 10);
+            $bonus = round($baseBonus + floor($extraAds / 5) * 0.01, 4);
+            $newBalance = round(((float) $currentUser->balance) + $bonus, 4);
+            $newLifetime = round(((float) $currentUser->lifetime_earned) + $bonus, 4);
+            $newTodayEarned = round(((float) $currentUser->today_earned) + $bonus, 4);
+            $now = date('Y-m-d H:i:s');
 
-        // Credit the bonus
-        $newBalance = round(((float) $user->balance) + $bonus, 4);
-        $newLifetime = round(((float) $user->lifetime_earned) + $bonus, 4);
-        $newTodayEarned = round(((float) $user->today_earned) + $bonus, 4);
+            Fluent::table('users')
+                ->where('id', '=', $currentUser->id)
+                ->update([
+                    'balance' => $newBalance,
+                    'lifetime_earned' => $newLifetime,
+                    'today_earned' => $newTodayEarned,
+                    'last_daily_bonus_claim' => $today,
+                    'updated_at' => $now,
+                ]);
 
-        Fluent::table('users')
-            ->where('id', '=', $user->id)
-            ->update([
-                'balance' => $newBalance,
-                'lifetime_earned' => $newLifetime,
-                'today_earned' => $newTodayEarned,
-                'last_daily_bonus_claim' => $today,
-                'updated_at' => date('Y-m-d H:i:s'),
+            Fluent::table('ad_views')->insert([
+                'user_id' => $currentUser->id,
+                'provider' => 'daily_bonus',
+                'reward' => $bonus,
+                'completed_at' => $now,
+                'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
+                'user_agent' => substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 250),
             ]);
-
-        // Record the bonus in ad_views for audit
-        Fluent::table('ad_views')->insert([
-            'user_id' => $user->id,
-            'provider' => 'daily_bonus',
-            'reward' => $bonus,
-            'completed_at' => date('Y-m-d H:i:s'),
-            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
-            'user_agent' => substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 250),
-        ]);
+            Database::commitWriteTransaction($db);
+        } catch (\Throwable $e) {
+            Database::rollbackWriteTransaction($db);
+            return Response::json([
+                'success' => false,
+                'message' => 'Unable to claim daily bonus right now.',
+            ], 500);
+        }
 
         return Response::json([
             'success' => true,
@@ -112,6 +156,26 @@ class DailyBonusController extends Controller
                 'success' => false,
                 'message' => 'Unauthorized.',
             ], 401);
+        }
+        if ($user->isBanned()) {
+            return Response::json([
+                'success' => false,
+                'error' => 'banned',
+                'message' => 'Banned accounts cannot access rewards.',
+            ], 403);
+        }
+        if (!SettingService::rewardSystemEnabled()) {
+            return Response::json([
+                'success' => true,
+                'data' => [
+                    'enabled' => false,
+                    'claimed_today' => false,
+                    'today_ads' => (int) ($user->today_ads ?? 0),
+                    'min_ads_required' => 10,
+                    'can_claim' => false,
+                    'potential_bonus' => 0,
+                ],
+            ]);
         }
 
         $today = date('Y-m-d');

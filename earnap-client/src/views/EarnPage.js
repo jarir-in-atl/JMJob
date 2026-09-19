@@ -8,21 +8,31 @@ export function EarnPage() {
         root.innerHTML = '<div class="card"><p class="muted">Loading available ads…</p></div>';
         root.className = 'view view--earn';
 
-        const u = currentUser.get();
-        const adsRemaining = u ? u.ads_remaining : 0;
-        try {
-            const response = await api.videoAds();
-            const items = response.data || [];
-            const enabled = response.meta?.enabled !== false;
-            root.innerHTML = `
+       const u = currentUser.get();
+       const adsRemaining = u ? u.ads_remaining : 0;
+       try {
+            const [response, historyResponse] = await Promise.all([
+                api.videoAds(),
+                api.adHistory().catch(() => ({ meta: {} })),
+            ]);
+           const items = response.data || [];
+            const history = historyResponse.meta || {};
+           const enabled = response.meta?.enabled !== false;
+           root.innerHTML = `
                 <div class="card card--earn">
                     <h2 class="card__title">Ads Reward Center</h2>
                     <p class="card__sub">Server-timed sponsor videos and daily rewards</p>
                     <div class="ad-progress">
                         <div class="ad-progress__bar" style="width: ${u ? Math.min(100, ((u.today_ads || 0) / (u.ads_limit || 50)) * 100) : 0}%"></div>
+                   </div>
+                   <p class="ad-progress__label">${u ? u.today_ads : 0} / ${u ? u.ads_limit : 50} ads today</p>
+                    <div class="ad-earn-summary">
+                        <div><span class="muted">Available ads</span><strong>${items.length}</strong></div>
+                        <div><span class="muted">Remaining limit</span><strong>${response.meta?.ads_remaining_today ?? adsRemaining}</strong></div>
+                        <div><span class="muted">Today’s ad earnings</span><strong>৳${Number(history.today_earnings || 0).toFixed(4)}</strong></div>
+                        <div><span class="muted">Total ad earnings</span><strong>৳${Number(history.total_earnings || 0).toFixed(4)}</strong></div>
                     </div>
-                    <p class="ad-progress__label">${u ? u.today_ads : 0} / ${u ? u.ads_limit : 50} ads today</p>
-                    ${!enabled ? '<p class="muted">Watch-and-earn is currently paused.</p>' : ''}
+                   ${!enabled ? '<p class="muted">Watch-and-earn is currently paused.</p>' : ''}
                     <div class="video-ad-list"></div>
                     ${enabled && items.length === 0 ? '<p class="muted">No sponsor videos are available right now.</p>' : ''}
                     <button id="watch-btn" class="btn btn--ghost btn--sm" ${adsRemaining <= 0 || !enabled ? 'disabled' : ''}>Use standard ad reward</button>

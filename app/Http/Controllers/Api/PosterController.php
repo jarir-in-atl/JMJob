@@ -141,6 +141,10 @@ class PosterController extends Controller
         $body = (array) $this->readJson($request);
         $bidId = (int) ($body['bid_id'] ?? 0);
         if ($bidId <= 0) return Response::json(['success' => false, 'message' => 'bid_id is required.'], 422);
+        $bid = JobBid::find($bidId);
+        if ($bid === null || (int) $bid->job_id !== $id) {
+            return Response::json(['success' => false, 'message' => 'Bid not found for this job.'], 422);
+        }
         $result = $this->jobService->acceptBid($user, $bidId);
         if (!$result['success']) return Response::json($result, 422);
         return Response::json(['success' => true, 'message' => $result['message']]);
@@ -197,6 +201,13 @@ class PosterController extends Controller
                 'success' => false,
                 'message' => 'Poster access required.',
                 'error' => 'forbidden',
+            ], 403);
+        }
+        if ($user->isBanned()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'This account is banned.',
+                'error' => 'banned',
             ], 403);
         }
         return null;

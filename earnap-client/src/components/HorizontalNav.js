@@ -13,11 +13,15 @@ const USER_NAV_ITEMS = [
 ];
 
 const ADMIN_NAV_ITEMS = [
-    { path: '/admin',          label: 'Admin',    icon: 'bi-shield-lock-fill' },
-    { path: '/admin/payments', label: 'Payments', icon: 'bi-cash-stack' },
-    { path: '/admin/jobs', label: 'Jobs', icon: 'bi-briefcase' },
-    { path: '/admin/transactions', label: 'Ledger', icon: 'bi-receipt' },
-    { path: '/admin/reports', label: 'Reports', icon: 'bi-bar-chart-line' },
+    { path: '/admin',                  label: 'Admin',          icon: 'bi-shield-lock-fill' },
+    { path: '/admin/pending-jobs',     label: 'Job Post',       icon: 'bi-file-earmark-plus' },
+    { path: '/admin/admin-job-post',   label: 'Admin Job Post', icon: 'bi-plus-square' },
+    { path: '/admin/active-jobs',      label: 'Active Job',     icon: 'bi-lightning-charge' },
+    { path: '/admin/payments',         label: 'Payments',       icon: 'bi-cash-stack' },
+    { path: '/admin/jobs',             label: 'Jobs',           icon: 'bi-briefcase' },
+    { path: '/admin/transactions',     label: 'Ledger',         icon: 'bi-receipt' },
+    { path: '/admin/reports',          label: 'Reports',        icon: 'bi-bar-chart-line' },
+    { path: '/admin/advertisement',    label: 'Advertisement',  icon: 'bi-megaphone' },
 ];
 
 const POSTER_NAV_ITEMS = [

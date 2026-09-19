@@ -42,7 +42,13 @@ export function AdminPage() {
                 renderTab(t.dataset.tab, content);
             });
         });
-        renderTab('stats', content);
+        const query = new URLSearchParams(window.location.hash.split('?')[1] || '');
+        const requestedTab = query.get('tab');
+        const initialTab = ['stats', 'withdrawals', 'payments', 'users', 'providers', 'video-ads', 'fraud'].includes(requestedTab)
+            ? requestedTab
+            : 'stats';
+        tabs.forEach(tab => tab.classList.toggle('admin-tab--active', tab.dataset.tab === initialTab));
+        renderTab(initialTab, content);
     };
 }
 
@@ -66,6 +72,7 @@ async function renderTab(name, content) {
                     ${adminStatTile('bi-check2-circle', 'Completed jobs', number(r.completed_jobs))}
                     ${adminStatTile('bi-lightning-charge', 'Active jobs', number(r.active_jobs))}
                     ${adminStatTile('bi-people', 'Total users', number(r.total_users))}
+                    ${adminStatTile('bi-person-check', 'Active users', number(s.active_users))}
                     ${adminStatTile('bi-hourglass-split', 'Pending deposits', number(r.pending_payments))}
                     ${adminStatTile('bi-lock', 'Held in escrow', money(r.escrow_total, symbol))}
                     ${adminStatTile('bi-hourglass-split', 'Pending submissions', number(m.pending_submissions))}
@@ -83,8 +90,12 @@ async function renderTab(name, content) {
                         <div><span class="muted">Withdrawals</span><strong>${number(s.total_withdrawals)}</strong></div>
                         <div><span class="muted">Pending withdrawals</span><strong>${number(s.pending_withdrawals)}</strong></div>
                         <div><span class="muted">Total ad views</span><strong>${number(s.total_ad_views)}</strong></div>
+                        <div><span class="muted">Completed ad views</span><strong>${number(s.completed_ad_views)}</strong></div>
                         <div><span class="muted">Video ad views</span><strong>${number(s.video_ad_views)}</strong></div>
+                        <div><span class="muted">Completed video ads</span><strong>${number(s.video_completed_views)}</strong></div>
                         <div><span class="muted">Video rewards paid</span><strong>${money(s.video_rewards_paid, symbol)}</strong></div>
+                        <div><span class="muted">Eligible rewards</span><strong>${number(s.eligible_rewards)}</strong></div>
+                        <div><span class="muted">User ad rewards</span><strong>${money(s.user_ad_rewards, symbol)}</strong></div>
                         <div><span class="muted">Banned users</span><strong>${number(s.banned_users)}</strong></div>
                         <div><span class="muted">Lifetime paid</span><strong>${money(s.total_lifetime_paid, symbol)}</strong></div>
                         <div><span class="muted">Pending jobs</span><strong>${number(m.pending_jobs)}</strong></div>

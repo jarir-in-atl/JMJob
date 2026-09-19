@@ -27,18 +27,23 @@ async function load(root, id) {
 function render(root, data, id) {
     const job = data.job || {};
     const progress = data.progress || {};
-    const assignments = data.assignments || [];
-    const bids = data.bids || [];
-    const submissions = data.submissions || [];
-    root.innerHTML = `
+   const assignments = data.assignments || [];
+   const bids = data.bids || [];
+   const submissions = data.submissions || [];
+    const currency = job.currency || 'BDT';
+    const proofRequirements = Array.isArray(job.proof_requirements) ? job.proof_requirements : [];
+    const proofMarkup = proofRequirements.length
+        ? `<ul>${proofRequirements.map(item => `<li>${escapeHtml(item.title || 'Proof')} <span class="muted">(${escapeHtml(item.type || 'text')})</span></li>`).join('')}</ul>`
+        : '<p class="muted">No structured proof requirements configured.</p>';
+   root.innerHTML = `
         <a href="#/admin/jobs" class="back-link"><i class="bi bi-arrow-left"></i> Job management</a>
         <div class="page-heading-row"><div><h1 class="page-title">${escapeHtml(job.title)}</h1><p class="muted">${escapeHtml(job.subtitle || '')}</p></div><div class="admin-row__actions"><button class="btn btn--ghost btn--sm" id="edit-job">Edit job</button>${canDelete(job, assignments) ? '<button class="btn btn--danger btn--sm" id="delete-job">Delete job</button>' : ''}</div></div>
-        <div class="card"><div class="admin-job-row__meta"><span><strong>Customer:</strong> ${escapeHtml(job.customer_name || '—')}</span><span><strong>Phone:</strong> ${escapeHtml(job.customer_phone || '—')}</span><span><strong>Email:</strong> ${escapeHtml(job.customer_email || '—')}</span><span><strong>Status:</strong> ${escapeHtml(String(job.status || '').replace('_', ' ').toUpperCase())}</span></div><p>${escapeHtml(job.description || '').replace(/\n/g, '<br>')}</p>${job.requirements ? `<p><strong>Requirements:</strong><br>${escapeHtml(job.requirements).replace(/\n/g, '<br>')}</p>` : ''}</div>
-        <div class="stat-grid"><div class="stat-tile"><span class="muted">Total workers</span><strong>${Number(progress.total_workers || 0)}</strong></div><div class="stat-tile"><span class="muted">Completed</span><strong>${Number(progress.completed_workers || 0)}</strong></div><div class="stat-tile"><span class="muted">Pending</span><strong>${Number(progress.pending_workers || 0)}</strong></div><div class="stat-tile"><span class="muted">Rejected</span><strong>${Number(progress.rejected_workers || 0)}</strong></div><div class="stat-tile"><span class="muted">Remaining</span><strong>${Number(progress.remaining_workers || 0)}</strong></div><div class="stat-tile"><span class="muted">Remaining amount</span><strong>${Number(progress.remaining_amount || 0).toFixed(2)}</strong></div></div>
+        <div class="card"><div class="admin-job-row__meta"><span><strong>Customer:</strong> ${escapeHtml(job.customer_name || '—')}</span><span><strong>Phone:</strong> ${escapeHtml(job.customer_phone || '—')}</span><span><strong>Email:</strong> ${escapeHtml(job.customer_email || '—')}</span><span><strong>Status:</strong> ${escapeHtml(String(job.status || '').replace('_', ' ').toUpperCase())}</span><span><strong>Start date:</strong> ${escapeHtml(formatDate(job.created_at))}</span><span><strong>Deadline:</strong> ${escapeHtml(formatDate(job.deadline_at))}</span></div><p>${escapeHtml(job.description || '').replace(/\n/g, '<br>')}</p>${job.requirements ? `<p><strong>Requirements:</strong><br>${escapeHtml(job.requirements).replace(/\n/g, '<br>')}</p>` : ''}<div><strong>Proof requirements:</strong>${proofMarkup}</div></div>
+        <div class="stat-grid"><div class="stat-tile"><span class="muted">Total workers</span><strong>${Number(progress.total_workers || 0)}</strong></div><div class="stat-tile"><span class="muted">Completed</span><strong>${Number(progress.completed_workers || 0)}</strong></div><div class="stat-tile"><span class="muted">Pending</span><strong>${Number(progress.pending_workers || 0)}</strong></div><div class="stat-tile"><span class="muted">Rejected</span><strong>${Number(progress.rejected_workers || 0)}</strong></div><div class="stat-tile"><span class="muted">Remaining</span><strong>${Number(progress.remaining_workers || 0)}</strong></div><div class="stat-tile"><span class="muted">Total job amount</span><strong>${formatAmount(progress.total_amount, currency)}</strong></div><div class="stat-tile"><span class="muted">Total payable</span><strong>${formatAmount(progress.total_payable_amount, currency)}</strong></div><div class="stat-tile"><span class="muted">Completed amount</span><strong>${formatAmount(progress.completed_amount, currency)}</strong></div><div class="stat-tile"><span class="muted">Pending amount</span><strong>${formatAmount(progress.pending_amount, currency)}</strong></div><div class="stat-tile"><span class="muted">Remaining amount</span><strong>${formatAmount(progress.remaining_amount, currency)}</strong></div></div>
         <div class="card"><h2 class="card__title">Worker assignments</h2><div class="admin-list">${assignments.length ? assignments.map(item => renderAssignment(item, bids)).join('') : '<p class="muted">No assignments yet.</p>'}</div></div>
         <div class="card"><h2 class="card__title">Pending worker bids</h2><div class="admin-list">${bids.filter(bid => bid.status === 'pending').length ? bids.filter(bid => bid.status === 'pending').map(renderBid).join('') : '<p class="muted">No pending bids.</p>'}</div></div>
         <div class="card"><h2 class="card__title">Submissions</h2><div class="admin-list" id="admin-detail-submissions">${submissions.length ? submissions.map(renderSubmission).join('') : '<p class="muted">No submissions yet.</p>'}</div></div>
-    `;
+   `;
     root.querySelector('#edit-job')?.addEventListener('click', () => navigate(`/admin/admin-job-post?edit=${id}`));
     root.querySelector('#delete-job')?.addEventListener('click', async () => {
         if (!confirm('Delete this job and its unassigned bids?')) return;
@@ -81,11 +86,27 @@ function renderBid(bid) {
 
 function renderSubmission(submission) {
     const actions = submission.status === 'pending_review' ? `<div class="admin-row__actions"><button class="btn btn--success btn--sm" data-review-id="${submission.id}" data-review-decision="approve">Approve</button><button class="btn btn--danger btn--sm" data-review-id="${submission.id}" data-review-decision="reject">Reject</button></div>` : '';
-    return `<div class="admin-row"><div><strong>${escapeHtml(submission.worker?.name || 'Unknown worker')}</strong><span class="muted">${escapeHtml(submission.worker?.email || '')} · ${escapeHtml(String(submission.status || '').replace('_', ' '))}</span><p>${escapeHtml(submission.description || '')}</p>${submission.attachment_url ? `<a href="${escapeHtml(submission.attachment_url)}" target="_blank" rel="noopener">Open screenshot</a>` : ''}</div>${actions}</div>`;
+    const worker = submission.worker || {};
+    const workerContact = `User ID #${escapeHtml(submission.worker_id)} · ${escapeHtml(worker.phone || 'Phone unavailable')} · ${escapeHtml(worker.email || 'Email unavailable')}`;
+    const reviewNote = submission.reviewer_note || submission.rejection_reason;
+    const risk = submission.risk_status && submission.risk_status !== 'clear'
+        ? ` · Risk ${escapeHtml(String(submission.risk_status).replace('_', ' '))} (${Number(submission.risk_score || 0).toFixed(0)})`
+        : '';
+    return `<div class="admin-row"><div><strong>${escapeHtml(worker.name || 'Unknown worker')}</strong><span class="muted">${workerContact}</span><span class="muted">Submitted ${escapeHtml(formatDate(submission.submitted_at || submission.created_at))} · Attempt ${Number(submission.attempt_number || 1)} · ${escapeHtml(String(submission.status || '').replace('_', ' '))}${risk}</span><p>${escapeHtml(submission.description || '')}</p>${submission.external_link ? `<a href="${escapeHtml(submission.external_link)}" target="_blank" rel="noopener">Open delivery link</a>` : ''}${submission.attachment_url ? `${submission.external_link ? ' · ' : ''}<a href="${escapeHtml(submission.attachment_url)}" target="_blank" rel="noopener">Open screenshot</a>` : ''}${reviewNote ? `<p class="muted"><strong>Review note:</strong> ${escapeHtml(reviewNote)}</p>` : ''}</div>${actions}</div>`;
 }
 
 function canDelete(job, assignments) {
     return !['completed', 'disputed'].includes(job.status) && !assignments.some(item => !['cancelled'].includes(item.status));
+}
+
+function formatDate(value) {
+    if (!value) return 'unknown';
+    const date = new Date(String(value).replace(' ', 'T') + 'Z');
+    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+function formatAmount(value, currency) {
+    return `${escapeHtml(currency || 'BDT')} ${Number(value || 0).toFixed(2)}`;
 }
 
 function escapeHtml(value) {

@@ -34,7 +34,10 @@ use App\Http\Controllers\Api\JobController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\PosterController;
 use App\Http\Controllers\Api\SocialLinksController;
+use App\Http\Controllers\Api\TgTaskController;
+use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\VideoAdController;
+use App\Http\Controllers\Api\WebTaskController;
 use App\Models\Job;
 use App\Models\JobAssignment;
 use App\Models\JobBid;
@@ -43,6 +46,7 @@ use App\Models\User;
 use App\Models\VideoAd;
 use App\Services\JobService;
 use App\Services\NotificationService;
+use App\Services\PaymentService;
 use App\Services\RewardService;
 use App\Services\WithdrawalService;
 use Nemesis\Core\Config;
@@ -94,6 +98,7 @@ $insertUser->execute(["admin-{$suffix}", "admin-{$suffix}@example.test", 'x', 'I
 $userIds['admin'] = (int) $db->lastInsertId();
 $insertUser->execute(["risk-{$suffix}", "risk-{$suffix}@example.test", 'x', 'Risk Worker', 0, 'worker', 0, 0]);
 $userIds['risk'] = (int) $db->lastInsertId();
+$db->prepare('UPDATE users SET phone = ? WHERE id = ?')->execute(['01700000000', $userIds['worker']]);
 $db->prepare('UPDATE users SET password = ? WHERE id = ?')->execute([password_hash('integration-password', PASSWORD_BCRYPT), $userIds['risk']]);
 
 $insertJob = $db->prepare(
@@ -109,6 +114,94 @@ $insertAssignment = $db->prepare(
 $service = new JobService();
 
 try {
+    $newJobNotification = $service->createWorkflowJob(
+        User::find($userIds['poster']),
+        1,
+        null,
+        "Notification job {$suffix}",
+        'A job used to verify the worker availability notification.',
+        [],
+        1,
+        10,
+        date('Y-m-d H:i:s', time() + 3600)
+    );
+    $assert(($newJobNotification['success'] ?? false) === true, 'Notification fixture job could not be created.');
+    $approvedNotificationJobId = (int) ($newJobNotification['job']->id ?? 0);
+    $approvedNotification = $service->approveJob($approvedNotificationJobId, $userIds['admin']);
+    $assert(($approvedNotification['success'] ?? false) === true, 'Notification fixture job could not be approved.');
+    $workerAvailabilityNotification = null;
+    foreach (NotificationService::listFor(User::find($userIds['worker']), 100) as $notification) {
+        if (($notification['data']['title'] ?? '') === 'New job available'
+            && str_contains((string) ($notification['data']['message'] ?? ''), $suffix)) {
+            $workerAvailabilityNotification = $notification;
+            break;
+        }
+    }
+    $assert(is_array($workerAvailabilityNotification), 'Approving a job did not notify eligible workers about its availability.');
+
+    // Keep the registered legacy workflow/application/deadline endpoints
+    // executable alongside the newer poster/bid flow.
+    $_POST = [
+        'category_id' => 1,
+        'title' => "Controller workflow {$suffix}",
+        'description' => 'A disposable workflow-controller contract check.',
+        'proof_requirements' => ['screenshot'],
+        'worker_count' => 1,
+        'cost_per_worker' => 12,
+        'deadline_at' => date('Y-m-d H:i:s', time() + 7200),
+    ];
+    $workflowRequest = new Request();
+    $workflowRequest->setMeta('auth.user', User::find($userIds['poster']));
+    $workflowResponse = (new JobController())->createWorkflowJob($workflowRequest);
+    $_POST = [];
+    $workflowBody = json_decode($workflowResponse->getContent(), true);
+    $workflowJobId = (int) ($workflowBody['data']['id'] ?? 0);
+    $assert($workflowResponse->getStatus() === 200
+        && ($workflowBody['success'] ?? false) === true
+        && $workflowJobId > 0
+        && Job::find($workflowJobId)?->status === Job::STATUS_PENDING_APPROVAL,
+        'The workflow-job controller endpoint did not create a pending job: ' . $workflowResponse->getContent());
+
+    $_POST = ['days' => 2];
+    $extendRequest = new Request();
+    $extendRequest->setMeta('auth.user', User::find($userIds['poster']));
+    $beforeExtension = (string) (Job::find($approvedNotificationJobId)?->deadline_at ?? '');
+    $extendResponse = (new JobController())->extendDeadline($extendRequest, $approvedNotificationJobId);
+    $_POST = [];
+    $extendBody = json_decode($extendResponse->getContent(), true);
+    $afterExtension = (string) (Job::find($approvedNotificationJobId)?->deadline_at ?? '');
+    $assert($extendResponse->getStatus() === 200
+        && ($extendBody['success'] ?? false) === true
+        && $afterExtension !== ''
+        && $afterExtension !== $beforeExtension,
+        'The deadline-extension controller endpoint did not update the poster job.');
+
+    $_POST = [
+        'proposal' => 'Controller application contract check.',
+        'bkash_number' => '01700000001',
+    ];
+    $applyRequest = new Request();
+    $applyRequest->setMeta('auth.user', User::find($userIds['worker']));
+    $applyResponse = (new JobController())->applyForJob($applyRequest, $approvedNotificationJobId);
+    $_POST = [];
+    $applyBody = json_decode($applyResponse->getContent(), true);
+    $legacyBidId = (int) ($applyBody['data']['id'] ?? 0);
+    $assert($applyResponse->getStatus() === 200
+        && ($applyBody['success'] ?? false) === true
+        && $legacyBidId > 0,
+        'The worker application controller endpoint did not create a bid.');
+
+    $approveApplicationRequest = new Request();
+    $approveApplicationRequest->setMeta('auth.user', User::find($userIds['admin']));
+    $approveApplicationResponse = (new AdminController())->approveApplication($approveApplicationRequest, (string) $legacyBidId);
+    $approveApplicationBody = json_decode($approveApplicationResponse->getContent(), true);
+    $legacyAssignmentCheck = $db->prepare('SELECT COUNT(*) FROM job_assignments WHERE job_id = ? AND worker_id = ? AND payment_status = ?');
+    $legacyAssignmentCheck->execute([$approvedNotificationJobId, $userIds['worker'], JobAssignment::PAYMENT_HELD]);
+    $assert($approveApplicationResponse->getStatus() === 200
+        && ($approveApplicationBody['success'] ?? false) === true
+        && (int) $legacyAssignmentCheck->fetchColumn() === 1,
+        'The admin application-approval controller endpoint did not assign and escrow the worker.');
+
     // Poster routes and the service layer must enforce the role boundary even
     // when a caller bypasses the normal frontend navigation.
     $workerPosterRequest = new Request();
@@ -173,6 +266,30 @@ try {
     $adminWorkerRequest = new Request();
     $adminWorkerRequest->setMeta('auth.user', $admin);
     $assert((new JobController())->myBids($adminWorkerRequest)->getStatus() === 403, 'An administrator reached a worker-only controller endpoint.');
+
+    // Exercise the real poster controller create/list/cancel path, including
+    // the legacy budget input shape retained for existing poster workflows.
+    $_POST = [
+        'category_id' => 1,
+        'title' => "Poster controller {$suffix}",
+        'subtitle' => 'Controller-created poster job',
+        'description' => 'A disposable poster controller lifecycle check.',
+        'budget' => 150,
+    ];
+    $posterCreateRequest = new Request();
+    $posterCreateRequest->setMeta('auth.user', User::find($userIds['poster']));
+    $posterCreateResponse = $posterController->createJob($posterCreateRequest);
+    $posterCreateBody = json_decode($posterCreateResponse->getContent(), true);
+    $posterJobLookup = $db->prepare('SELECT id FROM jobs WHERE slug = ?');
+    $posterJobLookup->execute(["poster-controller-{$suffix}"]);
+    $jobIds['poster_controller'] = (int) $posterJobLookup->fetchColumn();
+    $assert($posterCreateResponse->getStatus() === 200 && ($posterCreateBody['success'] ?? false) === true && $jobIds['poster_controller'] > 0, 'Poster controller could not create a job: ' . $posterCreateResponse->getContent());
+    $posterJobsBody = json_decode($posterController->myJobs($posterCreateRequest)->getContent(), true);
+    $assert(in_array($jobIds['poster_controller'], array_map(static fn(array $job): int => (int) ($job['id'] ?? 0), $posterJobsBody['data'] ?? []), true), 'Poster controller job list omitted the newly created job.');
+    $_POST = ['reason' => 'Disposable poster cancellation check.'];
+    $posterCancelResponse = $posterController->cancelJob($posterCreateRequest, $jobIds['poster_controller']);
+    $assert($posterCancelResponse->getStatus() === 200 && Job::find($jobIds['poster_controller'])?->status === Job::STATUS_CANCELLED, 'Poster controller could not cancel its own open job.');
+    $_POST = [];
 
     // Admin controller classes retain their own boundary when invoked
     // directly, instead of relying only on the route middleware group.
@@ -251,6 +368,8 @@ try {
 
     // The route-level admin middleware must reject anonymous and worker
     // callers while allowing the seeded administrator through.
+    $anonymousApiResponse = (new AuthenticateApi())->handle(new Request(), static fn(): Response => Response::json(['success' => true]));
+    $assert($anonymousApiResponse->getStatus() === 401, 'Anonymous access passed the API authentication middleware.');
     $adminOnly = new AdminOnly();
     $anonymousAdminResponse = $adminOnly->handle(new Request(), static fn(): Response => Response::json(['success' => true]));
     $assert($anonymousAdminResponse->getStatus() === 401, 'Anonymous access passed the admin middleware.');
@@ -357,9 +476,21 @@ try {
     $assert(($multiSubmit['success'] ?? false) === true, 'A worker could not submit against the poster-created multi-worker assignment.');
     $multiJobCheck->execute([$jobIds['poster_multi']]);
     $assert($multiJobCheck->fetchColumn() === Job::STATUS_SUBMITTED, 'Submitting one multi-worker assignment did not refresh the aggregate job status.');
+    $workerDetailRequest = new Request();
+    $workerDetailRequest->setMeta('auth.user', User::find($userIds['worker']));
+    $workerDetailBody = json_decode((new JobController())->show($workerDetailRequest, $jobIds['poster_multi'])->getContent(), true);
+    $assert(($workerDetailBody['data']['job']['assignment_status'] ?? '') === JobAssignment::STATUS_SUBMITTED
+        && ($workerDetailBody['data']['my_submission']['status'] ?? '') === 'pending_review',
+        'Worker job detail did not expose the current assignment submission state.');
     $secondAssignmentState = $db->prepare('SELECT status FROM job_assignments WHERE job_id = ? AND worker_id = ?');
     $secondAssignmentState->execute([$jobIds['poster_multi'], $userIds['risk']]);
     $assert($secondAssignmentState->fetchColumn() === JobAssignment::STATUS_ASSIGNED, 'Submitting one worker changed another worker assignment state.');
+    $riskDetailRequest = new Request();
+    $riskDetailRequest->setMeta('auth.user', User::find($userIds['risk']));
+    $riskDetailBody = json_decode((new JobController())->show($riskDetailRequest, $jobIds['poster_multi'])->getContent(), true);
+    $assert(($riskDetailBody['data']['job']['assignment_status'] ?? '') === JobAssignment::STATUS_ASSIGNED
+        && ($riskDetailBody['data']['my_submission'] ?? null) === null,
+        'Worker job detail leaked another assignment submission state.');
 
     // Poster actions must continue to target individual assignments when the
     // aggregate multi-worker job is in revision because another worker still
@@ -412,6 +543,8 @@ try {
     $assert($posterController->acceptBid($adminOwnershipRequest, $jobIds['controller_flow'])->getStatus() === 422, 'An administrator accepted a bid for a job they do not own.');
     $posterRequest = new Request();
     $posterRequest->setMeta('auth.user', User::find($userIds['poster']));
+    $crossJobAcceptResponse = $posterController->acceptBid($posterRequest, $jobIds['poster_multi']);
+    $assert($crossJobAcceptResponse->getStatus() === 422, 'Poster controller accepted a bid through a different job URL.');
     $acceptResponse = $posterController->acceptBid($posterRequest, $jobIds['controller_flow']);
     $assert($acceptResponse->getStatus() === 200, 'Poster controller bid acceptance failed.');
     $assignmentLookup = $db->prepare('SELECT id FROM job_assignments WHERE job_id = ? AND worker_id = ?');
@@ -456,6 +589,34 @@ try {
     $controllerAssignmentState->execute([$assignmentIds['controller_flow']]);
     $controllerState = $controllerAssignmentState->fetch(PDO::FETCH_ASSOC);
     $assert($controllerState['status'] === JobAssignment::STATUS_COMPLETED && $controllerState['payment_status'] === JobAssignment::PAYMENT_RELEASED, 'Controller workflow did not complete and release payment.');
+
+    // The admin detail and proof-list payloads must expose the worker identity
+    // and submission timing required by the moderation panel.
+    $adminJobDetailBody = json_decode((new AdminJobController())->show($adminOwnershipRequest, $jobIds['controller_flow'])->getContent(), true);
+    $detailSubmission = null;
+    foreach (($adminJobDetailBody['data']['submissions'] ?? []) as $item) {
+        if ((int) ($item['id'] ?? 0) === $controllerResubmissionId) {
+            $detailSubmission = $item;
+            break;
+        }
+    }
+   $assert(($detailSubmission['worker']['id'] ?? 0) === $userIds['worker']
+       && ($detailSubmission['worker']['phone'] ?? '') === '01700000000'
+       && !empty($detailSubmission['submitted_at']), 'Admin job detail omitted worker contact or submission timing.');
+    $detailProgress = $adminJobDetailBody['data']['progress'] ?? [];
+    foreach (['total_workers', 'completed_workers', 'pending_workers', 'rejected_workers', 'remaining_workers', 'total_amount', 'total_payable_amount', 'completed_amount', 'pending_amount', 'remaining_amount'] as $progressKey) {
+        $assert(array_key_exists($progressKey, $detailProgress), 'Admin job detail progress omitted ' . $progressKey . '.');
+    }
+   $adminSubmissionBody = json_decode((new AdminController())->jobSubmissions($adminOwnershipRequest, (string) $jobIds['controller_flow'])->getContent(), true);
+    $listedSubmission = null;
+    foreach (($adminSubmissionBody['data']['submissions'] ?? []) as $item) {
+        if ((int) ($item['id'] ?? 0) === $controllerResubmissionId) {
+            $listedSubmission = $item;
+            break;
+        }
+    }
+    $assert(($listedSubmission['worker_phone'] ?? '') === '01700000000'
+        && !empty($listedSubmission['submitted_at']), 'Admin proof-list payload omitted worker phone or submission timing.');
     $_POST = [];
 
     // Exercise the worker cancellation and admin reassignment controller
@@ -569,6 +730,8 @@ try {
     $assert(($repeatRelease['success'] ?? false) === true && ($repeatRelease['already_released'] ?? false) === true, 'Repeated assignment payment release was not idempotent.');
     $workerBalance->execute([$userIds['worker']]);
     $assert((float) $workerBalance->fetchColumn() === $creditedBalance, 'Repeated payment release credited the worker twice.');
+    $conflictingReview = $service->reviewSubmission($submissionIds['release'], $userIds['admin'], 'reject', 'Late conflicting moderation decision.');
+    $assert(($conflictingReview['success'] ?? true) === false, 'A reviewed submission accepted a conflicting second moderation decision.');
 
     // Rejection returns an assignment to revision and records the moderator's
     // reason without releasing the held payment.
@@ -711,6 +874,49 @@ try {
     $assert(($blockedWebReward['success'] ?? true) === false && str_contains((string) ($blockedWebReward['message'] ?? ''), 'Banned'), 'A banned user was allowed to receive a web-task reward through the service layer.');
     $blockedTgReward = (new RewardService())->creditTgTaskReward(User::find($userIds['risk']), 1, 0);
     $assert(($blockedTgReward['success'] ?? true) === false && str_contains((string) ($blockedTgReward['message'] ?? ''), 'Banned'), 'A banned user was allowed to receive a Telegram-task reward through the service layer.');
+    $bannedWorkerRequest = new Request();
+    $bannedWorkerRequest->setMeta('auth.user', User::find($userIds['risk']));
+    $assert((new JobController())->index($bannedWorkerRequest)->getStatus() === 403, 'A banned worker reached the job-browse controller directly.');
+    $assert((new JobController())->show($bannedWorkerRequest, $jobIds['risk'])->getStatus() === 403, 'A banned worker reached the job-detail controller directly.');
+    $assert((new JobController())->categories($bannedWorkerRequest)->getStatus() === 403, 'A banned worker reached the category controller directly.');
+    $assert((new JobController())->activeJobs($bannedWorkerRequest)->getStatus() === 403, 'A banned worker reached the active-jobs controller directly.');
+    $assert((new JobController())->submit($bannedWorkerRequest, $jobIds['risk'])->getStatus() === 403, 'A banned worker reached the submission controller directly.');
+    $assert((new JobController())->submissionAttachment($bannedWorkerRequest, $submissionIds['risk'])->getStatus() === 403, 'A banned worker reached the proof-attachment controller directly.');
+    $assert((new VideoAdController())->index($bannedWorkerRequest)->getStatus() === 403, 'A banned worker reached the video-ad listing controller directly.');
+    $assert((new VideoAdController())->start($bannedWorkerRequest)->getStatus() === 403, 'A banned worker reached the video-ad start controller directly.');
+    $assert((new VideoAdController())->claim($bannedWorkerRequest)->getStatus() === 403, 'A banned worker reached the video-ad claim controller directly.');
+    $assert((new VideoAdController())->stream($bannedWorkerRequest, 999999)->getStatus() === 403, 'A banned worker reached the video-ad stream controller directly.');
+    $assert((new AdController())->config($bannedWorkerRequest)->getStatus() === 403, 'A banned worker reached the legacy ad-config controller directly.');
+    $assert((new AdController())->next($bannedWorkerRequest)->getStatus() === 403, 'A banned worker reached the legacy ad-rotation controller directly.');
+    $assert((new UserController())->reward($bannedWorkerRequest)->getStatus() === 403, 'A banned worker reached the standard reward controller directly.');
+    $assert((new WebTaskController())->index($bannedWorkerRequest)->getStatus() === 403, 'A banned worker reached the web-task listing controller directly.');
+    $assert((new WebTaskController())->start($bannedWorkerRequest)->getStatus() === 403, 'A banned worker reached the web-task start controller directly.');
+    $assert((new WebTaskController())->claim($bannedWorkerRequest)->getStatus() === 403, 'A banned worker reached the web-task claim controller directly.');
+    $assert((new TgTaskController())->index($bannedWorkerRequest)->getStatus() === 403, 'A banned worker reached the Telegram-task listing controller directly.');
+    $assert((new TgTaskController())->verify($bannedWorkerRequest)->getStatus() === 403, 'A banned worker reached the Telegram-task verify controller directly.');
+    $assert((new DailyBonusController())->claim($bannedWorkerRequest)->getStatus() === 403, 'A banned worker reached the daily-bonus claim controller directly.');
+    $assert((new DailyBonusController())->status($bannedWorkerRequest)->getStatus() === 403, 'A banned worker reached the daily-bonus status controller directly.');
+    $assert((new PaymentController())->submit($bannedWorkerRequest)->getStatus() === 403, 'A banned worker reached the payment-submit controller directly.');
+    $insertBannedPayment = $db->prepare(
+        'INSERT INTO payment_submissions (user_id,gateway,sender_number,amount,trxid,status,created_at) VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)'
+    );
+    $insertBannedPayment->execute([$userIds['risk'], 'bkash', '01900000000', 10, "BANNED{$suffix}", 'pending']);
+    $bannedPaymentId = (int) $db->lastInsertId();
+    $bannedPaymentResult = (new PaymentService())->approve($bannedPaymentId, User::find($userIds['admin']), 'Banned-payment guard check.');
+    $assert(($bannedPaymentResult['success'] ?? true) === false && str_contains((string) ($bannedPaymentResult['message'] ?? ''), 'Banned'), 'A banned user payment was approved and credited.');
+    $bannedPaymentState = $db->prepare('SELECT status FROM payment_submissions WHERE id = ?');
+    $bannedPaymentState->execute([$bannedPaymentId]);
+    $assert($bannedPaymentState->fetchColumn() === 'pending', 'Banned payment approval changed the pending state.');
+    $db->prepare('DELETE FROM payment_submissions WHERE id = ?')->execute([$bannedPaymentId]);
+    $blockedBannedAssignmentPayment = $service->releaseAssignmentPayment(
+        $assignmentIds['risk'],
+        $userIds['admin'],
+        $submissionIds['risk'],
+        false
+    );
+    $assert(($blockedBannedAssignmentPayment['success'] ?? true) === false
+        && str_contains((string) ($blockedBannedAssignmentPayment['message'] ?? ''), 'Banned'),
+        'A banned worker submission was approved and credited.');
 
     // A banned session is rejected and revoked by the API middleware.
     $bannedSession = Session::createForUser($userIds['risk'], '127.0.0.1', 'integration-test');
@@ -781,10 +987,17 @@ try {
     $assert(($secondVideoBody['success'] ?? true) === false, 'The lifetime video limit allowed a second start.');
     $videoCounts = $db->prepare('SELECT total_views, (SELECT COUNT(*) FROM video_ad_views WHERE video_ad_id = ?) AS view_count FROM video_ads WHERE id = ?');
     $videoCounts->execute([$videoAdIds[0], $videoAdIds[0]]);
-    $videoState = $videoCounts->fetch(PDO::FETCH_ASSOC);
-    $assert((int) $videoState['total_views'] === 1 && (int) $videoState['view_count'] === 1, 'The lifetime video limit did not preserve one reserved view.');
+   $videoState = $videoCounts->fetch(PDO::FETCH_ASSOC);
+   $assert((int) $videoState['total_views'] === 1 && (int) $videoState['view_count'] === 1, 'The lifetime video limit did not preserve one reserved view.');
+    $adHistoryRequest = new Request();
+    $adHistoryRequest->setMeta('auth.user', User::find($userIds['worker']));
+    $adHistoryBody = json_decode((new UserController())->ads($adHistoryRequest)->getContent(), true);
+    $assert(array_key_exists('total_earnings', $adHistoryBody['meta'] ?? [])
+        && array_key_exists('today_earnings', $adHistoryBody['meta'] ?? [])
+        && array_key_exists('total_views', $adHistoryBody['meta'] ?? []),
+        'User ad history omitted earnings and view summary metadata.');
 
-    // The admin UI sends a status-only multipart update when pausing or
+   // The admin UI sends a status-only multipart update when pausing or
     // activating an existing video ad; partial updates must not require the
     // title or another upload field.
     $_POST = ['status' => VideoAd::STATUS_PAUSED];
@@ -805,6 +1018,27 @@ try {
     $assert(($activateVideoBody['success'] ?? false) === true
         && ($activateVideoBody['data']['status'] ?? '') === VideoAd::STATUS_ACTIVE,
         'Admin video-ad status-only activation update was rejected.');
+    $videoListBody = json_decode($adminVideoController->index($activateVideoRequest)->getContent(), true);
+    $assert(($videoListBody['success'] ?? false) === true
+        && count(array_filter(($videoListBody['data'] ?? []), static fn(array $row): bool => (int) ($row['id'] ?? 0) === $videoAdIds[0])) === 1,
+        'Admin video-ad listing did not return the seeded campaign.');
+    $deleteVideoResponse = $adminVideoController->delete($activateVideoRequest, $videoAdIds[0]);
+    $deleteVideoBody = json_decode($deleteVideoResponse->getContent(), true);
+    $assert(($deleteVideoBody['success'] ?? false) === true && VideoAd::find($videoAdIds[0]) === null,
+        'Admin video-ad deletion did not remove the seeded campaign.');
+    $adminStatsBody = json_decode((new AdminController())->stats($adminWorkerRequest)->getContent(), true);
+    $assert(array_key_exists('active_users', $adminStatsBody['data'] ?? [])
+        && array_key_exists('eligible_rewards', $adminStatsBody['data'] ?? [])
+        && array_key_exists('user_ad_rewards', $adminStatsBody['data'] ?? [])
+        && array_key_exists('total_ad_views', $adminStatsBody['data'] ?? [])
+        && array_key_exists('completed_ad_views', $adminStatsBody['data'] ?? [])
+        && array_key_exists('video_completed_views', $adminStatsBody['data'] ?? [])
+        && array_key_exists('remaining_payment', $adminStatsBody['data']['marketplace'] ?? [])
+        && array_key_exists('flagged_submissions', $adminStatsBody['data']['marketplace'] ?? []),
+        'Admin dashboard statistics omitted completed-ad, remaining-payment, or risk metrics.');
+    $assert((int) ($adminStatsBody['data']['total_ad_views'] ?? 0) >= (int) ($adminStatsBody['data']['video_ad_views'] ?? 0)
+        && (int) ($adminStatsBody['data']['completed_ad_views'] ?? 0) >= (int) ($adminStatsBody['data']['video_completed_views'] ?? 0),
+        'Unified ad-view counters did not include the first-party video counters.');
     $_POST = [];
 
     // Database notifications expose unread state and can be marked read for
@@ -880,6 +1114,37 @@ try {
     $deleteBody = json_decode($deleteResponse->getContent(), true);
     $assert(($deleteBody['success'] ?? false) === true && Job::find($jobIds['admin_edit']) === null, 'Unassigned admin job deletion failed.');
 
+    // Admin dispute resolution must close only the disputed job and refund
+    // its held assignment escrow through the controller path.
+    $insertJob->execute([$userIds['poster'], "Dispute flow {$suffix}", "dispute-flow-{$suffix}", 'Dispute resolution test', 100, 'BDT', Job::STATUS_ENGAGED, 1, 100, null, null]);
+    $jobIds['dispute_controller'] = (int) $db->lastInsertId();
+    $insertBid->execute([$jobIds['dispute_controller'], $userIds['worker'], 100, 'BDT', 1, 'dispute flow bid', JobBid::STATUS_ACCEPTED]);
+    $bidIds['dispute_controller'] = (int) $db->lastInsertId();
+    $insertAssignment->execute([$jobIds['dispute_controller'], $bidIds['dispute_controller'], $userIds['worker'], JobAssignment::STATUS_ASSIGNED, JobAssignment::PAYMENT_HELD, 100, $userIds['admin']]);
+    $assignmentIds['dispute_controller'] = (int) $db->lastInsertId();
+    $db->exec('UPDATE users SET wallet_balance = 900, frozen_balance = 100 WHERE id = ' . $userIds['poster']);
+    $disputeRequest = new Request();
+    $disputeRequest->setMeta('auth.user', User::find($userIds['admin']));
+    $flagResponse = (new AdminController())->flagDispute($disputeRequest, (string) $jobIds['dispute_controller']);
+    $flagBody = json_decode($flagResponse->getContent(), true);
+    $assert(($flagBody['success'] ?? false) === true && ($flagBody['data']['status'] ?? '') === Job::STATUS_DISPUTED, 'Admin dispute flagging failed.');
+    $_POST = ['resolution' => 'cancel', 'reason' => 'Integration dispute cancellation.'];
+    $resolveRequest = new Request();
+    $resolveRequest->setMeta('auth.user', User::find($userIds['admin']));
+    $resolveResponse = (new AdminController())->resolveJob($resolveRequest, (string) $jobIds['dispute_controller']);
+    $resolveBody = json_decode($resolveResponse->getContent(), true);
+    $assert(($resolveBody['success'] ?? false) === true && ($resolveBody['data']['resolution'] ?? '') === 'cancel', 'Admin dispute resolution failed: ' . json_encode($resolveBody));
+    $disputeState = $db->prepare('SELECT status FROM jobs WHERE id = ?');
+    $disputeState->execute([$jobIds['dispute_controller']]);
+    $assert($disputeState->fetchColumn() === Job::STATUS_CANCELLED, 'Resolved dispute did not close the job.');
+    $disputeAssignmentState = $db->prepare('SELECT status, payment_status FROM job_assignments WHERE id = ?');
+    $disputeAssignmentState->execute([$assignmentIds['dispute_controller']]);
+    $disputeAssignment = $disputeAssignmentState->fetch(PDO::FETCH_ASSOC);
+    $assert($disputeAssignment['status'] === JobAssignment::STATUS_CANCELLED
+        && $disputeAssignment['payment_status'] === JobAssignment::PAYMENT_REFUNDED,
+        'Resolved dispute did not refund the held assignment escrow.');
+    $_POST = [];
+
     // Admin category/subcategory CRUD must work on the same SQLite staging
     // path as the marketplace migrations; this guards against MySQL-only
     // timestamp expressions leaking into the existing settings workflow.
@@ -946,9 +1211,17 @@ try {
     // Provider-neutral ad settings are bounded at the admin boundary and
     // exposed to website/app clients as a typed placement contract. Keep the
     // check disposable by restoring the two settings after exercising it.
+    $settingsListBody = json_decode((new AdminSettingsController())->listSettings($adminSettingsRequest())->getContent(), true);
+    $settingsByKey = [];
+    foreach (($settingsListBody['data']['advertisement'] ?? []) as $setting) {
+        $settingsByKey[(string) ($setting['key'] ?? '')] = true;
+    }
+    foreach (['advertisement_system_enabled', 'video_ads_enabled', 'watch_earn_enabled', 'reward_system_enabled', 'ad_network_enabled'] as $settingKey) {
+        $assert(isset($settingsByKey[$settingKey]), 'Admin settings omitted ' . $settingKey . '.');
+    }
     $originalAdSettings = [];
     $readAdSetting = $db->prepare('SELECT value FROM platform_settings WHERE setting_key = ?');
-    foreach (['advertisement_system_enabled', 'website_ads_enabled', 'website_publisher_id', 'website_ad_units'] as $settingKey) {
+    foreach (['advertisement_system_enabled', 'video_ads_enabled', 'watch_earn_enabled', 'reward_system_enabled', 'ad_network_enabled', 'website_ads_enabled', 'website_publisher_id', 'website_ad_units'] as $settingKey) {
         $readAdSetting->execute([$settingKey]);
         $originalAdSettings[$settingKey] = $readAdSetting->fetchColumn();
     }
@@ -988,6 +1261,42 @@ try {
         $_POST = [];
         $masterOffConfig = json_decode((new AdController())->config(new Request())->getContent(), true);
         $assert(($masterOffConfig['data']['placements']['website']['enabled'] ?? true) === false, 'Advertisement master switch did not disable the effective website placement contract.');
+        $assert((new AdController())->next(new Request())->getStatus() === 403, 'Advertisement master switch did not block provider rotation.');
+        $rewardRequest = new Request();
+        $rewardRequest->setMeta('auth.user', User::find($userIds['worker']));
+        $assert((new UserController())->reward($rewardRequest)->getStatus() === 403, 'Advertisement master switch did not block direct standard reward claims.');
+
+        $_POST = ['advertisement_system_enabled' => true];
+        $advertisementRestoreResponse = (new AdminSettingsController())->updateSettings($adminSettingsRequest());
+        $assert($advertisementRestoreResponse->getStatus() === 200, 'Advertisement master switch could not be restored for individual switch checks.');
+        $_POST = ['video_ads_enabled' => false];
+        $videoSwitchResponse = (new AdminSettingsController())->updateSettings($adminSettingsRequest());
+        $assert($videoSwitchResponse->getStatus() === 200, 'Video-ad switch could not be disabled.');
+        $_POST = [];
+        $videoIndexBody = json_decode((new VideoAdController())->index($rewardRequest)->getContent(), true);
+        $assert(($videoIndexBody['meta']['enabled'] ?? true) === false, 'Video-ad switch did not disable the video-ad listing.');
+        $assert((new VideoAdController())->start($rewardRequest)->getStatus() === 403, 'Video-ad switch did not block video starts.');
+        $videoReward = (new RewardService())->creditAdReward(User::find($userIds['worker']), 'video_ad', 0.01);
+        $assert(($videoReward['success'] ?? true) === false, 'Video-ad switch did not block direct video reward credits.');
+
+        $_POST = ['reward_system_enabled' => false];
+        $rewardSwitchResponse = (new AdminSettingsController())->updateSettings($adminSettingsRequest());
+        $assert($rewardSwitchResponse->getStatus() === 200, 'Reward-system switch could not be disabled.');
+        $_POST = [];
+        $assert((new UserController())->reward($rewardRequest)->getStatus() === 403, 'Reward-system switch did not block standard rewards.');
+        $assert((new WebTaskController())->start($rewardRequest)->getStatus() === 403, 'Reward-system switch did not block web-task starts.');
+        $assert((new TgTaskController())->verify($rewardRequest)->getStatus() === 403, 'Reward-system switch did not block Telegram-task rewards.');
+        $dailyStatusBody = json_decode((new DailyBonusController())->status($rewardRequest)->getContent(), true);
+        $assert(($dailyStatusBody['data']['enabled'] ?? true) === false, 'Reward-system switch did not disable daily-bonus status.');
+
+        $_POST = ['ad_network_enabled' => false];
+        $networkSwitchResponse = (new AdminSettingsController())->updateSettings($adminSettingsRequest());
+        $assert($networkSwitchResponse->getStatus() === 200, 'Ad-network switch could not be disabled.');
+        $_POST = [];
+        $networkConfigBody = json_decode((new AdController())->config(new Request())->getContent(), true);
+        $assert(($networkConfigBody['data']['providers'] ?? ['unexpected']) === [], 'Ad-network switch did not hide external providers.');
+        $assert(($networkConfigBody['data']['placements']['website']['enabled'] ?? true) === false, 'Ad-network switch did not disable the effective website placement contract.');
+        $assert((new AdController())->next(new Request())->getStatus() === 403, 'Ad-network switch did not block provider rotation.');
     } finally {
         $restoreAdSetting = $db->prepare('UPDATE platform_settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE setting_key = ?');
         foreach ($originalAdSettings as $settingKey => $settingValue) {

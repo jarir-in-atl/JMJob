@@ -7,6 +7,7 @@ use Nemesis\Core\Controller;
 use Nemesis\Http\Request;
 use Nemesis\Http\Response;
 use App\Models\AdProvider;
+use App\Models\User;
 use App\Services\AdConfigurationService;
 use App\Services\SettingService;
 use Nemesis\Core\Fluent;
@@ -23,10 +24,13 @@ class AdController extends Controller
      */
     public function config(Request $request): Response
     {
-        $rows = Fluent::table('ad_providers')
-            ->where('enabled', '=', 1)
-            ->orderBy('id', 'asc')
-            ->get();
+        if ($guard = $this->bannedGuard($request->getMeta('auth.user'))) return $guard;
+        $rows = SettingService::adNetworkEnabled()
+            ? Fluent::table('ad_providers')
+                ->where('enabled', '=', 1)
+                ->orderBy('id', 'asc')
+                ->get()
+            : [];
 
         $providers = [];
         foreach ($rows as $row) {
@@ -47,8 +51,11 @@ class AdController extends Controller
                 'daily_limit'    => (int) (getenv('AD_DAILY_LIMIT') ?: 50),
                 'min_duration'   => (int) (getenv('AD_MIN_DURATION_SECONDS') ?: 12),
                 'default_reward' => (float) (getenv('AD_REWARD_PER_VIEW') ?: 0.005),
-                'advertisement_system_enabled' => (bool) SettingService::get('advertisement_system_enabled', true),
+                'advertisement_system_enabled' => SettingService::advertisementSystemEnabled(),
+                'video_ads_enabled' => SettingService::videoAdsEnabled(),
                 'watch_earn_enabled' => (bool) SettingService::get('watch_earn_enabled', true),
+                'reward_system_enabled' => SettingService::rewardSystemEnabled(),
+                'ad_network_enabled' => SettingService::adNetworkEnabled(),
                 'website_ads_enabled' => (bool) SettingService::get('website_ads_enabled', true),
                 'app_ads_enabled' => (bool) SettingService::get('app_ads_enabled', true),
                 'website_publisher_id' => (string) SettingService::get('website_publisher_id', ''),
@@ -67,6 +74,17 @@ class AdController extends Controller
      */
     public function next(Request $request): Response
     {
+        if ($guard = $this->bannedGuard($request->getMeta('auth.user'))) return $guard;
+        if (!SettingService::advertisementSystemEnabled()
+            || !SettingService::adNetworkEnabled()
+            || !SettingService::rewardSystemEnabled()
+            || !SettingService::get('watch_earn_enabled', true)) {
+            return Response::json([
+                'success' => false,
+                'message' => 'The external ad reward system is currently disabled.',
+            ], 403);
+        }
+
         $provider = AdProvider::pickRandom();
         if ($provider === null) {
             return Response::json([
@@ -85,5 +103,17 @@ class AdController extends Controller
                 'min_duration_seconds'=> (int) $provider->min_duration_seconds,
             ],
         ]);
+    }
+
+    private function bannedGuard(?User $user): ?Response
+    {
+        if ($user !== null && $user->isBanned()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'This account is banned.',
+                'error' => 'banned',
+            ], 403);
+        }
+        return null;
     }
 }

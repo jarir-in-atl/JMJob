@@ -32,9 +32,13 @@ $_SERVER['WITHDRAW_MIN_REFERRALS'] = '0';
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
+use App\Http\Controllers\Api\DailyBonusController;
+use App\Http\Controllers\Api\TgTaskController;
 use App\Http\Controllers\Api\VideoAdController;
+use App\Http\Controllers\Api\WebTaskController;
 use App\Models\User;
 use App\Services\PaymentService;
+use App\Services\RewardService;
 use App\Services\WithdrawalService;
 use Nemesis\Core\Config;
 use Nemesis\Core\Database;
@@ -44,7 +48,7 @@ Config::load(dirname(__DIR__));
 Database::connect((require dirname(__DIR__) . '/config/config.php')['database']);
 $db = Database::connect();
 
-foreach (['users', 'withdrawals', 'payment_submissions', 'transactions', 'video_ads', 'video_ad_views', 'ad_views', 'notifications'] as $table) {
+foreach (['users', 'withdrawals', 'payment_submissions', 'transactions', 'video_ads', 'video_ad_views', 'ad_views', 'notifications', 'web_tasks', 'web_task_completions', 'telegram_tasks', 'telegram_task_completions'] as $table) {
     $check = $db->prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?");
     $check->execute([$table]);
     if (!$check->fetchColumn()) {
@@ -57,6 +61,11 @@ unset($check);
 $suffix = bin2hex(random_bytes(4));
 $userId = 0;
 $adminId = 0;
+$bonusUserId = 0;
+$webTaskId = 0;
+$webCompletionId = 0;
+$secondWebCompletionId = 0;
+$tgTaskId = 0;
 $paymentSubmissionId = 0;
 $videoAdId = 0;
 $videoViewId = 0;
@@ -139,6 +148,59 @@ if (($argv[1] ?? '') === '--claim-child') {
     exit(0);
 }
 
+if (($argv[1] ?? '') === '--daily-bonus-child') {
+    $request = new Request();
+    $request->setMeta('auth.user', User::find((int) ($argv[2] ?? 0)));
+    $response = (new DailyBonusController())->claim($request);
+    $body = json_decode($response->getContent(), true);
+    echo json_encode([
+        'success' => (bool) ($body['success'] ?? false),
+        'status' => $response->getStatus(),
+        'message' => (string) ($body['message'] ?? ''),
+    ], JSON_UNESCAPED_UNICODE) . "\n";
+    exit(0);
+}
+
+if (($argv[1] ?? '') === '--web-claim-child') {
+    $_POST = ['completion_id' => (int) ($argv[2] ?? 0)];
+    $request = new Request();
+    $request->setMeta('auth.user', User::find((int) ($argv[3] ?? 0)));
+    $response = (new WebTaskController())->claim($request);
+    $body = json_decode($response->getContent(), true);
+    echo json_encode([
+        'success' => (bool) ($body['success'] ?? false),
+        'status' => $response->getStatus(),
+        'message' => (string) ($body['message'] ?? ''),
+    ], JSON_UNESCAPED_UNICODE) . "\n";
+    exit(0);
+}
+
+if (($argv[1] ?? '') === '--tg-verify-child') {
+    $_POST = ['task_id' => (int) ($argv[2] ?? 0)];
+    $request = new Request();
+    $request->setMeta('auth.user', User::find((int) ($argv[3] ?? 0)));
+    $response = (new TgTaskController())->verify($request);
+    $body = json_decode($response->getContent(), true);
+    echo json_encode([
+        'success' => (bool) ($body['success'] ?? false),
+        'status' => $response->getStatus(),
+        'message' => (string) ($body['message'] ?? ''),
+    ], JSON_UNESCAPED_UNICODE) . "\n";
+    exit(0);
+}
+
+if (($argv[1] ?? '') === '--legacy-ad-child') {
+    $worker = User::find((int) ($argv[2] ?? 0));
+    $result = $worker === null
+        ? ['success' => false, 'message' => 'Legacy ad race user not found.']
+        : (new RewardService())->creditAdReward($worker, 'simulated', 1);
+    echo json_encode([
+        'success' => (bool) ($result['success'] ?? false),
+        'message' => (string) ($result['message'] ?? ''),
+    ], JSON_UNESCAPED_UNICODE) . "\n";
+    exit(0);
+}
+
 try {
     $insertUser = $db->prepare(
         'INSERT INTO users (username,email,password,name,is_admin,role,balance,ads_limit,today_ads) VALUES (?,?,?,?,?,?,?,?,?)'
@@ -167,9 +229,126 @@ try {
         0,
     ]);
     $adminId = (int) $db->lastInsertId();
+    $insertUser->execute([
+        "financial-race-bonus-{$suffix}",
+        "financial-race-bonus-{$suffix}@example.test",
+        'x',
+        'Financial Race Bonus User',
+        0,
+        'worker',
+        0,
+        50,
+        10,
+    ]);
+    $bonusUserId = (int) $db->lastInsertId();
+    $db->prepare('UPDATE users SET last_ad_reset_at = ? WHERE id = ?')->execute([date('Y-m-d'), $bonusUserId]);
+
+    // Two simultaneous daily-bonus claims may credit the reward only once.
+    unset($insertUser);
+    $db = null;
+    Database::disconnect();
+    $bonusCommand = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__)
+        . ' --daily-bonus-child ' . escapeshellarg((string) $bonusUserId);
+    $bonusResults = $runChildren([$bonusCommand, $bonusCommand]);
+    $db = Database::connect();
+    $bonusSuccesses = count(array_filter($bonusResults, static fn(array $result): bool => ($result['success'] ?? false) === true));
+    $assert($bonusSuccesses === 1, 'Daily-bonus race credited more than once or failed entirely: ' . json_encode($bonusResults));
+    $bonusUser = $db->prepare('SELECT balance,last_daily_bonus_claim FROM users WHERE id = ?');
+    $bonusUser->execute([$bonusUserId]);
+    $bonusState = $bonusUser->fetch(\PDO::FETCH_ASSOC);
+    $assert(abs((float) ($bonusState['balance'] ?? 0) - 0.05) < 0.0001
+        && ($bonusState['last_daily_bonus_claim'] ?? '') === date('Y-m-d'), 'Daily-bonus race left the user balance or claim date incorrect.');
+    $bonusLedger = $db->prepare("SELECT COUNT(*) FROM ad_views WHERE user_id = ? AND provider = 'daily_bonus'");
+    $bonusLedger->execute([$bonusUserId]);
+    $assert((int) $bonusLedger->fetchColumn() === 1, 'Daily-bonus race wrote more than one reward ledger row.');
+    unset($bonusUser, $bonusLedger, $bonusState);
+
+    $insertWebTask = $db->prepare(
+        'INSERT INTO web_tasks (title,description,target_url,reward,duration_seconds,verification_type,active,daily_limit_per_user,created_at) VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)'
+    );
+    $insertWebTask->execute(["Financial race web task {$suffix}", 'Web task race', 'https://example.test', 1, 1, 'duration', 1, 1]);
+    $webTaskId = (int) $db->lastInsertId();
+    $insertWebCompletion = $db->prepare(
+        "INSERT INTO web_task_completions (user_id,task_id,started_at,reward) VALUES (?,?,datetime('now','-3600 seconds'),?)"
+    );
+    $insertWebCompletion->execute([$bonusUserId, $webTaskId, 1]);
+    $webCompletionId = (int) $db->lastInsertId();
+    $insertTgTask = $db->prepare(
+        'INSERT INTO telegram_tasks (channel_username,channel_name,description,reward,active,created_at) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)'
+    );
+    $insertTgTask->execute(["@financial_race_{$suffix}", 'Financial race channel', 'Telegram task race', 1, 1]);
+    $tgTaskId = (int) $db->lastInsertId();
+    unset($insertWebTask, $insertWebCompletion, $insertTgTask);
+
+    // Web-task claims must credit one reward even when two eligible requests
+    // race after the completion has become claimable.
+    $db = null;
+    Database::disconnect();
+    $webClaimCommand = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__)
+        . ' --web-claim-child ' . escapeshellarg((string) $webCompletionId) . ' ' . escapeshellarg((string) $bonusUserId);
+    $webClaimResults = $runChildren([$webClaimCommand, $webClaimCommand]);
+    $db = Database::connect();
+    $webClaimSuccesses = count(array_filter($webClaimResults, static fn(array $result): bool => ($result['success'] ?? false) === true));
+    $assert($webClaimSuccesses === 1, 'Web-task claim race credited more than once or failed entirely: ' . json_encode($webClaimResults));
+    $webClaimed = $db->prepare('SELECT COUNT(*) FROM web_task_completions WHERE id = ? AND claimed_at IS NOT NULL');
+    $webClaimed->execute([$webCompletionId]);
+    $assert((int) $webClaimed->fetchColumn() === 1, 'Web-task claim race did not leave exactly one claimed completion.');
+    $webBalance = $db->prepare('SELECT balance FROM users WHERE id = ?');
+    $webBalance->execute([$bonusUserId]);
+    $assert(abs((float) $webBalance->fetchColumn() - 1.05) < 0.0001, 'Web-task claim race credited the worker balance incorrectly.');
+    unset($webClaimed, $webBalance);
+
+    $insertSecondWebCompletion = $db->prepare(
+        "INSERT INTO web_task_completions (user_id,task_id,started_at,reward) VALUES (?,?,datetime('now','-7200 seconds'),?)"
+    );
+    $insertSecondWebCompletion->execute([$bonusUserId, $webTaskId, 1]);
+    $secondWebCompletionId = (int) $db->lastInsertId();
+    unset($insertSecondWebCompletion);
+    $webLimitCommand = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__)
+        . ' --web-claim-child ' . escapeshellarg((string) $secondWebCompletionId) . ' ' . escapeshellarg((string) $bonusUserId);
+    $webLimitResults = $runChildren([$webLimitCommand]);
+    $assert(($webLimitResults[0]['success'] ?? true) === false
+        && str_contains((string) ($webLimitResults[0]['message'] ?? ''), 'Daily task limit'),
+        'Web-task claim bypassed the configured daily task limit.');
+
+    // Telegram-task verification has the same one-time reward boundary.
+    $db = null;
+    Database::disconnect();
+    $tgVerifyCommand = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__)
+        . ' --tg-verify-child ' . escapeshellarg((string) $tgTaskId) . ' ' . escapeshellarg((string) $bonusUserId);
+    $tgVerifyResults = $runChildren([$tgVerifyCommand, $tgVerifyCommand]);
+    $db = Database::connect();
+    $tgVerifySuccesses = count(array_filter($tgVerifyResults, static fn(array $result): bool => ($result['success'] ?? false) === true));
+    $assert($tgVerifySuccesses === 1, 'Telegram-task verification race credited more than once or failed entirely: ' . json_encode($tgVerifyResults));
+    $tgCompleted = $db->prepare('SELECT COUNT(*) FROM telegram_task_completions WHERE user_id = ? AND task_id = ?');
+    $tgCompleted->execute([$bonusUserId, $tgTaskId]);
+    $assert((int) $tgCompleted->fetchColumn() === 1, 'Telegram-task verification race created more than one completion.');
+    $tgBalance = $db->prepare('SELECT balance FROM users WHERE id = ?');
+    $tgBalance->execute([$bonusUserId]);
+    $assert(abs((float) $tgBalance->fetchColumn() - 2.05) < 0.0001, 'Telegram-task verification race credited the worker balance incorrectly.');
+    unset($tgCompleted, $tgBalance);
+
+    // The legacy provider reward path must serialize the user balance and
+    // daily-ad counter just like the first-party video path.
+    $db = null;
+    Database::disconnect();
+    $legacyAdCommand = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__)
+        . ' --legacy-ad-child ' . escapeshellarg((string) $bonusUserId);
+    $legacyAdResults = $runChildren([$legacyAdCommand, $legacyAdCommand]);
+    $db = Database::connect();
+    $legacyAdSuccesses = count(array_filter($legacyAdResults, static fn(array $result): bool => ($result['success'] ?? false) === true));
+    $assert($legacyAdSuccesses === 2, 'Legacy provider reward race did not accept both independent ad views: ' . json_encode($legacyAdResults));
+    $legacyBalance = $db->prepare('SELECT balance,today_ads FROM users WHERE id = ?');
+    $legacyBalance->execute([$bonusUserId]);
+    $legacyState = $legacyBalance->fetch(\PDO::FETCH_ASSOC);
+    $assert(abs((float) ($legacyState['balance'] ?? 0) - 4.05) < 0.0001
+        && (int) ($legacyState['today_ads'] ?? 0) === 12, 'Legacy provider reward race lost a balance credit or daily-ad count.');
+    $legacyLedger = $db->prepare("SELECT COUNT(*) FROM ad_views WHERE user_id = ? AND provider = 'simulated'");
+    $legacyLedger->execute([$bonusUserId]);
+    $assert((int) $legacyLedger->fetchColumn() === 2, 'Legacy provider reward race wrote the wrong number of audit rows.');
+    unset($legacyBalance, $legacyLedger, $legacyState);
 
     // Two withdrawals of 80 must not both pass against the same balance.
-    unset($insertUser);
     $db = null;
     Database::disconnect();
     $withdrawCommand = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__)
@@ -242,7 +421,7 @@ try {
     $rewardRows->execute([$userId]);
     $assert((int) $rewardRows->fetchColumn() === 1, 'Video claim race credited more than one reward ledger row.');
 
-    echo "Job marketplace payment, withdrawal, and video-claim race checks passed.\n";
+    echo "Job marketplace payment, withdrawal, daily-bonus, legacy-ad, web-task, Telegram-task, and video-claim race checks passed.\n";
 } catch (Throwable $e) {
     fwrite(STDERR, "Job marketplace financial race checks failed: {$e->getMessage()}\n");
     $exitCode = 1;
@@ -266,6 +445,25 @@ try {
         $db->prepare('DELETE FROM withdrawals WHERE user_id = ?')->execute([$userId]);
         $db->prepare('DELETE FROM notifications WHERE notifiable_id = ?')->execute([$userId]);
         $db->prepare('DELETE FROM users WHERE id = ?')->execute([$userId]);
+    }
+    if ($bonusUserId > 0) {
+        $db->prepare('DELETE FROM ad_views WHERE user_id = ?')->execute([$bonusUserId]);
+        $db->prepare('DELETE FROM notifications WHERE notifiable_id = ?')->execute([$bonusUserId]);
+        $db->prepare('DELETE FROM users WHERE id = ?')->execute([$bonusUserId]);
+    }
+    if ($webCompletionId > 0) {
+        $db->prepare('DELETE FROM web_task_completions WHERE id = ?')->execute([$webCompletionId]);
+    }
+    if ($secondWebCompletionId > 0) {
+        $db->prepare('DELETE FROM web_task_completions WHERE id = ?')->execute([$secondWebCompletionId]);
+    }
+    if ($webTaskId > 0) {
+        $db->prepare('DELETE FROM web_task_completions WHERE task_id = ?')->execute([$webTaskId]);
+        $db->prepare('DELETE FROM web_tasks WHERE id = ?')->execute([$webTaskId]);
+    }
+    if ($tgTaskId > 0) {
+        $db->prepare('DELETE FROM telegram_task_completions WHERE task_id = ?')->execute([$tgTaskId]);
+        $db->prepare('DELETE FROM telegram_tasks WHERE id = ?')->execute([$tgTaskId]);
     }
     if ($adminId > 0) {
         $db->prepare('DELETE FROM notifications WHERE notifiable_id = ?')->execute([$adminId]);

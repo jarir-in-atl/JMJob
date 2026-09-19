@@ -103,5 +103,8 @@ class Phase6NotificationsTest extends TestCase
         }
         $this->assertTrue(str_contains($sidebar, "'/notifications'"));
         $this->assertTrue(str_contains($mobileNav, "'/notifications'"));
+        $this->assertTrue(str_contains($mobileNav, "'/admin/pending-jobs'"));
+        $this->assertTrue(str_contains($mobileNav, "'/admin/active-jobs'"));
+        $this->assertTrue(str_contains($mobileNav, "u.is_admin || u.role === 'poster'"));
     }
 }

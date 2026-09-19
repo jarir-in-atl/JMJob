@@ -58,6 +58,7 @@ class PaymentController extends Controller
 
     public function submit(Request $request): Response
     {
+        if ($guard = $this->bannedGuard($request)) return $guard;
         $user = $request->getMeta('auth.user');
         $body = (array) $this->readJson($request);
 
@@ -182,6 +183,19 @@ class PaymentController extends Controller
         }
 
         return $data;
+    }
+
+    private function bannedGuard(Request $request): ?Response
+    {
+        $user = $request->getMeta('auth.user');
+        if ($user !== null && $user->isBanned()) {
+            return Response::json([
+                'success' => false,
+                'error' => 'banned',
+                'message' => 'Banned accounts cannot submit payments.',
+            ], 403);
+        }
+        return null;
     }
 
     private function adminGuard(Request $request): ?Response

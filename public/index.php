@@ -9,6 +9,20 @@
 // Apply it to the 'api' group in routes/api.php via ->middleware('cors').
 // Updated: 2026-04-03
 
+// When PHP's built-in server uses this file as its router, let it serve
+// existing frontend assets directly. API and application requests still pass
+// through the framework router below.
+if (PHP_SAPI === 'cli-server') {
+    $requestPath = parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH) ?: '/';
+    $publicRoot = realpath(__DIR__);
+    $staticPath = realpath(__DIR__ . $requestPath);
+    if ($requestPath !== '/' && $publicRoot !== false && $staticPath !== false
+        && str_starts_with($staticPath, $publicRoot . DIRECTORY_SEPARATOR)
+        && is_file($staticPath)) {
+        return false;
+    }
+}
+
 require __DIR__ . "/../vendor/autoload.php";
 
 use Nemesis\Core\Config;

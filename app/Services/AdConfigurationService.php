@@ -73,6 +73,7 @@ class AdConfigurationService
     public static function publicConfig(): array
     {
         $systemEnabled = (bool) SettingService::get('advertisement_system_enabled', true);
+        $networkEnabled = SettingService::adNetworkEnabled();
         $websiteEnabled = (bool) SettingService::get('website_ads_enabled', true);
         $appEnabled = (bool) SettingService::get('app_ads_enabled', true);
         $websitePublisher = (string) SettingService::get('website_publisher_id', '');
@@ -82,16 +83,16 @@ class AdConfigurationService
 
         return [
             'website' => [
-                'enabled' => $systemEnabled && $websiteEnabled,
+                'enabled' => $systemEnabled && $networkEnabled && $websiteEnabled,
                 'publisher_id' => $websitePublisher,
                 'ad_units' => $websiteUnits,
-                'configured' => $systemEnabled && $websiteEnabled && $websitePublisher !== '' && $websiteUnits !== [],
+                'configured' => $systemEnabled && $networkEnabled && $websiteEnabled && $websitePublisher !== '' && $websiteUnits !== [],
             ],
             'app' => [
-                'enabled' => $systemEnabled && $appEnabled,
+                'enabled' => $systemEnabled && $networkEnabled && $appEnabled,
                 'publisher_id' => $appPublisher,
                 'ad_units' => $appUnits,
-                'configured' => $systemEnabled && $appEnabled && $appPublisher !== '' && $appUnits !== [],
+                'configured' => $systemEnabled && $networkEnabled && $appEnabled && $appPublisher !== '' && $appUnits !== [],
             ],
         ];
     }

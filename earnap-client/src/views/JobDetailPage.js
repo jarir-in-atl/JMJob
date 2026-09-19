@@ -17,8 +17,8 @@ export function JobDetailPage(id) {
 
         try {
             const res = await api.job(id);
-            const { job, bids, bid_count, my_bid } = res.data;
-            render(job, bids, bid_count, my_bid, user);
+            const { job, bids, bid_count, my_bid, my_submission } = res.data;
+            render(job, bids, bid_count, my_bid, my_submission, user);
         } catch (err) {
             document.getElementById('job-detail-content').innerHTML =
                 `<p class="muted">Failed to load: ${escapeHtml(err.message || 'unknown')}</p>`;
@@ -26,7 +26,7 @@ export function JobDetailPage(id) {
     };
 }
 
-function render(job, bids, bidCount, myBid, user) {
+function render(job, bids, bidCount, myBid, mySubmission, user) {
     const content = document.getElementById('job-detail-content');
     if (!content) return;
 
@@ -35,7 +35,13 @@ function render(job, bids, bidCount, myBid, user) {
     const closesLabel = closesIn != null ? formatDuration(closesIn) : '—';
 
     const isOpen = ['open', 'in_review'].includes(job.status);
-    const alreadyBid = !!myBid;
+    const isWorker = !!user && !user.is_admin && (!user.role || user.role === 'worker');
+    const assignedToCurrentUser = isWorker && (
+        !!job.assignment_id || Number(job.assigned_worker_id || 0) === Number(user.id)
+    );
+    const displayStatus = assignedToCurrentUser && job.assignment_status
+        ? job.assignment_status
+        : job.status;
 
     content.innerHTML = `
         <div class="card job-detail__card">
@@ -52,7 +58,7 @@ function render(job, bids, bidCount, myBid, user) {
                         <span><i class="bi bi-clock"></i> Bidding closes in <strong>${closesLabel}</strong></span>
                     </div>
                 </div>
-                <span class="badge badge--status badge--${job.status}">${job.status.replace('_', ' ').toUpperCase()}</span>
+                <span class="badge badge--status badge--${displayStatus}">${displayStatus.replace('_', ' ').toUpperCase()}</span>
             </div>
             <div class="job-detail__body">
                 <h3>Description</h3>
@@ -64,10 +70,95 @@ function render(job, bids, bidCount, myBid, user) {
             </div>
         </div>
 
-        ${renderBidSection(job, bids, myBid, user, isOpen)}
+        ${renderSubmissionSection(job, mySubmission, assignedToCurrentUser)}
+        ${assignedToCurrentUser ? '' : renderBidSection(job, bids, myBid, user, isOpen)}
     `;
 
     wireBidForm(job, myBid, user);
+    wireSubmissionForm(job);
+}
+
+function renderSubmissionSection(job, submission, assignedToCurrentUser) {
+    if (!assignedToCurrentUser) return '';
+
+    const assignmentStatus = job.assignment_status || job.status;
+    const status = submission?.status || assignmentStatus;
+    if (submission && (submission.status === 'pending_review' || assignmentStatus === 'submitted')) {
+        return `
+            <div class="card">
+                <h3 class="card__title">Your submission</h3>
+                <p><span class="badge badge--status badge--${status}">${status.replace('_', ' ').toUpperCase()}</span></p>
+                <p class="muted">Your work is awaiting poster review.</p>
+            </div>
+        `;
+    }
+    if (submission?.status === 'approved' || ['approved', 'completed'].includes(assignmentStatus)) {
+        return `
+            <div class="card">
+                <h3 class="card__title">Your submission</h3>
+                <p><span class="badge badge--status badge--approved">APPROVED</span></p>
+                <p class="muted">Your work was approved and payment was released.</p>
+            </div>
+        `;
+    }
+
+    const canSubmit = ['assigned', 'in_progress', 'revision'].includes(assignmentStatus);
+    if (!canSubmit) {
+        return `<div class="card"><p class="muted">This assignment is ${escapeHtml(String(assignmentStatus).replace('_', ' '))}.</p></div>`;
+    }
+    const requiresScreenshot = Array.isArray(job.proof_requirements)
+        && job.proof_requirements.some(requirement => requirement && requirement.type === 'screenshot');
+    const revisionNote = submission?.reviewer_note || submission?.rejection_reason;
+    return `
+        <div class="card">
+            <h3 class="card__title">Submit Work</h3>
+            ${revisionNote ? `<p class="alert alert--warning"><strong>Revision requested:</strong> ${escapeHtml(revisionNote)}</p>` : ''}
+            <form id="job-submission-form" class="submit-form">
+                <label class="submit-form__label">
+                    What did you deliver? (description)
+                    <textarea name="description" rows="4" required placeholder="Summarize what you delivered…">${escapeHtml(submission?.description || '')}</textarea>
+                </label>
+                <label class="submit-form__label">
+                    External link (optional)
+                    <input name="external_link" type="url" value="${escapeHtml(submission?.external_link || '')}" placeholder="https://…">
+                </label>
+                <label class="submit-form__label">
+                    Screenshot proof ${requiresScreenshot ? '(required)' : '(optional)'}
+                    <input name="screenshot" type="file" accept="image/jpeg,image/png,image/gif,image/webp" ${requiresScreenshot ? 'required' : ''}>
+                    <small class="muted">JPG, PNG, GIF, or WEBP; maximum 10 MB.</small>
+                </label>
+                <button type="submit" class="btn btn--success btn--xl" id="job-submit-work-btn">
+                    <i class="bi bi-send"></i> Submit Work
+                </button>
+            </form>
+        </div>
+    `;
+}
+
+function wireSubmissionForm(job) {
+    const form = document.getElementById('job-submission-form');
+    if (!form) return;
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const button = document.getElementById('job-submit-work-btn');
+        const fd = new FormData(form);
+        const payload = new FormData();
+        payload.append('description', String(fd.get('description') || '').trim());
+        payload.append('external_link', String(fd.get('external_link') || '').trim());
+        const screenshot = fd.get('screenshot');
+        if (screenshot instanceof File && screenshot.size > 0) payload.append('screenshot', screenshot);
+        button.disabled = true;
+        button.innerHTML = '<i class="bi bi-hourglass"></i> Submitting…';
+        try {
+            await api.submitWork(job.id, payload);
+            showFlash('Work submitted!', 'success');
+            navigate('/jobs/' + job.id);
+        } catch (err) {
+            showFlash(err.message || 'Failed to submit.', 'error');
+            button.disabled = false;
+            button.innerHTML = '<i class="bi bi-send"></i> Submit Work';
+        }
+    });
 }
 
 function renderBidSection(job, bids, myBid, user, isOpen) {

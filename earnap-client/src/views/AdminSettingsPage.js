@@ -4,6 +4,17 @@ import { showFlash, currentUser } from '../state.js';
 
 let _state = { grouped: {}, social: {}, noticesData: { interval: 4, notices: [] }, loading: false };
 
+const SETTING_LABELS = {
+    advertisement_system_enabled: 'Advertisement System',
+    video_ads_enabled: 'Video Ads',
+    watch_earn_enabled: 'User Watch & Earn',
+    reward_system_enabled: 'Reward System',
+    ad_network_enabled: 'External Ad Network',
+    website_ads_enabled: 'Website Ads',
+    app_ads_enabled: 'Android App Ads',
+    ad_frequency_seconds: 'Ad Frequency (seconds)',
+};
+
 export function AdminSettingsPage() {
     return async () => {
         const root = document.querySelector('[data-view]');
@@ -270,6 +281,7 @@ function wireNoticeUploadAndButtons() {
 
 function settingRow(category, s) {
     const id = `set-${s.key.replace(/[^a-z0-9]/gi, '_')}`;
+    const label = SETTING_LABELS[s.key] || s.key;
     let input;
     switch (s.value_type) {
         case 'boolean':
@@ -291,7 +303,7 @@ function settingRow(category, s) {
     return `
         <div class="settings-row">
             <label for="${id}" class="settings-row__label">
-                <strong>${escapeHtml(s.key)}</strong>
+                <strong>${escapeHtml(label)}</strong>
                 <span class="muted">${escapeHtml(s.description || '')}</span>
             </label>
             <div class="settings-row__control">${input}</div>

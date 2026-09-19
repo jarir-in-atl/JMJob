@@ -88,6 +88,16 @@ mirror --reverse --verbose --no-perms --ignore-time --parallel=1 \
   --exclude-glob '.env.*' \
   --exclude-glob '.git/' \
   --exclude-glob '.git/**' \
+  --exclude-glob '.kilo/' \
+  --exclude-glob '.kilo/**' \
+  --exclude-glob '.codex/' \
+  --exclude-glob '.codex/**' \
+  --exclude-glob '.agents/' \
+  --exclude-glob '.agents/**' \
+  --exclude-glob '.vscode/' \
+  --exclude-glob '.vscode/**' \
+  --exclude-glob '.idea/' \
+  --exclude-glob '.idea/**' \
   --exclude-glob '.ssh/' \
   --exclude-glob '.ssh/**' \
   --exclude-glob 'public/' \
