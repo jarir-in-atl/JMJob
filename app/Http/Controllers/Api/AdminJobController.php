@@ -23,6 +23,7 @@ class AdminJobController extends Controller
 
     public function store(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
         $body = $this->readJson($request);
         $error = $this->validateJobInput($body, true);
@@ -72,12 +73,14 @@ class AdminJobController extends Controller
 
     public function show(Request $request, int $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         if (Job::find($id) === null) return Response::json(['success' => false, 'message' => 'Job not found.'], 404);
         return Response::json(['success' => true, 'data' => $this->detailPayload($id)]);
     }
 
     public function update(Request $request, int $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
         $job = Job::find($id);
         if ($job === null) return Response::json(['success' => false, 'message' => 'Job not found.'], 404);
@@ -142,6 +145,7 @@ class AdminJobController extends Controller
 
     public function delete(Request $request, int $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
         $job = Job::find($id);
         if ($job === null) return Response::json(['success' => false, 'message' => 'Job not found.'], 404);
@@ -169,6 +173,7 @@ class AdminJobController extends Controller
 
     public function cancelAssignment(Request $request, int $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
         $body = $this->readJson($request);
         $reason = trim((string) ($body['reason'] ?? 'Cancelled by administrator'));
@@ -191,6 +196,7 @@ class AdminJobController extends Controller
 
     public function reassignAssignment(Request $request, int $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
         $body = $this->readJson($request);
         $bidId = (int) ($body['bid_id'] ?? 0);
@@ -328,6 +334,25 @@ class AdminJobController extends Controller
             'submissions' => $submissions,
             'progress' => $this->progress($job, $assignments),
         ];
+    }
+
+    private function adminGuard(Request $request): ?Response
+    {
+        $admin = $request->getMeta('auth.user');
+        if ($admin === null) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Authentication required.',
+            ], 401);
+        }
+        if (!$admin->isAdmin()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Administrator access required.',
+                'error' => 'forbidden',
+            ], 403);
+        }
+        return null;
     }
 
     private function progress(Job $job, array $assignments): array

@@ -26,6 +26,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\AdminJobController;
 use App\Http\Controllers\Api\AdminSettingsController;
+use App\Http\Controllers\Api\AdminVideoAdController;
 use App\Http\Controllers\Api\AdController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\JobController;
@@ -157,6 +158,23 @@ try {
     $adminWorkerRequest = new Request();
     $adminWorkerRequest->setMeta('auth.user', $admin);
     $assert((new JobController())->myBids($adminWorkerRequest)->getStatus() === 403, 'An administrator reached a worker-only controller endpoint.');
+
+    // Admin controller classes retain their own boundary when invoked
+    // directly, instead of relying only on the route middleware group.
+    foreach ([
+        'job_store' => (new AdminJobController())->store($workerPosterRequest),
+        'job_show' => (new AdminJobController())->show($workerPosterRequest, 999999),
+        'job_update' => (new AdminJobController())->update($workerPosterRequest, 999999),
+        'job_delete' => (new AdminJobController())->delete($workerPosterRequest, 999999),
+        'job_cancel' => (new AdminJobController())->cancelAssignment($workerPosterRequest, 999999),
+        'job_reassign' => (new AdminJobController())->reassignAssignment($workerPosterRequest, 999999),
+        'video_index' => (new AdminVideoAdController())->index($workerPosterRequest),
+        'video_store' => (new AdminVideoAdController())->store($workerPosterRequest),
+        'video_update' => (new AdminVideoAdController())->update($workerPosterRequest, 999999),
+        'video_delete' => (new AdminVideoAdController())->delete($workerPosterRequest, 999999),
+    ] as $operation => $response) {
+        $assert($response->getStatus() === 403, "A worker reached the admin controller endpoint for {$operation}.");
+    }
 
     // The route-level admin middleware must reject anonymous and worker
     // callers while allowing the seeded administrator through.
@@ -756,7 +774,7 @@ try {
     $assert($edited['title'] === "Admin edited {$suffix}" && $edited['status'] === Job::STATUS_OPEN, 'Admin job edit did not persist the requested fields.');
     $_POST = [];
 
-    $detailResponse = (new AdminJobController())->show(new Request(), $jobIds['admin_edit']);
+    $detailResponse = (new AdminJobController())->show($activeDeleteRequest, $jobIds['admin_edit']);
     $detailBody = json_decode($detailResponse->getContent(), true);
     $assert(($detailBody['success'] ?? false) === true && ($detailBody['data']['job']['title'] ?? '') === "Admin edited {$suffix}", 'Admin job detail did not expose the edited job.');
     $deleteResponse = (new AdminJobController())->delete($activeDeleteRequest, $jobIds['admin_edit']);
@@ -767,20 +785,22 @@ try {
     // path as the marketplace migrations; this guards against MySQL-only
     // timestamp expressions leaking into the existing settings workflow.
     $categoryController = new AdminSettingsController();
+    $adminSettingsRequest = new Request();
+    $adminSettingsRequest->setMeta('auth.user', User::find($userIds['admin']));
     $_POST = [
         'name' => "Integration category {$suffix}",
         'slug' => "integration-category-{$suffix}",
         'description' => 'Disposable category CRUD check.',
         'display_order' => 99,
     ];
-    $categoryResponse = $categoryController->createCategory(new Request());
+    $categoryResponse = $categoryController->createCategory($adminSettingsRequest);
     $categoryBody = json_decode($categoryResponse->getContent(), true);
     $categoryIds[] = (int) ($categoryBody['data']['id'] ?? 0);
     $assert($categoryResponse->getStatus() === 200 && ($categoryBody['success'] ?? false) === true, 'Admin category creation failed on SQLite.');
     $categoryId = $categoryIds[0];
 
     $_POST = ['name' => "Updated category {$suffix}", 'is_active' => 1];
-    $categoryUpdate = $categoryController->updateCategory(new Request(), $categoryId);
+    $categoryUpdate = $categoryController->updateCategory($adminSettingsRequest, $categoryId);
     $categoryUpdateBody = json_decode($categoryUpdate->getContent(), true);
     $assert(($categoryUpdateBody['success'] ?? false) === true && ($categoryUpdateBody['data']['name'] ?? '') === "Updated category {$suffix}", 'Admin category update failed.');
 
@@ -789,33 +809,33 @@ try {
         'name' => "Integration subcategory {$suffix}",
         'slug' => "integration-subcategory-{$suffix}",
     ];
-    $subcategoryResponse = $categoryController->createSubcategory(new Request());
+    $subcategoryResponse = $categoryController->createSubcategory($adminSettingsRequest);
     $subcategoryBody = json_decode($subcategoryResponse->getContent(), true);
     $subcategoryIds[] = (int) ($subcategoryBody['data']['id'] ?? 0);
     $assert($subcategoryResponse->getStatus() === 200 && ($subcategoryBody['success'] ?? false) === true, 'Admin subcategory creation failed on SQLite.');
 
     $_POST = ['name' => "Updated subcategory {$suffix}"];
-    $subcategoryUpdate = $categoryController->updateSubcategory(new Request(), $subcategoryIds[0]);
+    $subcategoryUpdate = $categoryController->updateSubcategory($adminSettingsRequest, $subcategoryIds[0]);
     $subcategoryUpdateBody = json_decode($subcategoryUpdate->getContent(), true);
     $assert(($subcategoryUpdateBody['success'] ?? false) === true && ($subcategoryUpdateBody['data']['name'] ?? '') === "Updated subcategory {$suffix}", 'Admin subcategory update failed.');
     $_POST = [];
-    $subcategoryDelete = $categoryController->deleteSubcategory(new Request(), $subcategoryIds[0]);
+    $subcategoryDelete = $categoryController->deleteSubcategory($adminSettingsRequest, $subcategoryIds[0]);
     $subcategoryDeleteBody = json_decode($subcategoryDelete->getContent(), true);
     $assert(($subcategoryDeleteBody['success'] ?? false) === true, 'Admin subcategory deletion failed.');
-    $categoryDelete = $categoryController->deleteCategory(new Request(), $categoryId);
+    $categoryDelete = $categoryController->deleteCategory($adminSettingsRequest, $categoryId);
     $categoryDeleteBody = json_decode($categoryDelete->getContent(), true);
     $assert(($categoryDeleteBody['success'] ?? false) === true, 'Admin category deletion failed.');
 
     // Reports expose assignment/payment and submission-risk drill-downs and
     // can be exported without changing the JSON response contract.
     $_GET = [];
-    $reportResponse = (new AdminSettingsController())->reports(new Request());
+    $reportResponse = (new AdminSettingsController())->reports($adminSettingsRequest);
     $reportBody = json_decode($reportResponse->getContent(), true);
     $assert(($reportBody['success'] ?? false) === true
         && isset($reportBody['data']['assignments'], $reportBody['data']['submissions'])
         && array_key_exists('held_amount', $reportBody['data']['totals'] ?? []), 'Admin report drill-down aggregates are missing.');
     $_GET = ['format' => 'csv'];
-    $csvResponse = (new AdminSettingsController())->reports(new Request());
+    $csvResponse = (new AdminSettingsController())->reports($adminSettingsRequest);
     $assert($csvResponse->getStatus() === 200
         && str_contains((string) ($csvResponse->getHeaders()['Content-Type'] ?? ''), 'text/csv')
         && str_contains($csvResponse->getContent(), 'section,key,subkey,count,amount'), 'Admin report CSV export is missing or malformed.');
@@ -835,12 +855,12 @@ try {
             'website_publisher_id' => 'pub-integration.example',
             'website_ad_units' => ['banner' => ['unit_id' => 'unit-home-banner', 'format' => 'responsive']],
         ];
-        $adSettingsResponse = (new AdminSettingsController())->updateSettings(new Request());
+        $adSettingsResponse = (new AdminSettingsController())->updateSettings($adminSettingsRequest);
         $adSettingsBody = json_decode($adSettingsResponse->getContent(), true);
         $assert(($adSettingsBody['success'] ?? false) === true, 'Valid provider-neutral ad settings were rejected.');
 
         $_POST = ['website_ad_units' => ['bad placement' => str_repeat('x', 300)]];
-        $invalidAdSettingsResponse = (new AdminSettingsController())->updateSettings(new Request());
+        $invalidAdSettingsResponse = (new AdminSettingsController())->updateSettings($adminSettingsRequest);
         $invalidAdSettingsBody = json_decode($invalidAdSettingsResponse->getContent(), true);
         $assert($invalidAdSettingsResponse->getStatus() === 422 && ($invalidAdSettingsBody['error'] ?? '') === 'invalid_ad_configuration', 'Malformed ad placement settings were accepted.');
 
@@ -848,7 +868,7 @@ try {
             'website_publisher_id' => 'pub-should-not-persist',
             'website_ad_units' => ['bad placement' => 'unit-invalid'],
         ];
-        $mixedAdSettingsResponse = (new AdminSettingsController())->updateSettings(new Request());
+        $mixedAdSettingsResponse = (new AdminSettingsController())->updateSettings($adminSettingsRequest);
         $assert($mixedAdSettingsResponse->getStatus() === 422, 'Mixed valid and invalid ad settings did not fail validation.');
         $currentPublisher = $db->prepare('SELECT value FROM platform_settings WHERE setting_key = ?');
         $currentPublisher->execute(['website_publisher_id']);
@@ -861,7 +881,7 @@ try {
             && ($adConfigBody['data']['placements']['website']['ad_units']['banner']['unit_id'] ?? '') === 'unit-home-banner', 'Public ad placement contract did not expose normalized website settings.');
 
         $_POST = ['advertisement_system_enabled' => false];
-        $masterOffResponse = (new AdminSettingsController())->updateSettings(new Request());
+        $masterOffResponse = (new AdminSettingsController())->updateSettings($adminSettingsRequest);
         $assert($masterOffResponse->getStatus() === 200, 'Advertisement master switch could not be disabled.');
         $_POST = [];
         $masterOffConfig = json_decode((new AdController())->config(new Request())->getContent(), true);

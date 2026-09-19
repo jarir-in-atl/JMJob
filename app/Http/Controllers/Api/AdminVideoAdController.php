@@ -17,12 +17,14 @@ class AdminVideoAdController extends Controller
 {
     public function index(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $rows = Fluent::table('video_ads')->orderBy('id', 'desc')->get();
         return Response::json(['success' => true, 'data' => array_map(fn($row) => $this->serialize((array) $row), $rows->all())]);
     }
 
     public function store(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
         $body = $request->all();
         $file = $request->file('video') ?? $request->file('file');
@@ -46,6 +48,7 @@ class AdminVideoAdController extends Controller
 
     public function update(Request $request, int $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $ad = VideoAd::find($id);
         if ($ad === null) return Response::json(['success' => false, 'message' => 'Video ad not found.'], 404);
         $body = $request->all();
@@ -78,6 +81,7 @@ class AdminVideoAdController extends Controller
 
     public function delete(Request $request, int $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $ad = VideoAd::find($id);
         if ($ad === null) return Response::json(['success' => false, 'message' => 'Video ad not found.'], 404);
         Fluent::table('video_ads')->where('id', '=', $id)->delete();
@@ -180,5 +184,24 @@ class AdminVideoAdController extends Controller
         } catch (\Throwable) {
             // Audit storage is additive and must not break ad management.
         }
+    }
+
+    private function adminGuard(Request $request): ?Response
+    {
+        $admin = $request->getMeta('auth.user');
+        if ($admin === null) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Authentication required.',
+            ], 401);
+        }
+        if (!$admin->isAdmin()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Administrator access required.',
+                'error' => 'forbidden',
+            ], 403);
+        }
+        return null;
     }
 }

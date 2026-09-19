@@ -19,6 +19,7 @@ class AdminSettingsController extends Controller
 
     public function updateSettings(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $body = (array) $this->readJson($request);
         $pdo = Database::connect();
         $changes = [];
@@ -84,6 +85,7 @@ class AdminSettingsController extends Controller
 
     public function categories(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $pdo = Database::connect();
         $stmt = $pdo->query("SELECT * FROM categories ORDER BY display_order, name");
         return Response::json(['success' => true, 'data' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
@@ -91,6 +93,7 @@ class AdminSettingsController extends Controller
 
     public function createCategory(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $body = (array) $this->readJson($request);
         $name  = trim((string) ($body['name'] ?? ''));
         $slug  = trim((string) ($body['slug'] ?? ''));
@@ -124,6 +127,7 @@ class AdminSettingsController extends Controller
 
     public function updateCategory(Request $request, int $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $pdo = Database::connect();
         $stmt = $pdo->prepare("SELECT * FROM categories WHERE id = :id");
         $stmt->execute([':id' => $id]);
@@ -156,6 +160,7 @@ class AdminSettingsController extends Controller
 
     public function deleteCategory(Request $request, int $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $pdo = Database::connect();
         $stmt = $pdo->prepare("SELECT * FROM categories WHERE id = :id");
         $stmt->execute([':id' => $id]);
@@ -181,6 +186,7 @@ class AdminSettingsController extends Controller
 
     public function subcategories(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $pdo = Database::connect();
         $stmt = $pdo->query("SELECT s.*, c.name AS category_name FROM subcategories s LEFT JOIN categories c ON c.id = s.category_id ORDER BY c.display_order, s.display_order, s.name");
         return Response::json(['success' => true, 'data' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
@@ -188,6 +194,7 @@ class AdminSettingsController extends Controller
 
     public function createSubcategory(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $body = (array) $this->readJson($request);
         $catId = (int) ($body['category_id'] ?? 0);
         $name  = trim((string) ($body['name'] ?? ''));
@@ -217,6 +224,7 @@ class AdminSettingsController extends Controller
 
     public function updateSubcategory(Request $request, int $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $pdo = Database::connect();
         $stmt = $pdo->prepare("SELECT * FROM subcategories WHERE id = :id");
         $stmt->execute([':id' => $id]);
@@ -246,6 +254,7 @@ class AdminSettingsController extends Controller
 
     public function deleteSubcategory(Request $request, int $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $pdo = Database::connect();
         $stmt = $pdo->prepare("SELECT * FROM subcategories WHERE id = :id");
         $stmt->execute([':id' => $id]);
@@ -258,6 +267,7 @@ class AdminSettingsController extends Controller
 
     public function transactions(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $limit = max(1, min(500, (int) ($request->query('limit') ?? 100)));
         $type = strtolower(trim((string) ($request->query('type') ?? '')));
         $allowedTypes = ['deposit', 'withdrawal', 'escrow_hold', 'escrow_release', 'commission', 'refund', 'adjustment'];
@@ -284,6 +294,7 @@ class AdminSettingsController extends Controller
 
     public function revenue(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $pdo = Database::connect();
         $totalStmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) AS t FROM transactions WHERE type = 'commission'");
         $totalStmt->execute();
@@ -333,6 +344,7 @@ class AdminSettingsController extends Controller
 
     public function reports(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $pdo = Database::connect();
         $transactionRows = $pdo->query(
             "SELECT type, COUNT(*) AS transaction_count, COALESCE(SUM(amount), 0) AS amount
@@ -476,6 +488,7 @@ class AdminSettingsController extends Controller
     }
     public function listSettings(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $pdo = Database::connect();
         $stmt = $pdo->prepare("SELECT `setting_key`, `value`, `value_type`, `category`, `description` FROM platform_settings ORDER BY `category`, `setting_key`");
         $stmt->execute();
@@ -498,6 +511,25 @@ class AdminSettingsController extends Controller
             ];
         }
         return Response::json(['success' => true, 'data' => $grouped]);
+    }
+
+    private function adminGuard(Request $request): ?Response
+    {
+        $admin = $request->getMeta('auth.user');
+        if ($admin === null) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Authentication required.',
+            ], 401);
+        }
+        if (!$admin->isAdmin()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Administrator access required.',
+                'error' => 'forbidden',
+            ], 403);
+        }
+        return null;
     }
 
 }
