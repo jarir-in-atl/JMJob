@@ -41,6 +41,7 @@ class AdminController extends Controller
 
     public function withdrawals(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $status = 'pending';
         $queryStr = parse_url($request->uri(), PHP_URL_QUERY);
         if (is_string($queryStr)) {
@@ -94,6 +95,7 @@ class AdminController extends Controller
 
     private function setStatus(Request $request, string $id, string $newStatus, bool $refund = false): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
         $withdrawal = Withdrawal::find((int) $id);
         if ($withdrawal === null) {
@@ -206,6 +208,7 @@ class AdminController extends Controller
 
     public function users(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $rows = Fluent::table('users')
             ->orderBy('id', 'desc')
             ->limit(200)
@@ -241,6 +244,7 @@ class AdminController extends Controller
 
     public function banUser(Request $request, string $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
         $userId = (int) $id;
         if ($admin && (int) $admin->id === $userId) {
@@ -309,6 +313,7 @@ class AdminController extends Controller
 
     public function unbanUser(Request $request, string $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
         $userId = (int) $id;
         $target = User::find($userId);
@@ -368,6 +373,7 @@ class AdminController extends Controller
 
     public function banHistory(Request $request, string $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $target = User::find((int) $id);
         if ($target === null) return Response::json(['success' => false, 'message' => 'User not found.'], 404);
         $rows = UserBanHistory::forUser((int) $id, 100);
@@ -458,6 +464,7 @@ class AdminController extends Controller
 
     public function updateRole(Request $request, string $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $userId = (int) $id;
         $admin = $request->getMeta('auth.user');
         if ($admin && (int) $admin->id === $userId) {
@@ -507,6 +514,7 @@ class AdminController extends Controller
 
     public function jobs(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $status = strtolower(trim((string) ($request->query('status') ?? '')));
         $allowedStatuses = [
             Job::STATUS_PENDING_APPROVAL, Job::STATUS_OPEN, Job::STATUS_DECLINED,
@@ -669,6 +677,7 @@ class AdminController extends Controller
 
     public function jobSubmissions(Request $request, string $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $jobId = (int) $id;
         $job = Job::find($jobId);
         if ($job === null) {
@@ -741,6 +750,7 @@ class AdminController extends Controller
 
     public function fraudQueue(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $limit = max(1, min(200, (int) ($request->query('limit') ?? 100)));
         try {
             $stmt = Database::connect()->prepare(
@@ -787,6 +797,7 @@ class AdminController extends Controller
 
     public function reviewFraud(Request $request, string $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
         $submission = JobSubmission::find((int) $id);
         if ($submission === null) return Response::json(['success' => false, 'message' => 'Submission not found.'], 404);
@@ -868,6 +879,7 @@ class AdminController extends Controller
 
     public function reviewSubmission(Request $request, string $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
         $body = (array) $this->readJson($request);
         $decision = (string) ($body['decision'] ?? '');
@@ -903,6 +915,7 @@ class AdminController extends Controller
 
     public function approveJob(Request $request, string $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
         $result = $this->jobService->approveJob((int) $id, (int) $admin->id);
         if (!$result['success']) {
@@ -920,6 +933,7 @@ class AdminController extends Controller
 
     public function declineJob(Request $request, string $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
         $body = (array) $this->readJson($request);
         $reason = (string) ($body['reason'] ?? '');
@@ -941,6 +955,7 @@ class AdminController extends Controller
 
     public function approveApplication(Request $request, string $bidId): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
         $result = $this->jobService->approveWorkerApplication((int) $bidId, (int) $admin->id);
         if (!$result['success']) {
@@ -958,6 +973,7 @@ class AdminController extends Controller
 
     public function flagDispute(Request $request, string $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
         $job = Job::find((int) $id);
         if ($job === null) return Response::json(['success' => false, 'message' => 'Job not found.'], 404);
@@ -999,6 +1015,7 @@ class AdminController extends Controller
 
     public function resolveJob(Request $request, string $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $body = $this->readJson($request);
         $resolution = strtolower(trim((string) ($body['resolution'] ?? '')));
         if (!in_array($resolution, ['release', 'cancel'], true)) {
@@ -1038,6 +1055,7 @@ class AdminController extends Controller
 
     public function stats(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $users       = (int) (Fluent::table('users')->select(['COUNT(*) AS c'])->first()['c'] ?? 0);
         $withdrawals = (int) (Fluent::table('withdrawals')->select(['COUNT(*) AS c'])->first()['c'] ?? 0);
         $pending     = (int) (Fluent::table('withdrawals')->where('status', '=', 'pending')->select(['COUNT(*) AS c'])->first()['c'] ?? 0);
@@ -1126,6 +1144,7 @@ class AdminController extends Controller
 
     public function adProviders(Request $request): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $rows = Fluent::table('ad_providers')->orderBy('id', 'asc')->get();
         return Response::json([
             'success' => true,
@@ -1135,6 +1154,7 @@ class AdminController extends Controller
 
     public function updateAdProvider(Request $request, string $id): Response
     {
+        if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
         $body = $this->readJson($request);
         $provider = AdProvider::find((int) $id);
@@ -1193,5 +1213,24 @@ class AdminController extends Controller
             }
         }
         return $request->all();
+    }
+
+    private function adminGuard(Request $request): ?Response
+    {
+        $admin = $request->getMeta('auth.user');
+        if ($admin === null) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Authentication required.',
+            ], 401);
+        }
+        if (!$admin->isAdmin()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Administrator access required.',
+                'error' => 'forbidden',
+            ], 403);
+        }
+        return null;
     }
 }
