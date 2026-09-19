@@ -7,6 +7,7 @@ use Nemesis\Testing\TestCase;
 use Nemesis\Notifications\Notification;
 use Nemesis\Notifications\NotificationManager;
 use Nemesis\Notifications\Notifiable;
+use Nemesis\Core\Database;
 
 class Phase6NotificationRecipient
 {
@@ -22,6 +23,28 @@ class Phase6TestNotification extends Notification
 
 class Phase6NotificationsTest extends TestCase
 {
+    public function setUp(): void
+    {
+        $this->clearSyntheticNotifications();
+    }
+
+    public function tearDown(): void
+    {
+        $this->clearSyntheticNotifications();
+        NotificationManager::reset();
+    }
+
+    private function clearSyntheticNotifications(): void
+    {
+        try {
+            $db = Database::connect();
+            $db->prepare('DELETE FROM notifications WHERE notifiable_type = ? AND notifiable_id = ?')
+                ->execute([Phase6NotificationRecipient::class, 42]);
+        } catch (\Throwable) {
+            // The test also supports the in-memory notification fallback.
+        }
+    }
+
     public function testNotificationMigrationAndApiExist(): void
     {
         $migration = base_path('database/migrations/2026_09_04_000001_create_notifications_table.php');

@@ -10,6 +10,69 @@ class CreateJobPostingWorkflowFields extends Migration {
     public function up() {
         $db = Database::connect();
 
+        if (Database::getDriverName() === 'sqlite') {
+            $db->exec("CREATE TABLE IF NOT EXISTS subcategories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                slug TEXT NOT NULL,
+                description TEXT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                display_order INTEGER NOT NULL DEFAULT 0,
+                min_cost NUMERIC NOT NULL DEFAULT 1.00,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NULL
+            )");
+            $db->exec('CREATE INDEX IF NOT EXISTS idx_subcat_category ON subcategories (category_id)');
+            $db->exec('CREATE INDEX IF NOT EXISTS idx_subcat_active ON subcategories (is_active)');
+
+            $jobColumns = array_column($db->query('PRAGMA table_info(jobs)')->fetchAll(), 'name');
+            $jobDefinitions = [
+                'subcategory_id'      => 'INTEGER NULL',
+                'worker_count'        => 'INTEGER NOT NULL DEFAULT 1',
+                'cost_per_worker'     => 'NUMERIC NOT NULL DEFAULT 0.0000',
+                'system_fee_percent'  => 'NUMERIC NOT NULL DEFAULT 30.00',
+                'system_fee_amount'   => 'NUMERIC NOT NULL DEFAULT 0.0000',
+                'total_payable_amount'=> 'NUMERIC NOT NULL DEFAULT 0.0000',
+                'proof_requirements'  => 'TEXT NULL',
+                'decline_reason'      => 'TEXT NULL',
+            ];
+            foreach ($jobDefinitions as $column => $definition) {
+                if (!in_array($column, $jobColumns, true)) {
+                    $db->exec("ALTER TABLE jobs ADD COLUMN {$column} {$definition}");
+                }
+            }
+            $db->exec('CREATE INDEX IF NOT EXISTS idx_jobs_subcategory ON jobs (subcategory_id)');
+
+            $bidColumns = array_column($db->query('PRAGMA table_info(job_bids)')->fetchAll(), 'name');
+            foreach ([
+                'bkash_number'    => 'TEXT NULL',
+                'trx_id'          => 'TEXT NULL',
+                'work_proof_data' => 'TEXT NULL',
+            ] as $column => $definition) {
+                if (!in_array($column, $bidColumns, true)) {
+                    $db->exec("ALTER TABLE job_bids ADD COLUMN {$column} {$definition}");
+                }
+            }
+            $db->exec('CREATE INDEX IF NOT EXISTS idx_bids_trx_id ON job_bids (trx_id)');
+
+            $defaults = [
+                ['job_system_fee_percentage', '30.00', 'Default system fee percentage for job postings'],
+                ['admin_contact_whatsapp', 'https://wa.me/8801700000000', 'WhatsApp contact link for admin support'],
+                ['bkash_merchant_number', '01700000000', 'Admin bKash merchant account number for receiving job payments'],
+            ];
+            $seed = $db->prepare("INSERT OR IGNORE INTO platform_settings (setting_key, value, description, created_at) VALUES (:key, :value, :description, :created_at)");
+            foreach ($defaults as [$key, $value, $description]) {
+                $seed->execute([
+                    'key' => $key,
+                    'value' => $value,
+                    'description' => $description,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+            }
+            return;
+        }
+
         // 0. Ensure jobs table exists with status column
         $db->exec("CREATE TABLE IF NOT EXISTS jobs (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -48,6 +111,7 @@ class CreateJobPostingWorkflowFields extends Migration {
             description TEXT NULL,
             is_active TINYINT(1) NOT NULL DEFAULT 1,
             display_order INT NOT NULL DEFAULT 0,
+            min_cost DECIMAL(10,2) NOT NULL DEFAULT 1.00,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP NULL,
             INDEX idx_subcat_category (category_id),
@@ -121,4 +185,3 @@ class CreateJobPostingWorkflowFields extends Migration {
         } catch (\Throwable $e) {}
     }
 }
-

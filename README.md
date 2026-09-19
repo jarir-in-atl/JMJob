@@ -55,12 +55,42 @@ Open http://127.0.0.1:8080/.
 
 The marketplace demo accounts are created by `DemoAccountsSeeder` and are for local/staging testing only. Change or disable them before exposing a seeded database publicly.
 
+## Fraud moderation baseline
+
+Risk signals are advisory and do not release payment or ban a worker by
+themselves. The initial defaults are:
+
+- fraud_min_description_chars: 20
+- fraud_daily_submission_velocity_limit: 10 submissions per 24 hours
+- fraud_shared_identity_worker_threshold: 2 workers
+- fraud_review_threshold: 20
+- fraud_ban_requires_confirmation: enabled
+
+Moderators should inspect the job requirements, description, screenshot, link,
+and worker history; use cleared for false positives, dismissed for
+non-actionable concerns, and confirmed_fraud only for clearly invalid or
+fabricated work. Rejections require a useful reason, and ban escalation
+requires explicit confirmation. Decisions are recorded in the admin audit log.
+
 ## Production deploy
 
-1. `git push` to `main`
-2. GitHub Actions builds and FTPs to the server
-3. Visit `https://jmjob.xyz/migration_runner.php` ONCE to apply DB migrations
-4. Delete `migration_runner.php` from the server
+1. `git push` to `main`, or run `./deploy.sh` locally.
+2. The deployment uploads the code and calls the idempotent `migration_runner.php`; it runs only pending migrations.
+3. Back up the production database before schema-changing releases and verify migrations, queue/scheduler processing, and marketplace reads/writes.
+
+The migration runner has no token gate. Remove it from the public server after
+the deployment if automatic migration calls are no longer needed.
+
+The application scheduler is driven by the host cron and must run from the
+project root every minute:
+
+```cron
+* * * * * cd /path/to/JMJob && /usr/bin/php nemesis schedule:run >> storage/logs/scheduler-cron.log 2>&1
+```
+
+The command is safe to repeat; deadline reminders use recipient/event
+deduplication. Configure the real mail environment separately and verify an
+approved delivery path before enabling external notification email.
 
 ## Project structure
 
@@ -82,7 +112,7 @@ JMJob/
 │   └── web.php              # SPA shell
 ├── views/                   # Blade templates
 ├── earnap-client/           # Ghost.js frontend source
-├── migration_runner.php     # ONE-TIME migration script
+├── migration_runner.php     # idempotent migration script
 └── .github/workflows/       # CI/CD
 ```
 

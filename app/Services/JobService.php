@@ -6,11 +6,14 @@ namespace App\Services;
 use App\Models\Job;
 use App\Models\JobBid;
 use App\Models\JobSubmission;
+use App\Models\JobAssignment;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Category;
 use Nemesis\Core\Fluent;
 use Nemesis\Core\Database;
+use Nemesis\Http\UploadedFile;
+use Nemesis\Support\FileValidator;
 use RuntimeException;
 
 /**
@@ -42,8 +45,18 @@ class JobService
         array $proofRequirements,
         int $workerCount,
         float $costPerWorker,
-        string $deadlineAt
+        string $deadlineAt,
+        ?string $subtitle = null,
+        ?string $customerName = null,
+        ?string $customerPhone = null,
+        ?string $customerEmail = null
     ): array {
+        if ($poster->isBanned()) {
+            return ['success' => false, 'message' => 'Banned accounts cannot post jobs.'];
+        }
+        if (!$this->canManagePosterJobs($poster)) {
+            return ['success' => false, 'message' => 'Poster access is required to post jobs.'];
+        }
         if (trim($title) === '' || mb_strlen($title) > 160) {
             return ['success' => false, 'message' => 'Title is required (1-160 chars).'];
         }
@@ -90,6 +103,28 @@ class JobService
             'created_at'           => date('Y-m-d H:i:s'),
         ]);
 
+        // Customer metadata is additive and may not exist during a staged
+        // rollout. Keep the core job creation successful on older hosts.
+        try {
+            Fluent::table('jobs')->where('id', '=', $id)->update([
+                'subtitle'       => $subtitle,
+                'customer_name'  => $customerName ?? $poster->name,
+                'customer_phone' => $customerPhone ?? ($poster->phone ?? null),
+                'customer_email' => $customerEmail ?? $poster->email,
+                'updated_at'     => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $e) {
+            // Metadata migration can be applied after the application code.
+        }
+
+        $this->notifyAdmins(
+            'New job posted',
+            'Job “' . $title . '” is awaiting review.',
+            'info',
+            'bi-briefcase',
+            '/admin/jobs/' . $id
+        );
+
         return ['success' => true, 'job' => Job::find($id), 'message' => 'Job posted and submitted for admin review.'];
     }
 
@@ -98,6 +133,9 @@ class JobService
      */
     public function approveJob(int $jobId, int $adminId): array
     {
+        if (!$this->isAdminId($adminId)) {
+            return ['success' => false, 'message' => 'Administrator access is required.'];
+        }
         $job = Job::find($jobId);
         if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
         if ($job->status !== Job::STATUS_PENDING_APPROVAL) {
@@ -109,6 +147,15 @@ class JobService
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
 
+        $this->notifyUser(
+            $job->poster(),
+            'Job approved',
+            'Your job “' . $job->title . '” was approved and is now available to workers.',
+            'success',
+            'bi-check-circle',
+            '/poster/jobs/' . $job->id
+        );
+
         return ['success' => true, 'job' => Job::find($jobId), 'message' => 'Job approved successfully.'];
     }
 
@@ -117,6 +164,9 @@ class JobService
      */
     public function declineJob(int $jobId, string $reason, int $adminId): array
     {
+        if (!$this->isAdminId($adminId)) {
+            return ['success' => false, 'message' => 'Administrator access is required.'];
+        }
         $job = Job::find($jobId);
         if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
         if (trim($reason) === '') return ['success' => false, 'message' => 'Decline reason is required.'];
@@ -127,6 +177,15 @@ class JobService
             'updated_at'     => date('Y-m-d H:i:s'),
         ]);
 
+        $this->notifyUser(
+            $job->poster(),
+            'Job declined',
+            'Your job “' . $job->title . '” was declined. Reason: ' . trim($reason),
+            'warning',
+            'bi-exclamation-circle',
+            '/poster/jobs/' . $job->id
+        );
+
         return ['success' => true, 'job' => Job::find($jobId), 'message' => 'Job declined.'];
     }
 
@@ -135,6 +194,12 @@ class JobService
      */
     public function applyForJob(User $worker, int $jobId, ?string $proposal = null, ?string $bkashNumber = null): array
     {
+        if (!$worker->isWorker()) {
+            return ['success' => false, 'message' => 'Worker access is required to apply for jobs.'];
+        }
+        if ($worker->isBanned()) {
+            return ['success' => false, 'message' => 'Banned accounts cannot apply for jobs.'];
+        }
         $job = Job::find($jobId);
         if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
         if ((int) $job->poster_id === (int) $worker->id) {
@@ -169,6 +234,22 @@ class JobService
             ->where('id', '=', $jobId)
             ->update(['bid_count' => (int) $job->bid_count + 1, 'updated_at' => date('Y-m-d H:i:s')]);
 
+        $this->notifyUser(
+            $job->poster(),
+            'New worker application',
+            $worker->name . ' applied for “' . $job->title . '”.',
+            'info',
+            'bi-person-check',
+            '/poster/jobs/' . $job->id
+        );
+        $this->notifyAdmins(
+            'New worker application',
+            $worker->name . ' applied for “' . $job->title . '”.',
+            'info',
+            'bi-person-check',
+            '/admin/jobs/' . $job->id
+        );
+
         return ['success' => true, 'bid' => JobBid::find($id), 'message' => 'Application submitted to Admin for review.'];
     }
 
@@ -177,38 +258,540 @@ class JobService
      */
     public function approveWorkerApplication(int $bidId, int $adminId): array
     {
+        if (!$this->isAdminId($adminId)) {
+            return ['success' => false, 'message' => 'Administrator access is required.'];
+        }
         $bid = JobBid::find($bidId);
         if ($bid === null) return ['success' => false, 'message' => 'Application bid not found.'];
+        if (!$bid->isPending()) return ['success' => false, 'message' => 'Application has already been reviewed.'];
         $job = Job::find((int) $bid->job_id);
         if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
-
-        $assignedCount = (int) Fluent::table('job_bids')
-            ->where('job_id', '=', $job->id)
-            ->where('status', '=', JobBid::STATUS_ACCEPTED)
-            ->count();
+        $worker = User::find((int) $bid->worker_id);
+        if ($worker === null) return ['success' => false, 'message' => 'Worker not found.'];
+        if (!$worker->isWorker()) return ['success' => false, 'message' => 'Only worker accounts can be assigned to jobs.'];
+        if ($worker->isBanned()) return ['success' => false, 'message' => 'Banned workers cannot be assigned to jobs.'];
+        if (in_array((string) $job->status, [Job::STATUS_PENDING_APPROVAL, Job::STATUS_DECLINED, Job::STATUS_CANCELLED, Job::STATUS_COMPLETED], true)) {
+            return ['success' => false, 'message' => 'This job is not accepting worker assignments.'];
+        }
 
         $maxWorkers = (int) ($job->worker_count ?? 1);
+        $assignmentTableAvailable = JobAssignment::isAvailable();
+        $assignedCount = $assignmentTableAvailable
+            ? $this->assignmentCapacityCount((int) $job->id)
+            : (int) Fluent::table('job_bids')
+                ->where('job_id', '=', $job->id)
+                ->where('status', '=', JobBid::STATUS_ACCEPTED)
+                ->count();
         if ($assignedCount >= $maxWorkers) {
             return ['success' => false, 'message' => 'Job worker capacity has already been filled.'];
         }
 
-        Fluent::table('job_bids')->where('id', '=', $bid->id)->update([
-            'status'     => JobBid::STATUS_ACCEPTED,
-            'decided_at' => date('Y-m-d H:i:s'),
-            'decided_by' => $adminId,
-            'updated_at' => date('Y-m-d H:i:s'),
-        ]);
-
-        $newAssignedCount = $assignedCount + 1;
-        if ($newAssignedCount >= $maxWorkers) {
-            // Update job status to engaged when full
-            Fluent::table('jobs')->where('id', '=', $job->id)->update([
-                'status'     => Job::STATUS_ENGAGED,
-                'updated_at' => date('Y-m-d H:i:s'),
-            ]);
+        $now = date('Y-m-d H:i:s');
+        $poster = $assignmentTableAvailable ? User::find((int) $job->poster_id) : null;
+        $bidAmount = (float) ($bid->amount ?: ($job->cost_per_worker ?: $job->budget));
+        $escrowAmount = SettingService::escrowAmount($bidAmount);
+        if ($assignmentTableAvailable) {
+            if ($poster === null) {
+                return ['success' => false, 'message' => 'Job poster not found.'];
+            }
+            if ((float) ($poster->wallet_balance ?? 0) < $escrowAmount) {
+                return [
+                    'success' => false,
+                    'message' => 'The poster does not have enough wallet balance to reserve this worker payment.',
+                ];
+            }
         }
 
+        $db = Database::connect();
+        try {
+            $this->beginWriteTransaction($db);
+
+            // Lock the job and bid before rechecking capacity. This closes
+            // the race where two admins approve the last available worker at
+            // the same time on transactional databases.
+            if (Database::getDriverName() !== 'sqlite') {
+                $jobLock = $db->prepare('SELECT * FROM jobs WHERE id = :id LIMIT 1 FOR UPDATE');
+                $jobLock->execute(['id' => $job->id]);
+                $jobRow = $jobLock->fetch(\PDO::FETCH_ASSOC);
+                if (!$jobRow) throw new \RuntimeException('Job not found.');
+                $job = new Job($jobRow);
+
+                $bidLock = $db->prepare('SELECT * FROM job_bids WHERE id = :id LIMIT 1 FOR UPDATE');
+                $bidLock->execute(['id' => $bid->id]);
+                $bidRow = $bidLock->fetch(\PDO::FETCH_ASSOC);
+                if (!$bidRow) throw new \RuntimeException('Application bid not found.');
+                $bid = new JobBid($bidRow);
+            }
+            if (!$bid->isPending()) throw new \RuntimeException('Application has already been reviewed.');
+            $bidAmount = (float) ($bid->amount ?: ($job->cost_per_worker ?: $job->budget));
+            $escrowAmount = SettingService::escrowAmount($bidAmount);
+            $maxWorkers = (int) ($job->worker_count ?? 1);
+            $assignedCount = $assignmentTableAvailable
+                ? $this->assignmentCapacityCount((int) $job->id)
+                : (int) Fluent::table('job_bids')
+                    ->where('job_id', '=', $job->id)
+                    ->where('status', '=', JobBid::STATUS_ACCEPTED)
+                    ->count();
+            if ($assignedCount >= $maxWorkers) {
+                throw new \RuntimeException('Job worker capacity has already been filled.');
+            }
+            if ($assignmentTableAvailable) {
+                $poster = User::find((int) $job->poster_id);
+                if ($poster === null) throw new \RuntimeException('Job poster not found.');
+                $worker = User::find((int) $bid->worker_id);
+                if ($worker === null || $worker->isBanned()) throw new \RuntimeException('Banned workers cannot be assigned to jobs.');
+                if ((float) ($poster->wallet_balance ?? 0) < $escrowAmount) {
+                    throw new \RuntimeException('The poster does not have enough wallet balance to reserve this worker payment.');
+                }
+            }
+
+            Fluent::table('job_bids')->where('id', '=', $bid->id)->update([
+                'status'     => JobBid::STATUS_ACCEPTED,
+                'decided_at' => $now,
+                'decided_by' => $adminId,
+                'updated_at' => $now,
+            ]);
+
+            if ($assignmentTableAvailable && JobAssignment::findForBid((int) $bid->id) === null) {
+                $posterWallet = round((float) $poster->wallet_balance - $escrowAmount, 4);
+                $posterFrozen = round((float) ($poster->frozen_balance ?? 0) + $escrowAmount, 4);
+                Fluent::table('users')->where('id', '=', $poster->id)->update([
+                    'wallet_balance' => $posterWallet,
+                    'frozen_balance' => $posterFrozen,
+                    'updated_at'     => $now,
+                ]);
+
+                Fluent::table('job_assignments')->insert([
+                    'job_id'         => $job->id,
+                    'bid_id'         => $bid->id,
+                    'worker_id'      => $bid->worker_id,
+                    'status'         => JobAssignment::STATUS_ASSIGNED,
+                    'payment_status' => JobAssignment::PAYMENT_HELD,
+                    'payment_amount' => $bidAmount,
+                    'assigned_by'    => $adminId,
+                    'assigned_at'    => $now,
+                    'created_at'     => $now,
+                ]);
+
+                self::logTransaction(
+                    $poster->id,
+                    $job->id,
+                    Transaction::TYPE_ESCROW_HOLD,
+                    $escrowAmount,
+                    $job->currency,
+                    $posterWallet,
+                    $posterFrozen,
+                    'assignment:' . $bid->id,
+                    'Escrow held for admin-approved worker assignment'
+                );
+            }
+
+            $newAssignedCount = $assignedCount + 1;
+            Fluent::table('jobs')->where('id', '=', $job->id)->update([
+                'status'             => $newAssignedCount >= $maxWorkers ? Job::STATUS_ENGAGED : Job::STATUS_IN_REVIEW,
+                // Preserve the legacy pointer for the first assigned worker.
+                'assigned_bid_id'    => $job->assigned_bid_id ?: $bid->id,
+                'assigned_worker_id' => $job->assigned_worker_id ?: $bid->worker_id,
+                'updated_at'         => $now,
+            ]);
+
+            $this->commitWriteTransaction($db);
+        } catch (\Throwable $e) {
+            $this->rollbackWriteTransaction($db);
+            return ['success' => false, 'message' => 'Application approval failed: ' . $e->getMessage()];
+        }
+
+        $this->notifyUser(
+            User::find((int) $bid->worker_id),
+            'Worker assignment approved',
+            'You were assigned to “' . $job->title . '”.',
+            'success',
+            'bi-check-circle',
+            '/jobs/' . $job->id
+        );
+        $this->notifyUser(
+            $poster,
+            'Worker assigned',
+            'A worker was assigned to “' . $job->title . '”.',
+            'info',
+            'bi-person-check',
+            '/poster/jobs/' . $job->id
+        );
+
         return ['success' => true, 'message' => 'Worker application approved and assigned to job.'];
+    }
+
+    /**
+     * Cancel one held assignment and refund only that worker's escrow.
+     *
+     * Admins may cancel any not-yet-paid assignment. Workers may request
+     * cancellation only before submitting work; this makes the reassignment
+     * path explicit and prevents a submitted assignment from being silently
+     * withdrawn around moderation or payment.
+     */
+    public function cancelAssignment(
+        int $assignmentId,
+        int $actorId,
+        ?string $reason = null,
+        string $actorType = 'admin'
+    ): array {
+        if (!JobAssignment::isAvailable()) {
+            return ['success' => false, 'message' => 'Multi-worker assignment storage is not available.'];
+        }
+
+        $actorType = strtolower(trim($actorType));
+        if (!in_array($actorType, ['admin', 'worker'], true)) {
+            return ['success' => false, 'message' => 'Invalid assignment cancellation actor.'];
+        }
+        if ($actorType === 'admin' && !$this->isAdminId($actorId)) {
+            return ['success' => false, 'message' => 'Administrator access is required.'];
+        }
+        if ($actorType === 'worker') {
+            $worker = User::find($actorId);
+            if ($worker === null || !$worker->isWorker()) {
+                return ['success' => false, 'message' => 'Worker access is required to cancel an assignment.'];
+            }
+            if ($worker->isBanned()) {
+                return ['success' => false, 'message' => 'Banned accounts cannot cancel assignments.'];
+            }
+        }
+
+        $db = Database::connect();
+        try {
+            $this->beginWriteTransaction($db);
+
+            $lockSql = 'SELECT * FROM job_assignments WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $lockSql .= ' FOR UPDATE';
+            $assignmentStmt = $db->prepare($lockSql);
+            $assignmentStmt->execute(['id' => $assignmentId]);
+            $assignmentRow = $assignmentStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$assignmentRow) throw new \RuntimeException('Assignment not found.');
+
+            $assignment = new JobAssignment($assignmentRow);
+            $job = Job::find((int) $assignment->job_id);
+            if ($job === null) throw new \RuntimeException('Job not found.');
+            if ($actorType === 'worker' && (int) $assignment->worker_id !== $actorId) {
+                throw new \RuntimeException('Only the assigned worker can request this cancellation.');
+            }
+            if ($assignment->payment_status === JobAssignment::PAYMENT_RELEASED) {
+                throw new \RuntimeException('A paid assignment cannot be cancelled.');
+            }
+            if ($assignment->payment_status === JobAssignment::PAYMENT_REFUNDED
+                || $assignment->status === JobAssignment::STATUS_CANCELLED) {
+                $this->commitWriteTransaction($db);
+                return [
+                    'success' => true,
+                    'already_cancelled' => true,
+                    'message' => 'Assignment was already cancelled.',
+                    'assignment' => $assignment,
+                ];
+            }
+            if ($assignment->payment_status !== JobAssignment::PAYMENT_HELD) {
+                throw new \RuntimeException('Assignment does not have held escrow to refund.');
+            }
+            if ($actorType === 'worker' && $assignment->status !== JobAssignment::STATUS_ASSIGNED
+                && $assignment->status !== JobAssignment::STATUS_IN_PROGRESS) {
+                throw new \RuntimeException('Workers may cancel only before submitting work.');
+            }
+
+            $poster = User::find((int) $job->poster_id);
+            if ($poster === null) throw new \RuntimeException('Job poster not found.');
+            $escrowAmount = SettingService::escrowAmount((float) $assignment->payment_amount);
+            $frozenBefore = (float) ($poster->frozen_balance ?? 0);
+            if ($frozenBefore + 0.00005 < $escrowAmount) {
+                throw new \RuntimeException('Poster escrow balance is lower than this assignment refund.');
+            }
+
+            $now = date('Y-m-d H:i:s');
+            $newWallet = round((float) ($poster->wallet_balance ?? 0) + $escrowAmount, 4);
+            $newFrozen = round($frozenBefore - $escrowAmount, 4);
+            Fluent::table('users')->where('id', '=', $poster->id)->update([
+                'wallet_balance' => $newWallet,
+                'frozen_balance' => max(0, $newFrozen),
+                'updated_at' => $now,
+            ]);
+            Fluent::table('job_assignments')->where('id', '=', $assignmentId)->update([
+                'status' => JobAssignment::STATUS_CANCELLED,
+                'payment_status' => JobAssignment::PAYMENT_REFUNDED,
+                'updated_at' => $now,
+            ]);
+            Fluent::table('job_bids')->where('id', '=', (int) $assignment->bid_id)->update([
+                'status' => JobBid::STATUS_REJECTED,
+                'decided_at' => $now,
+                'decided_by' => $actorId,
+                'updated_at' => $now,
+            ]);
+
+            self::logTransaction(
+                $poster->id,
+                $job->id,
+                Transaction::TYPE_REFUND,
+                $escrowAmount,
+                $job->currency,
+                $newWallet,
+                $newFrozen,
+                'assignment:' . $assignmentId,
+                'Assignment cancelled' . ($reason ? ': ' . trim($reason) : '')
+            );
+
+            $replacement = $db->prepare(
+                "SELECT bid_id, worker_id FROM job_assignments
+                 WHERE job_id = :job_id
+                   AND status <> :cancelled
+                   AND payment_status <> :refunded
+                 ORDER BY id ASC LIMIT 1"
+            );
+            $replacement->execute([
+                'job_id' => $job->id,
+                'cancelled' => JobAssignment::STATUS_CANCELLED,
+                'refunded' => JobAssignment::PAYMENT_REFUNDED,
+            ]);
+            $replacementRow = $replacement->fetch(\PDO::FETCH_ASSOC) ?: null;
+            $capacity = $this->assignmentCapacityCount((int) $job->id);
+            $jobUpdate = [
+                'assigned_bid_id' => $replacementRow ? (int) $replacementRow['bid_id'] : null,
+                'assigned_worker_id' => $replacementRow ? (int) $replacementRow['worker_id'] : null,
+                'status' => $capacity >= max(1, (int) ($job->worker_count ?? 1))
+                    ? Job::STATUS_ENGAGED
+                    : Job::STATUS_OPEN,
+                'updated_at' => $now,
+            ];
+            Fluent::table('jobs')->where('id', '=', $job->id)->update($jobUpdate);
+
+            $this->commitWriteTransaction($db);
+            $assignment = JobAssignment::find((int) $assignmentId);
+            $this->notifyUser(
+                $assignment?->worker(),
+                'Assignment cancelled',
+                'Your assignment for “' . $job->title . '” was cancelled and the held escrow was refunded.'
+                    . ($reason ? ' Reason: ' . trim($reason) : ''),
+                'warning',
+                'bi-arrow-counterclockwise',
+                '/jobs/' . $job->id
+            );
+            $this->notifyUser(
+                $job->poster(),
+                'Assignment cancelled',
+                'An assignment for “' . $job->title . '” was cancelled and its escrow was refunded.',
+                'info',
+                'bi-arrow-counterclockwise',
+                '/poster/jobs/' . $job->id
+            );
+            return [
+                'success' => true,
+                'message' => $actorType === 'worker'
+                    ? 'Assignment cancellation requested and escrow refunded.'
+                    : 'Assignment cancelled and escrow refunded.',
+                'assignment' => JobAssignment::find((int) $assignmentId),
+            ];
+        } catch (\Throwable $e) {
+            $this->rollbackWriteTransaction($db);
+            return ['success' => false, 'message' => 'Assignment cancellation failed: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Replace one held assignment and carry its escrow transition in the same
+     * transaction. A failed replacement therefore leaves the original
+     * assignment and its payment state untouched.
+     */
+    public function reassignAssignment(int $assignmentId, int $replacementBidId, int $adminId, ?string $reason = null): array
+    {
+        if (!$this->isAdminId($adminId)) {
+            return ['success' => false, 'message' => 'Administrator access is required.'];
+        }
+        if (!JobAssignment::isAvailable()) {
+            return ['success' => false, 'message' => 'Multi-worker assignment storage is not available.'];
+        }
+
+        $db = Database::connect();
+        try {
+            $this->beginWriteTransaction($db);
+
+            $assignmentSql = 'SELECT * FROM job_assignments WHERE id = :id LIMIT 1';
+            $bidSql = 'SELECT * FROM job_bids WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') {
+                $assignmentSql .= ' FOR UPDATE';
+                $bidSql .= ' FOR UPDATE';
+            }
+            $assignmentStmt = $db->prepare($assignmentSql);
+            $assignmentStmt->execute(['id' => $assignmentId]);
+            $assignmentRow = $assignmentStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$assignmentRow) throw new \RuntimeException('Assignment not found.');
+
+            $replacementStmt = $db->prepare($bidSql);
+            $replacementStmt->execute(['id' => $replacementBidId]);
+            $replacementRow = $replacementStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$replacementRow) throw new \RuntimeException('Replacement bid not found.');
+
+            $assignment = new JobAssignment($assignmentRow);
+            $replacementBid = new JobBid($replacementRow);
+            $job = Job::find((int) $assignment->job_id);
+            if ($job === null || (int) $replacementBid->job_id !== (int) $job->id) {
+                throw new \RuntimeException('Replacement bid must belong to the same job.');
+            }
+            if (!$replacementBid->isPending()) throw new \RuntimeException('Replacement bid has already been reviewed.');
+            if ($assignment->payment_status !== JobAssignment::PAYMENT_HELD
+                || $assignment->status === JobAssignment::STATUS_CANCELLED) {
+                throw new \RuntimeException('Only an active held assignment can be reassigned.');
+            }
+
+            $maxWorkers = max(1, (int) ($job->worker_count ?? 1));
+            $capacityStmt = $db->prepare(
+                "SELECT COUNT(*) FROM job_assignments
+                 WHERE job_id = :job_id AND id <> :assignment_id
+                   AND status <> :cancelled AND payment_status <> :refunded"
+            );
+            $capacityStmt->execute([
+                'job_id' => $job->id,
+                'assignment_id' => $assignmentId,
+                'cancelled' => JobAssignment::STATUS_CANCELLED,
+                'refunded' => JobAssignment::PAYMENT_REFUNDED,
+            ]);
+            if ((int) $capacityStmt->fetchColumn() >= $maxWorkers) {
+                throw new \RuntimeException('Job worker capacity has already been filled by other assignments.');
+            }
+
+            $oldWorker = User::find((int) $assignment->worker_id);
+            $newWorker = User::find((int) $replacementBid->worker_id);
+            $poster = User::find((int) $job->poster_id);
+            if ($oldWorker === null || $newWorker === null || $poster === null) {
+                throw new \RuntimeException('Assignment participants could not be found.');
+            }
+            if (!$newWorker->isWorker()) throw new \RuntimeException('Only worker accounts can be assigned to jobs.');
+            if ($newWorker->isBanned()) throw new \RuntimeException('Banned workers cannot be assigned to jobs.');
+
+            $oldEscrow = SettingService::escrowAmount((float) $assignment->payment_amount);
+            $newAmount = (float) ($replacementBid->amount ?: ($job->cost_per_worker ?: $job->budget));
+            $newEscrow = SettingService::escrowAmount($newAmount);
+            $walletBefore = (float) ($poster->wallet_balance ?? 0);
+            $frozenBefore = (float) ($poster->frozen_balance ?? 0);
+            if ($frozenBefore + 0.00005 < $oldEscrow) {
+                throw new \RuntimeException('Poster escrow balance is lower than the old assignment refund.');
+            }
+            $walletAfter = round($walletBefore + $oldEscrow - $newEscrow, 4);
+            $frozenAfter = round($frozenBefore - $oldEscrow + $newEscrow, 4);
+            if ($walletAfter < -0.00005) {
+                throw new \RuntimeException('The poster does not have enough balance for the replacement worker payment.');
+            }
+
+            $now = date('Y-m-d H:i:s');
+            Fluent::table('users')->where('id', '=', $poster->id)->update([
+                'wallet_balance' => max(0, $walletAfter),
+                'frozen_balance' => max(0, $frozenAfter),
+                'updated_at' => $now,
+            ]);
+            Fluent::table('job_assignments')->where('id', '=', $assignmentId)->update([
+                'status' => JobAssignment::STATUS_CANCELLED,
+                'payment_status' => JobAssignment::PAYMENT_REFUNDED,
+                'updated_at' => $now,
+            ]);
+            Fluent::table('job_bids')->where('id', '=', $assignment->bid_id)->update([
+                'status' => JobBid::STATUS_REJECTED,
+                'decided_at' => $now,
+                'decided_by' => $adminId,
+                'updated_at' => $now,
+            ]);
+            Fluent::table('job_bids')->where('id', '=', $replacementBidId)->update([
+                'status' => JobBid::STATUS_ACCEPTED,
+                'decided_at' => $now,
+                'decided_by' => $adminId,
+                'updated_at' => $now,
+            ]);
+            $newAssignmentId = (int) Fluent::table('job_assignments')->insert([
+                'job_id' => $job->id,
+                'bid_id' => $replacementBidId,
+                'worker_id' => $replacementBid->worker_id,
+                'status' => JobAssignment::STATUS_ASSIGNED,
+                'payment_status' => JobAssignment::PAYMENT_HELD,
+                'payment_amount' => $newAmount,
+                'assigned_by' => $adminId,
+                'assigned_at' => $now,
+                'created_at' => $now,
+            ]);
+            Fluent::table('jobs')->where('id', '=', $job->id)->update([
+                'status' => Job::STATUS_ENGAGED,
+                'assigned_bid_id' => $replacementBidId,
+                'assigned_worker_id' => $replacementBid->worker_id,
+                'updated_at' => $now,
+            ]);
+
+            self::logTransaction(
+                $poster->id,
+                $job->id,
+                Transaction::TYPE_REFUND,
+                $oldEscrow,
+                $job->currency,
+                max(0, $walletBefore + $oldEscrow),
+                max(0, $frozenBefore - $oldEscrow),
+                'assignment:' . $assignmentId,
+                'Refund before assignment reassignment' . ($reason ? ': ' . trim($reason) : '')
+            );
+            self::logTransaction(
+                $poster->id,
+                $job->id,
+                Transaction::TYPE_ESCROW_HOLD,
+                $newEscrow,
+                $job->currency,
+                max(0, $walletAfter),
+                max(0, $frozenAfter),
+                'assignment:' . $newAssignmentId,
+                'Escrow held for replacement worker assignment'
+            );
+
+            $this->commitWriteTransaction($db);
+            $this->notifyUser(
+                $oldWorker,
+                'Assignment cancelled',
+                'Your assignment for “' . $job->title . '” was cancelled for reassignment.'
+                    . ($reason ? ' Reason: ' . trim($reason) : ''),
+                'warning',
+                'bi-arrow-counterclockwise',
+                '/jobs/' . $job->id
+            );
+            $this->notifyUser(
+                $newWorker,
+                'Worker assignment approved',
+                'You were assigned to “' . $job->title . '” as a replacement worker.',
+                'success',
+                'bi-check-circle',
+                '/jobs/' . $job->id
+            );
+            $this->notifyUser(
+                $poster,
+                'Worker reassigned',
+                'A replacement worker was assigned to “' . $job->title . '”.',
+                'info',
+                'bi-person-check',
+                '/poster/jobs/' . $job->id
+            );
+            return [
+                'success' => true,
+                'message' => 'Assignment cancelled and replacement worker assigned.',
+                'assignment' => JobAssignment::find($newAssignmentId),
+                'job' => Job::find((int) $job->id),
+            ];
+        } catch (\Throwable $e) {
+            $this->rollbackWriteTransaction($db);
+            return ['success' => false, 'message' => 'Assignment reassignment failed: ' . $e->getMessage()];
+        }
+    }
+
+    private function assignmentCapacityCount(int $jobId): int
+    {
+        if (!JobAssignment::isAvailable()) return 0;
+        $stmt = Database::connect()->prepare(
+            "SELECT COUNT(*) FROM job_assignments
+             WHERE job_id = :job_id
+               AND status <> :cancelled
+               AND payment_status <> :refunded"
+        );
+        $stmt->execute([
+            'job_id' => $jobId,
+            'cancelled' => JobAssignment::STATUS_CANCELLED,
+            'refunded' => JobAssignment::PAYMENT_REFUNDED,
+        ]);
+        return (int) $stmt->fetchColumn();
     }
 
     /**
@@ -216,6 +799,12 @@ class JobService
      */
     public function extendDeadline(User $poster, int $jobId, int $days): array
     {
+        if ($poster->isBanned()) {
+            return ['success' => false, 'message' => 'Banned accounts cannot modify jobs.'];
+        }
+        if (!$this->canManagePosterJobs($poster)) {
+            return ['success' => false, 'message' => 'Poster access is required to modify jobs.'];
+        }
         $job = Job::find($jobId);
         if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
         if ((int) $job->poster_id !== (int) $poster->id) {
@@ -236,6 +825,14 @@ class JobService
             'updated_at'        => date('Y-m-d H:i:s'),
         ]);
 
+        $message = 'The deadline for “' . $job->title . '” was extended to ' . $newDeadline . '.';
+        $this->notifyUser($poster, 'Job deadline extended', $message, 'info', 'bi-calendar-plus', '/poster/jobs/' . $job->id);
+        foreach (JobAssignment::forJob((int) $job->id) as $assignment) {
+            if (!$assignment->isActive()) continue;
+            $this->notifyUser($assignment->worker(), 'Job deadline extended', $message, 'info', 'bi-calendar-plus', '/jobs/' . $job->id);
+        }
+        $this->notifyAdmins('Job deadline extended', 'The deadline for “' . $job->title . '” was extended by its poster.', 'info', 'bi-calendar-plus', '/admin/jobs/' . $job->id);
+
         return ['success' => true, 'job' => Job::find($jobId), 'message' => "Deadline extended by {$days} days."];
     }
 
@@ -245,6 +842,12 @@ class JobService
      */
     public function create(User $poster, int $categoryId, string $title, string $description, ?string $requirements, float $budget, ?string $deadlineAt = null, ?int $biddingWindowHours = null): array
     {
+        if ($poster->isBanned()) {
+            return ['success' => false, 'message' => 'Banned accounts cannot post jobs.'];
+        }
+        if (!$this->canManagePosterJobs($poster)) {
+            return ['success' => false, 'message' => 'Poster access is required to post jobs.'];
+        }
         if (trim($title) === '' || mb_strlen($title) > 160) {
             return ['success' => false, 'message' => 'Title is required (1-160 chars).'];
         }
@@ -278,6 +881,13 @@ class JobService
             'status'            => Job::STATUS_OPEN,
             'created_at'        => date('Y-m-d H:i:s'),
         ]);
+        $this->notifyAdmins(
+            'New job posted',
+            'Job “' . $title . '” is awaiting review.',
+            'info',
+            'bi-briefcase',
+            '/admin/jobs/' . $id
+        );
         return ['success' => true, 'job' => Job::find($id), 'message' => 'Job posted.'];
     }
 
@@ -290,6 +900,12 @@ class JobService
      */
     public function placeBid(User $worker, int $jobId, float $amount, int $deliveryDays, string $proposal): array
     {
+        if (!$worker->isWorker()) {
+            return ['success' => false, 'message' => 'Worker access is required to place bids.'];
+        }
+        if ($worker->isBanned()) {
+            return ['success' => false, 'message' => 'Banned accounts cannot place bids.'];
+        }
         $job = Job::find($jobId);
         if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
         if (!$job->isOpen()) return ['success' => false, 'message' => 'Job is not open for bids.'];
@@ -319,6 +935,21 @@ class JobService
         Fluent::table('jobs')
             ->where('id', '=', $jobId)
             ->update(['bid_count' => (int) $job->bid_count + 1, 'updated_at' => date('Y-m-d H:i:s')]);
+        $this->notifyUser(
+            $job->poster(),
+            'New worker bid',
+            $worker->name . ' placed a bid on “' . $job->title . '”.',
+            'info',
+            'bi-person-plus',
+            '/poster/jobs/' . $job->id
+        );
+        $this->notifyAdmins(
+            'New worker bid',
+            $worker->name . ' placed a bid on “' . $job->title . '”.',
+            'info',
+            'bi-person-plus',
+            '/admin/jobs/' . $job->id
+        );
         return ['success' => true, 'bid' => JobBid::find($id), 'message' => 'Bid placed.'];
     }
 
@@ -327,6 +958,12 @@ class JobService
      */
     public function withdrawBid(User $worker, int $bidId): array
     {
+        if (!$worker->isWorker()) {
+            return ['success' => false, 'message' => 'Worker access is required to modify bids.'];
+        }
+        if ($worker->isBanned()) {
+            return ['success' => false, 'message' => 'Banned accounts cannot modify bids.'];
+        }
         $bid = JobBid::find($bidId);
         if ($bid === null) return ['success' => false, 'message' => 'Bid not found.'];
         if ((int) $bid->worker_id !== (int) $worker->id) return ['success' => false, 'message' => 'Not your bid.'];
@@ -339,16 +976,18 @@ class JobService
     }
 
     /**
-     * Poster flow: accept a bid. Atomically:
-     *   1. Reject all other pending bids on the same job
-     *   2. Mark this bid accepted
-     *   3. Move the bid amount (× escrow % setting) from poster.wallet_balance
-     *      to poster.frozen_balance
-     *   4. Set job.assigned_bid_id, assigned_worker_id, status='assigned'
-     *   5. Log a transactions row (type=escrow_hold)
+     * Poster flow: accept a bid. Atomically holds escrow and creates an
+     * assignment. Single-worker jobs close competing bids; multi-worker jobs
+     * retain pending bids until their configured capacity is filled.
      */
     public function acceptBid(User $poster, int $bidId): array
     {
+        if ($poster->isBanned()) {
+            return ['success' => false, 'message' => 'Banned accounts cannot accept bids.'];
+        }
+        if (!$this->canManagePosterJobs($poster)) {
+            return ['success' => false, 'message' => 'Poster access is required to accept bids.'];
+        }
         $bid = JobBid::find($bidId);
         if ($bid === null) return ['success' => false, 'message' => 'Bid not found.'];
         $job = Job::find((int) $bid->job_id);
@@ -358,6 +997,14 @@ class JobService
         }
         if (!$job->isOpen()) return ['success' => false, 'message' => 'Job is not open.'];
         if (!$bid->isPending()) return ['success' => false, 'message' => 'Bid is not pending.'];
+
+        $assignmentTableAvailable = JobAssignment::isAvailable();
+        $maxWorkers = max(1, (int) ($job->worker_count ?? 1));
+        $multiWorker = $assignmentTableAvailable && $maxWorkers > 1;
+        $assignedCount = $multiWorker ? $this->assignmentCapacityCount((int) $job->id) : 0;
+        if ($multiWorker && $assignedCount >= $maxWorkers) {
+            return ['success' => false, 'message' => 'Job worker capacity has already been filled.'];
+        }
 
         $escrowAmount = SettingService::escrowAmount((float) $bid->amount);
         if ((float) $poster->wallet_balance < $escrowAmount) {
@@ -370,20 +1017,62 @@ class JobService
 
         $db = Database::connect();
         try {
-            $db->beginTransaction();
+            $this->beginWriteTransaction($db);
 
-            // 1. Reject other pending bids on the same job
-            Fluent::table('job_bids')
-                ->where('job_id', '=', $job->id)
-                ->where('id', '!=', $bid->id)
-                ->where('status', '=', JobBid::STATUS_PENDING)
-                ->update([
-                    'status'     => JobBid::STATUS_REJECTED,
-                    'decided_at' => date('Y-m-d H:i:s'),
-                    'decided_by' => $poster->id,
-                    'updated_at' => date('Y-m-d H:i:s'),
-                ]);
-            // 2. Mark this bid accepted
+            // Re-read the mutable rows inside the transaction. Row locks on
+            // transactional databases and the first conditional write on
+            // SQLite keep two accepts from exceeding multi-worker capacity.
+            $jobSql = 'SELECT * FROM jobs WHERE id = :id LIMIT 1';
+            $bidSql = 'SELECT * FROM job_bids WHERE id = :id LIMIT 1';
+            $posterSql = 'SELECT * FROM users WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') {
+                $jobSql .= ' FOR UPDATE';
+                $bidSql .= ' FOR UPDATE';
+                $posterSql .= ' FOR UPDATE';
+            }
+            $jobStmt = $db->prepare($jobSql);
+            $jobStmt->execute(['id' => $job->id]);
+            $jobRow = $jobStmt->fetch(\PDO::FETCH_ASSOC);
+            $bidStmt = $db->prepare($bidSql);
+            $bidStmt->execute(['id' => $bid->id]);
+            $bidRow = $bidStmt->fetch(\PDO::FETCH_ASSOC);
+            $posterStmt = $db->prepare($posterSql);
+            $posterStmt->execute(['id' => $poster->id]);
+            $posterRow = $posterStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$jobRow || !$bidRow || !$posterRow) throw new \RuntimeException('Job, bid, or poster was not found.');
+            $job = new Job($jobRow);
+            $bid = new JobBid($bidRow);
+            $poster = new User($posterRow);
+            if (!$job->isOpen() || !$bid->isPending()) throw new \RuntimeException('Job or bid is no longer available.');
+
+            $maxWorkers = max(1, (int) ($job->worker_count ?? 1));
+            $multiWorker = $assignmentTableAvailable && $maxWorkers > 1;
+            $assignedCount = $multiWorker ? $this->assignmentCapacityCount((int) $job->id) : 0;
+            if ($multiWorker && $assignedCount >= $maxWorkers) {
+                throw new \RuntimeException('Job worker capacity has already been filled.');
+            }
+            $escrowAmount = SettingService::escrowAmount((float) $bid->amount);
+            if ((float) $poster->wallet_balance < $escrowAmount) {
+                throw new \RuntimeException('The poster does not have enough wallet balance to reserve this worker payment.');
+            }
+
+            // Single-worker jobs retain the historical behavior of closing
+            // competing bids. Multi-worker jobs keep other pending bids
+            // available until their capacity is filled.
+            if (!$multiWorker) {
+                Fluent::table('job_bids')
+                    ->where('job_id', '=', $job->id)
+                    ->where('id', '!=', $bid->id)
+                    ->where('status', '=', JobBid::STATUS_PENDING)
+                    ->update([
+                        'status'     => JobBid::STATUS_REJECTED,
+                        'decided_at' => date('Y-m-d H:i:s'),
+                        'decided_by' => $poster->id,
+                        'updated_at' => date('Y-m-d H:i:s'),
+                    ]);
+            }
+
+            // Mark this bid accepted.
             Fluent::table('job_bids')
                 ->where('id', '=', $bid->id)
                 ->update([
@@ -403,14 +1092,30 @@ class JobService
                     'updated_at'      => date('Y-m-d H:i:s'),
                 ]);
             // 4. Update job
+            $newAssignedCount = $multiWorker ? $assignedCount + 1 : 1;
             Fluent::table('jobs')
                 ->where('id', '=', $job->id)
                 ->update([
-                    'status'             => Job::STATUS_ASSIGNED,
-                    'assigned_bid_id'    => $bid->id,
-                    'assigned_worker_id' => $bid->worker_id,
+                    'status'             => $multiWorker
+                        ? ($newAssignedCount >= $maxWorkers ? Job::STATUS_ENGAGED : Job::STATUS_IN_REVIEW)
+                        : Job::STATUS_ASSIGNED,
+                    'assigned_bid_id'    => $job->assigned_bid_id ?: $bid->id,
+                    'assigned_worker_id' => $job->assigned_worker_id ?: $bid->worker_id,
                     'updated_at'         => date('Y-m-d H:i:s'),
                 ]);
+            if ($assignmentTableAvailable && JobAssignment::findForBid((int) $bid->id) === null) {
+                Fluent::table('job_assignments')->insert([
+                    'job_id'         => $job->id,
+                    'bid_id'         => $bid->id,
+                    'worker_id'      => $bid->worker_id,
+                    'status'         => JobAssignment::STATUS_ASSIGNED,
+                    'payment_status' => JobAssignment::PAYMENT_HELD,
+                    'payment_amount' => (float) $bid->amount,
+                    'assigned_by'    => $poster->id,
+                    'assigned_at'    => date('Y-m-d H:i:s'),
+                    'created_at'     => date('Y-m-d H:i:s'),
+                ]);
+            }
             // 5. Log the escrow hold
             self::logTransaction(
                 $poster->id, $job->id, Transaction::TYPE_ESCROW_HOLD,
@@ -418,9 +1123,9 @@ class JobService
                 'bid:' . $bid->id, 'Escrow held for accepted bid'
             );
 
-            $db->commit();
+            $this->commitWriteTransaction($db);
         } catch (\Throwable $e) {
-            $db->rollBack();
+            $this->rollbackWriteTransaction($db);
             return ['success' => false, 'message' => 'Accept failed: ' . $e->getMessage()];
         }
 
@@ -431,43 +1136,667 @@ class JobService
      * Worker flow: submit completed work for the assigned job.
      * Validates: worker is the assigned worker and job is in assigned or revision state.
      */
-    public function submitWork(User $worker, int $jobId, ?string $description, ?string $externalLink): array
+    public function submitWork(
+        User $worker,
+        int $jobId,
+        ?string $description,
+        ?string $externalLink,
+        ?UploadedFile $proofFile = null,
+        ?string $clientIp = null,
+        ?string $userAgent = null
+    ): array
     {
+        if (!$worker->isWorker()) {
+            return ['success' => false, 'message' => 'Worker access is required to submit work.'];
+        }
+        if ($worker->isBanned()) {
+            return ['success' => false, 'message' => 'Banned accounts cannot submit work.'];
+        }
         $job = Job::find($jobId);
         if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
-        if ((int) $job->assigned_worker_id !== (int) $worker->id) {
+        $assignmentTableAvailable = JobAssignment::isAvailable();
+        $assignment = $assignmentTableAvailable
+            ? JobAssignment::findForJobWorker($jobId, (int) $worker->id)
+            : null;
+        if ($assignment !== null) {
+            if (!$assignment->isActive()) {
+                return ['success' => false, 'message' => 'This assignment is not in a submittable state.'];
+            }
+            if ($assignment->status === JobAssignment::STATUS_SUBMITTED) {
+                return ['success' => false, 'message' => 'A submission is already awaiting review.'];
+            }
+        } elseif ((int) $job->assigned_worker_id !== (int) $worker->id) {
             return ['success' => false, 'message' => 'You are not the assigned worker for this job.'];
         }
-        if (!in_array($job->status, [Job::STATUS_ASSIGNED, Job::STATUS_REVISION], true)) {
+        if ($assignment === null && !in_array($job->status, [Job::STATUS_ASSIGNED, Job::STATUS_REVISION], true)) {
             return ['success' => false, 'message' => 'Job is not in a submittable state.'];
         }
-        $bid = $job->assigned_bid_id ? JobBid::find((int) $job->assigned_bid_id) : null;
+        $bid = $assignment?->bid() ?? ($job->assigned_bid_id ? JobBid::find((int) $job->assigned_bid_id) : null);
         if ($bid === null) return ['success' => false, 'message' => 'Job has no assigned bid.'];
 
-        $id = (int) Fluent::table('job_submissions')->insert([
+        $proofRequirements = $job->proof_requirements ?? [];
+        if (is_string($proofRequirements)) {
+            $proofRequirements = json_decode($proofRequirements, true) ?: [];
+        }
+        $requiresScreenshot = false;
+        foreach ((array) $proofRequirements as $requirement) {
+            if (is_array($requirement) && ($requirement['type'] ?? '') === 'screenshot') {
+                $requiresScreenshot = true;
+                break;
+            }
+        }
+        if ($requiresScreenshot && $proofFile === null) {
+            return ['success' => false, 'message' => 'A screenshot proof is required for this job.'];
+        }
+
+        $attachmentPath = null;
+        $attachmentAbsolutePath = null;
+        if ($proofFile !== null) {
+            $extension = strtolower($proofFile->getClientOriginalExtension());
+            if (!in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true)) {
+                return ['success' => false, 'message' => 'Screenshot must be a JPG, PNG, GIF, or WEBP image.'];
+            }
+
+            $proofDirectory = base_path('storage/job-proofs');
+            $upload = FileValidator::image($proofFile, $proofDirectory, (int) $worker->id, 10, 'screenshot');
+            if ($upload->failed()) {
+                return ['success' => false, 'message' => $upload->error ?: 'Screenshot upload failed.'];
+            }
+
+            $filename = basename((string) $upload->path);
+            $attachmentPath = 'job-proofs/' . $filename;
+            $attachmentAbsolutePath = $proofDirectory . DIRECTORY_SEPARATOR . $filename;
+        }
+
+        $attemptNumber = 1;
+        if ($assignment !== null) {
+            $previous = JobSubmission::latestForAssignment((int) $assignment->id);
+            $attemptNumber = $previous ? ((int) ($previous->attempt_number ?? 1) + 1) : 1;
+        }
+
+        $riskColumnsAvailable = false;
+        try {
+            Database::connect()->query('SELECT risk_status FROM job_submissions LIMIT 0');
+            $riskColumnsAvailable = true;
+        } catch (\Throwable) {
+            // Older hosts can keep submitting while the additive risk migration
+            // is being rolled out; risk metadata becomes active once present.
+        }
+        $riskScore = 0.0;
+        $riskFlags = [];
+        $normalizedDescription = strtolower(trim((string) $description));
+        $minimumDescriptionLength = max(1, (int) SettingService::get('fraud_min_description_chars', 20));
+        $velocityLimit = max(1, (int) SettingService::get('fraud_daily_submission_velocity_limit', 10));
+        $sharedIdentityThreshold = max(2, (int) SettingService::get('fraud_shared_identity_worker_threshold', 2));
+        $reviewThreshold = max(1, (int) SettingService::get('fraud_review_threshold', 20));
+        if (mb_strlen($normalizedDescription) < $minimumDescriptionLength) {
+            $riskScore += 20;
+            $riskFlags[] = 'very_short_description';
+        }
+        $contentHash = hash('sha256', implode('|', [
+            (int) $job->id,
+            $normalizedDescription,
+            strtolower(trim((string) $externalLink)),
+        ]));
+        $proofHash = $attachmentAbsolutePath !== null && is_file($attachmentAbsolutePath)
+            ? hash_file('sha256', $attachmentAbsolutePath)
+            : null;
+        $clientFingerprint = trim((string) $userAgent) !== ''
+            ? hash('sha256', strtolower(trim((string) $userAgent)))
+            : null;
+
+        if ($riskColumnsAvailable) {
+            try {
+                $duplicateStmt = Database::connect()->prepare(
+                    "SELECT COUNT(*) FROM job_submissions
+                     WHERE job_id = :job_id AND content_hash = :content_hash
+                       AND status IN ('pending_review', 'approved')"
+                );
+                $duplicateStmt->execute(['job_id' => $job->id, 'content_hash' => $contentHash]);
+                if ((int) $duplicateStmt->fetchColumn() > 0) {
+                    $riskScore += 45;
+                    $riskFlags[] = 'duplicate_content_on_job';
+                }
+
+                $velocityStmt = Database::connect()->prepare(
+                    "SELECT COUNT(*) FROM job_submissions
+                     WHERE worker_id = :worker_id AND created_at >= :since"
+                );
+                $velocityStmt->execute([
+                    'worker_id' => $worker->id,
+                    'since' => date('Y-m-d H:i:s', time() - 86400),
+                ]);
+                if ((int) $velocityStmt->fetchColumn() >= $velocityLimit) {
+                    $riskScore += 30;
+                    $riskFlags[] = 'high_submission_velocity';
+                }
+
+                if ($clientIp !== null && trim($clientIp) !== '') {
+                    $ipStmt = Database::connect()->prepare(
+                        "SELECT COUNT(DISTINCT worker_id) FROM job_submissions
+                         WHERE job_id = :job_id AND client_ip = :client_ip"
+                    );
+                    $ipStmt->execute(['job_id' => $job->id, 'client_ip' => trim($clientIp)]);
+                    if ((int) $ipStmt->fetchColumn() >= $sharedIdentityThreshold) {
+                        $riskScore += 25;
+                        $riskFlags[] = 'shared_ip_across_workers';
+                    }
+                }
+                if ($clientFingerprint !== null) {
+                    $fingerprintStmt = Database::connect()->prepare(
+                        "SELECT COUNT(DISTINCT worker_id) FROM job_submissions
+                         WHERE job_id = :job_id AND client_fingerprint = :fingerprint"
+                    );
+                    $fingerprintStmt->execute(['job_id' => $job->id, 'fingerprint' => $clientFingerprint]);
+                    if ((int) $fingerprintStmt->fetchColumn() >= $sharedIdentityThreshold) {
+                        $riskScore += 25;
+                        $riskFlags[] = 'shared_client_fingerprint';
+                    }
+                }
+            } catch (\Throwable) {
+                // Risk detection is advisory; never make a valid submission
+                // fail because a legacy risk column is only partially present.
+            }
+        }
+        // Close the advisory read cursors before upgrading this connection to
+        // the write transaction. SQLite can otherwise retain a shared read
+        // lock while another worker is committing the same job's submission.
+        unset($duplicateStmt, $velocityStmt, $ipStmt, $fingerprintStmt);
+        $riskScore = min(100, round($riskScore, 2));
+        $riskStatus = $riskScore >= $reviewThreshold ? JobSubmission::RISK_FLAGGED : JobSubmission::RISK_CLEAR;
+
+        $now = date('Y-m-d H:i:s');
+        $submissionData = [
             'job_id'         => $job->id,
             'worker_id'      => $worker->id,
             'bid_id'         => $bid->id,
             'description'    => $description,
+            'attachment_path'=> $attachmentPath,
             'external_link'  => $externalLink,
             'status'         => JobSubmission::STATUS_PENDING_REVIEW,
-            'created_at'     => date('Y-m-d H:i:s'),
-        ]);
-        Fluent::table('jobs')
-            ->where('id', '=', $job->id)
-            ->update(['status' => Job::STATUS_SUBMITTED, 'updated_at' => date('Y-m-d H:i:s')]);
+            'created_at'     => $now,
+        ];
+        if ($assignmentTableAvailable) {
+            $submissionData['assignment_id'] = $assignment?->id;
+            $submissionData['attempt_number'] = $attemptNumber;
+            $submissionData['submitted_at'] = $now;
+        }
+        if ($riskColumnsAvailable) {
+            $submissionData += [
+                'content_hash' => $contentHash,
+                'proof_hash' => $proofHash,
+                'client_ip' => $clientIp !== null ? trim($clientIp) : null,
+                'client_fingerprint' => $clientFingerprint,
+                'risk_score' => $riskScore,
+                'risk_status' => $riskStatus,
+                'risk_flags' => $riskFlags ? json_encode(array_values(array_unique($riskFlags)), JSON_UNESCAPED_UNICODE) : null,
+            ];
+        }
+        $db = Database::connect();
+        try {
+            $this->beginWriteTransaction($db);
+
+            // Re-check duplicate content after acquiring the write boundary.
+            // The advisory preflight above can run before another worker's
+            // concurrent submission commits; this second check makes the
+            // fraud signal deterministic for that race without rejecting the
+            // otherwise valid submission.
+            if ($riskColumnsAvailable && !in_array('duplicate_content_on_job', $riskFlags, true)) {
+                $duplicateStmt = $db->prepare(
+                    "SELECT COUNT(*) FROM job_submissions
+                     WHERE job_id = :job_id AND content_hash = :content_hash
+                       AND status IN ('pending_review', 'approved')"
+                );
+                $duplicateStmt->execute(['job_id' => $job->id, 'content_hash' => $contentHash]);
+                $duplicateExists = (int) $duplicateStmt->fetchColumn() > 0;
+                unset($duplicateStmt);
+                if ($duplicateExists) {
+                    $riskScore = min(100, round($riskScore + 45, 2));
+                    $riskFlags[] = 'duplicate_content_on_job';
+                    $riskStatus = $riskScore >= $reviewThreshold ? JobSubmission::RISK_FLAGGED : JobSubmission::RISK_CLEAR;
+                }
+            }
+            if ($riskColumnsAvailable) {
+                $submissionData['risk_score'] = $riskScore;
+                $submissionData['risk_status'] = $riskStatus;
+                $submissionData['risk_flags'] = $riskFlags
+                    ? json_encode(array_values(array_unique($riskFlags)), JSON_UNESCAPED_UNICODE)
+                    : null;
+            }
+
+            // Claim the assignment/job transition as part of the same
+            // transaction as the submission insert. The conditional update
+            // prevents two concurrent requests from creating two pending
+            // submissions for the same assignment.
+            if ($assignment !== null) {
+                $claimed = Fluent::table('job_assignments')
+                    ->where('id', '=', $assignment->id)
+                    ->whereIn('status', [
+                        JobAssignment::STATUS_ASSIGNED,
+                        JobAssignment::STATUS_IN_PROGRESS,
+                        JobAssignment::STATUS_REVISION,
+                    ])
+                    ->where('payment_status', '=', JobAssignment::PAYMENT_HELD)
+                    ->update([
+                        'status'       => JobAssignment::STATUS_SUBMITTED,
+                        'submitted_at' => $now,
+                        'updated_at'   => $now,
+                    ]);
+                if ($claimed !== 1) {
+                    throw new \RuntimeException('A submission is already awaiting review or this assignment is no longer active.');
+                }
+            } else {
+                $claimed = Fluent::table('jobs')
+                    ->where('id', '=', $job->id)
+                    ->where('assigned_worker_id', '=', $worker->id)
+                    ->whereIn('status', [Job::STATUS_ASSIGNED, Job::STATUS_REVISION])
+                    ->update([
+                        'status'     => Job::STATUS_SUBMITTED,
+                        'updated_at' => $now,
+                    ]);
+                if ($claimed !== 1) {
+                    throw new \RuntimeException('A submission is already awaiting review or this job is no longer active.');
+                }
+            }
+
+            $id = (int) Fluent::table('job_submissions')->insert($submissionData);
+            if ($assignment !== null) {
+                $this->refreshJobProgress($job->id, $now);
+            }
+            $this->commitWriteTransaction($db);
+        } catch (\Throwable $e) {
+            $this->rollbackWriteTransaction($db);
+            if ($attachmentAbsolutePath !== null && is_file($attachmentAbsolutePath)) {
+                @unlink($attachmentAbsolutePath);
+            }
+            return ['success' => false, 'message' => 'Work submission failed: ' . $e->getMessage()];
+        }
+        $this->notifyUser(
+            $job->poster(),
+            'New submission received',
+            $worker->name . ' submitted work for “' . $job->title . '”.',
+            'info',
+            'bi-file-earmark-check',
+            '/poster/jobs/' . $job->id
+        );
+        $this->notifyAdmins(
+            'New submission needs review',
+            $worker->name . ' submitted work for “' . $job->title . '”.',
+            $riskStatus === JobSubmission::RISK_FLAGGED ? 'warning' : 'info',
+            $riskStatus === JobSubmission::RISK_FLAGGED ? 'bi-shield-exclamation' : 'bi-file-earmark-check',
+            '/admin/jobs/' . $job->id
+        );
         return ['success' => true, 'submission' => JobSubmission::find($id), 'message' => 'Work submitted.'];
+    }
+
+    /**
+     * Admin moderation gate for a worker submission.
+     *
+     * This records the review decision and, for assignment-backed jobs,
+     * atomically releases the held worker payment after moderation.
+     */
+    public function reviewSubmission(int $submissionId, int $adminId, string $decision, ?string $note = null): array
+    {
+        if (!$this->isAdminId($adminId)) {
+            return ['success' => false, 'message' => 'Administrator access is required.'];
+        }
+        $submission = JobSubmission::find($submissionId);
+        if ($submission === null) return ['success' => false, 'message' => 'Submission not found.'];
+        if (!$submission->isPending()) {
+            return ['success' => false, 'message' => 'Submission has already been reviewed.'];
+        }
+
+        $decision = strtolower(trim($decision));
+        if (!in_array($decision, ['approve', 'reject'], true)) {
+            return ['success' => false, 'message' => 'Decision must be approve or reject.'];
+        }
+        if ($decision === 'reject' && trim((string) $note) === '') {
+            return ['success' => false, 'message' => 'A rejection reason is required.'];
+        }
+        if ($decision === 'approve' && ($submission->risk_status ?? JobSubmission::RISK_CLEAR) === JobSubmission::RISK_CONFIRMED_FRAUD) {
+            return ['success' => false, 'message' => 'Confirmed-fraud submissions must be resolved before payment approval.'];
+        }
+
+        if ($decision === 'approve' && (int) ($submission->assignment_id ?? 0) > 0) {
+            return $this->releaseAssignmentPayment(
+                (int) $submission->assignment_id,
+                $adminId,
+                (int) $submission->id,
+                false,
+                $note
+            );
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $newStatus = $decision === 'approve'
+            ? JobSubmission::STATUS_APPROVED
+            : JobSubmission::STATUS_REJECTED;
+        $updates = [
+            'status'           => $newStatus,
+            'reviewed_at'      => $now,
+            'reviewed_by'      => $adminId,
+            'reviewer_note'    => $note,
+            'rejection_reason' => $decision === 'reject' ? trim((string) $note) : null,
+            'updated_at'       => $now,
+        ];
+
+        $db = Database::connect();
+        try {
+            $this->beginWriteTransaction($db);
+            Fluent::table('job_submissions')
+                ->where('id', '=', $submission->id)
+                ->where('status', '=', JobSubmission::STATUS_PENDING_REVIEW)
+                ->update($updates);
+
+            if ((int) ($submission->assignment_id ?? 0) > 0 && JobAssignment::isAvailable()) {
+                Fluent::table('job_assignments')
+                    ->where('id', '=', (int) $submission->assignment_id)
+                    ->update([
+                        'status'       => JobAssignment::STATUS_REVISION,
+                        'submitted_at' => null,
+                        'updated_at'   => $now,
+                    ]);
+            }
+
+            if ($decision === 'reject') {
+                Fluent::table('jobs')->where('id', '=', $submission->job_id)->update([
+                    'status'     => Job::STATUS_REVISION,
+                    'updated_at' => $now,
+                ]);
+            }
+
+            $this->commitWriteTransaction($db);
+        } catch (\Throwable $e) {
+            $this->rollbackWriteTransaction($db);
+            return ['success' => false, 'message' => 'Submission review failed: ' . $e->getMessage()];
+        }
+
+        $this->notifyUser(
+            $submission->worker(),
+            $decision === 'approve' ? 'Work approved' : 'Work rejected',
+            $decision === 'approve'
+                ? 'Your submission for “' . ($submission->job()?->title ?? 'the job') . '” was approved.'
+                : 'Your submission was rejected.' . ($note ? ' Reason: ' . trim($note) : ''),
+            $decision === 'approve' ? 'success' : 'warning',
+            $decision === 'approve' ? 'bi-check-circle' : 'bi-exclamation-circle',
+            '/jobs/' . (int) $submission->job_id
+        );
+
+        return [
+            'success' => true,
+            'message' => $decision === 'approve' ? 'Submission approved for payment review.' : 'Submission rejected with a reason.',
+            'submission' => JobSubmission::find($submissionId),
+        ];
+    }
+
+    /**
+     * Release one assignment's held escrow exactly once.
+     *
+     * The assignment row is locked inside the transaction and payment_status
+     * is the idempotency boundary. A repeated approval therefore cannot credit
+     * the worker or debit the poster a second time.
+     */
+    public function releaseAssignmentPayment(
+        int $assignmentId,
+        int $actorId,
+        ?int $submissionId = null,
+        bool $requireApprovedSubmission = true,
+        ?string $reviewerNote = null
+    ): array {
+        if (!JobAssignment::isAvailable()) {
+            return ['success' => false, 'message' => 'Multi-worker assignment storage is not available.'];
+        }
+
+        $db = Database::connect();
+        try {
+            $this->beginWriteTransaction($db);
+
+            $lockSql = 'SELECT * FROM job_assignments WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $lockSql .= ' FOR UPDATE';
+            $lockStmt = $db->prepare($lockSql);
+            $lockStmt->execute(['id' => $assignmentId]);
+            $assignmentRow = $lockStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$assignmentRow) {
+                throw new \RuntimeException('Assignment not found.');
+            }
+
+            $assignment = new JobAssignment($assignmentRow);
+            $job = Job::find((int) $assignment->job_id);
+            $poster = $job ? User::find((int) $job->poster_id) : null;
+            $actor = User::find($actorId);
+            if (!$job || !$poster) {
+                throw new \RuntimeException('Assignment payment participants could not be found.');
+            }
+            if ((int) $poster->id !== $actorId && !($actor?->isAdmin() ?? false)) {
+                throw new \RuntimeException('Only the job poster or an administrator can release assignment payment.');
+            }
+            if ($assignment->payment_status === JobAssignment::PAYMENT_RELEASED) {
+                $this->commitWriteTransaction($db);
+                return [
+                    'success' => true,
+                    'already_released' => true,
+                    'message' => 'Assignment payment was already released.',
+                    'assignment' => $assignment,
+                    'submission' => $submissionId !== null
+                        ? JobSubmission::find($submissionId)
+                        : JobSubmission::latestForAssignment($assignmentId),
+                ];
+            }
+            if ($assignment->payment_status !== JobAssignment::PAYMENT_HELD) {
+                throw new \RuntimeException('Assignment has no held payment to release.');
+            }
+
+            $bid = JobBid::find((int) $assignment->bid_id);
+            $worker = User::find((int) $assignment->worker_id);
+            if (!$bid || !$worker) {
+                throw new \RuntimeException('Assignment payment participants could not be found.');
+            }
+
+            $submission = null;
+            if ($submissionId !== null) {
+                $submission = JobSubmission::find($submissionId);
+                if ($submission === null || (int) $submission->assignment_id !== $assignmentId) {
+                    throw new \RuntimeException('Submission does not belong to this assignment.');
+                }
+            } else {
+                $submission = JobSubmission::latestForAssignment($assignmentId);
+            }
+            if ($submission === null) {
+                throw new \RuntimeException('An assignment submission is required before payment.');
+            }
+            if (in_array($submission->status, [JobSubmission::STATUS_REJECTED, JobSubmission::STATUS_REVISION], true)) {
+                throw new \RuntimeException('Rejected or revision submissions cannot be paid.');
+            }
+            if (($submission->risk_status ?? JobSubmission::RISK_CLEAR) === JobSubmission::RISK_CONFIRMED_FRAUD) {
+                throw new \RuntimeException('Confirmed-fraud submissions cannot be paid.');
+            }
+            if ($requireApprovedSubmission && $submission->status !== JobSubmission::STATUS_APPROVED) {
+                throw new \RuntimeException('Submission must be approved before payment.');
+            }
+
+            $bidAmount = (float) ($assignment->payment_amount ?: $bid->amount);
+            $escrowHeld = SettingService::escrowAmount($bidAmount);
+            $commission = round($bidAmount * SettingService::commissionRate(), 4);
+            $workerReceives = round(max(0, $bidAmount - $commission), 4);
+            $excess = round(max(0, $escrowHeld - $bidAmount), 4);
+            $posterFrozen = (float) ($poster->frozen_balance ?? 0);
+            if ($posterFrozen + 0.00005 < $escrowHeld) {
+                throw new \RuntimeException('Poster escrow balance is lower than the held assignment amount.');
+            }
+
+            $now = date('Y-m-d H:i:s');
+            $workerBalance = round((float) $worker->balance + $workerReceives, 4);
+            $workerLifetime = round((float) $worker->lifetime_earned + $workerReceives, 4);
+            $workerPosted = round((float) ($worker->total_posted_earned ?? 0) + $workerReceives, 4);
+            $posterWallet = round((float) ($poster->wallet_balance ?? 0) + $excess, 4);
+            $posterFrozenAfter = round($posterFrozen - $escrowHeld, 4);
+            $posterSpent = round((float) ($poster->total_spent ?? 0) + $bidAmount, 4);
+
+            Fluent::table('users')->where('id', '=', $worker->id)->update([
+                'balance'             => $workerBalance,
+                'lifetime_earned'     => $workerLifetime,
+                'total_posted_earned' => $workerPosted,
+                'updated_at'          => $now,
+            ]);
+            Fluent::table('users')->where('id', '=', $poster->id)->update([
+                'wallet_balance' => $posterWallet,
+                'frozen_balance' => max(0, $posterFrozenAfter),
+                'total_spent'    => $posterSpent,
+                'updated_at'     => $now,
+            ]);
+
+            Fluent::table('job_assignments')->where('id', '=', $assignmentId)->update([
+                'status'          => JobAssignment::STATUS_COMPLETED,
+                'payment_status'  => JobAssignment::PAYMENT_RELEASED,
+                'payment_amount'  => $bidAmount,
+                'completed_at'    => $now,
+                'paid_at'         => $now,
+                'updated_at'      => $now,
+            ]);
+            Fluent::table('job_submissions')->where('id', '=', $submission->id)->update([
+                'status'        => JobSubmission::STATUS_APPROVED,
+                'reviewed_at'   => $submission->reviewed_at ?: $now,
+                'reviewed_by'   => $submission->reviewed_by ?: $actorId,
+                'reviewer_note' => $reviewerNote ?? $submission->reviewer_note,
+                'updated_at'    => $now,
+            ]);
+
+            self::logTransaction(
+                $worker->id,
+                $job->id,
+                Transaction::TYPE_ESCROW_RELEASE,
+                $workerReceives,
+                $job->currency,
+                $workerBalance,
+                null,
+                'assignment:' . $assignmentId,
+                'Worker payment for approved assignment'
+            );
+            if ($commission > 0) {
+                self::logTransaction(
+                    null,
+                    $job->id,
+                    Transaction::TYPE_COMMISSION,
+                    $commission,
+                    $job->currency,
+                    null,
+                    null,
+                    'assignment:' . $assignmentId,
+                    'Platform commission for approved assignment'
+                );
+            }
+            if ($excess > 0) {
+                self::logTransaction(
+                    $poster->id,
+                    $job->id,
+                    Transaction::TYPE_REFUND,
+                    $excess,
+                    $job->currency,
+                    $posterWallet,
+                    $posterFrozenAfter,
+                    'assignment:' . $assignmentId,
+                    'Excess assignment escrow refund'
+                );
+            }
+
+            $this->refreshJobProgress($job->id, $now);
+            $this->commitWriteTransaction($db);
+
+            $this->notifyUser(
+                $worker,
+                'Payment released',
+                'Payment for your approved work on “' . $job->title . '” has been released.',
+                'success',
+                'bi-wallet2',
+                '/jobs/' . $job->id
+            );
+            $this->notifyUser(
+                $poster,
+                'Worker payment released',
+                'Payment for “' . $job->title . '” was released to the worker.',
+                'info',
+                'bi-wallet2',
+                '/poster/jobs/' . $job->id
+            );
+            if ((Job::find((int) $job->id)?->status ?? null) === Job::STATUS_COMPLETED) {
+                $this->notifyAdmins(
+                    'Job completed',
+                    'All required workers completed “' . $job->title . '”.',
+                    'success',
+                    'bi-check2-all',
+                    '/admin/jobs/' . $job->id
+                );
+            }
+
+            return [
+                'success' => true,
+                'message' => 'Payment released. Worker credited ' . number_format($workerReceives, 2) . ' BDT.',
+                'assignment' => JobAssignment::findForBid((int) $assignment->bid_id),
+                'submission' => JobSubmission::find((int) $submission->id),
+            ];
+        } catch (\Throwable $e) {
+            $this->rollbackWriteTransaction($db);
+            return ['success' => false, 'message' => 'Assignment payment failed: ' . $e->getMessage()];
+        }
+    }
+
+    private function refreshJobProgress(int $jobId, string $now): void
+    {
+        $job = Job::find($jobId);
+        if ($job === null || !JobAssignment::isAvailable()) return;
+
+        $stmt = Database::connect()->prepare(
+            "SELECT
+                SUM(CASE WHEN status <> 'cancelled' AND payment_status <> 'refunded' THEN 1 ELSE 0 END) AS total_assignments,
+                SUM(CASE WHEN status = 'completed' AND payment_status = 'released' THEN 1 ELSE 0 END) AS completed_assignments,
+                SUM(CASE WHEN status IN ('submitted', 'approved') AND payment_status <> 'refunded' THEN 1 ELSE 0 END) AS review_assignments,
+                SUM(CASE WHEN status = 'revision' AND payment_status <> 'refunded' THEN 1 ELSE 0 END) AS revision_assignments,
+                COALESCE(SUM(CASE WHEN payment_status = 'released' THEN payment_amount ELSE 0 END), 0) AS completed_amount,
+                COALESCE(SUM(CASE WHEN payment_status = 'held' THEN payment_amount ELSE 0 END), 0) AS remaining_amount
+             FROM job_assignments WHERE job_id = :job_id"
+        );
+        $stmt->execute(['job_id' => $jobId]);
+        $progress = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+        $total = (int) ($progress['total_assignments'] ?? 0);
+        $completed = (int) ($progress['completed_assignments'] ?? 0);
+        $required = max(1, (int) ($job->worker_count ?? 1));
+
+        $status = $job->status;
+        if ($completed >= $required) {
+            $status = Job::STATUS_COMPLETED;
+        } elseif ((int) ($progress['revision_assignments'] ?? 0) > 0) {
+            $status = Job::STATUS_REVISION;
+        } elseif ((int) ($progress['review_assignments'] ?? 0) > 0) {
+            $status = Job::STATUS_SUBMITTED;
+        } elseif ($total > 0) {
+            $status = Job::STATUS_ENGAGED;
+        }
+
+        Fluent::table('jobs')->where('id', '=', $jobId)->update([
+            'status'     => $status,
+            'updated_at' => $now,
+        ]);
     }
 
     /** Poster flow: request a revision on the worker's pending submission. */
     public function requestRevision(User $poster, int $jobId, int $submissionId, string $note): array
     {
+        if ($poster->isBanned()) {
+            return ['success' => false, 'message' => 'Banned accounts cannot modify jobs.'];
+        }
+        if (!$this->canManagePosterJobs($poster)) {
+            return ['success' => false, 'message' => 'Poster access is required to request revisions.'];
+        }
         $job = Job::find($jobId);
         if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
         if ((int) $job->poster_id !== (int) $poster->id) {
             return ['success' => false, 'message' => 'Only the poster can request a revision.'];
         }
-        if ($job->status !== Job::STATUS_SUBMITTED) {
+        // A multi-worker job can have one assignment in revision while a
+        // different assignment is still awaiting review. The aggregate job
+        // status is then `revision`, but the pending submission remains a
+        // valid target for this poster action.
+        if (!in_array($job->status, [Job::STATUS_SUBMITTED, Job::STATUS_REVISION], true)) {
             return ['success' => false, 'message' => 'Job has no submission awaiting review.'];
         }
         $submission = JobSubmission::find($submissionId);
@@ -482,7 +1811,7 @@ class JobService
         $now = date('Y-m-d H:i:s');
         $db = Database::connect();
         try {
-            $db->beginTransaction();
+            $this->beginWriteTransaction($db);
             Fluent::table('job_submissions')->where('id', '=', $submission->id)->update([
                 'status'        => JobSubmission::STATUS_REVISION,
                 'reviewer_note' => $note,
@@ -490,15 +1819,30 @@ class JobService
                 'reviewed_by'   => $poster->id,
                 'updated_at'    => $now,
             ]);
+            if ((int) ($submission->assignment_id ?? 0) > 0 && JobAssignment::isAvailable()) {
+                Fluent::table('job_assignments')->where('id', '=', (int) $submission->assignment_id)->update([
+                    'status'        => JobAssignment::STATUS_REVISION,
+                    'submitted_at'  => null,
+                    'updated_at'    => $now,
+                ]);
+            }
             Fluent::table('jobs')->where('id', '=', $job->id)->update([
                 'status'     => Job::STATUS_REVISION,
                 'updated_at' => $now,
             ]);
-            $db->commit();
+            $this->commitWriteTransaction($db);
         } catch (\Throwable $e) {
-            $db->rollBack();
+            $this->rollbackWriteTransaction($db);
             return ['success' => false, 'message' => 'Revision request failed: ' . $e->getMessage()];
         }
+        $this->notifyUser(
+            $submission->worker(),
+            'Revision requested',
+            'A revision was requested for your submission on “' . $job->title . '”. Note: ' . trim($note),
+            'warning',
+            'bi-pencil-square',
+            '/jobs/' . $job->id
+        );
         return ['success' => true, 'message' => 'Revision requested.'];
     }
 
@@ -506,16 +1850,52 @@ class JobService
      * Poster flow: approve a submission → release payment to worker,
      * apply platform commission, close the job.
      */
-    public function releasePayment(User $poster, int $jobId, ?int $submissionId = null): array
+    public function releasePayment(User $poster, int $jobId, ?int $submissionId = null, ?User $adminOverride = null): array
     {
+        if ($poster->isBanned() && !($adminOverride?->isAdmin() ?? false)) {
+            return ['success' => false, 'message' => 'Banned accounts cannot release payments.'];
+        }
+        if (!$this->canManagePosterJobs($poster) && !($adminOverride?->isAdmin() ?? false)) {
+            return ['success' => false, 'message' => 'Poster access is required to release payment.'];
+        }
         $job = Job::find($jobId);
         if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
         if ((int) $job->poster_id !== (int) $poster->id) {
             return ['success' => false, 'message' => 'Only the poster can release payment.'];
         }
-        if (!in_array($job->status, [Job::STATUS_SUBMITTED, Job::STATUS_DISPUTED], true)) {
+        if (!in_array($job->status, [Job::STATUS_SUBMITTED, Job::STATUS_REVISION, Job::STATUS_DISPUTED], true)) {
             return ['success' => false, 'message' => 'No work to release.'];
         }
+
+        if (JobAssignment::isAvailable()) {
+            $assignment = null;
+            $requestedSubmission = $submissionId !== null ? JobSubmission::find($submissionId) : null;
+            if ($submissionId !== null && ($requestedSubmission === null || (int) $requestedSubmission->job_id !== (int) $job->id)) {
+                return ['success' => false, 'message' => 'Submission not found for this job.'];
+            }
+            $requestedAssignmentId = $requestedSubmission?->assignment_id;
+            foreach (JobAssignment::forJob((int) $job->id) as $candidate) {
+                if ($submissionId !== null && (int) ($candidate->id ?? 0) === (int) $requestedAssignmentId) {
+                    $assignment = $candidate;
+                    break;
+                }
+                if ($submissionId === null
+                    && in_array($candidate->status, [JobAssignment::STATUS_SUBMITTED, JobAssignment::STATUS_APPROVED], true)
+                    && in_array($candidate->payment_status, [JobAssignment::PAYMENT_HELD, JobAssignment::PAYMENT_RELEASED], true)) {
+                    $assignment = $candidate;
+                    break;
+                }
+            }
+            if ($assignment !== null) {
+                return $this->releaseAssignmentPayment(
+                    (int) $assignment->id,
+                    (int) ($adminOverride?->id ?? $poster->id),
+                    $submissionId,
+                    false
+                );
+            }
+        }
+
         $bid = $job->assigned_bid_id ? JobBid::find((int) $job->assigned_bid_id) : null;
         if ($bid === null) return ['success' => false, 'message' => 'No assigned bid.'];
         $worker = User::find((int) $bid->worker_id);
@@ -530,7 +1910,7 @@ class JobService
 
         $db = Database::connect();
         try {
-            $db->beginTransaction();
+            $this->beginWriteTransaction($db);
 
             // 1. Credit worker (balance + lifetime_earned + total_posted_earned)
             $wNewBalance = round(((float) $worker->balance) + $workerReceives, 4);
@@ -597,9 +1977,9 @@ class JobService
                 );
             }
 
-            $db->commit();
+            $this->commitWriteTransaction($db);
         } catch (\Throwable $e) {
-            $db->rollBack();
+            $this->rollbackWriteTransaction($db);
             return ['success' => false, 'message' => 'Release failed: ' . $e->getMessage()];
         }
 
@@ -609,8 +1989,14 @@ class JobService
     /**
      * Poster flow: cancel an open or assigned job. Refunds frozen_balance.
      */
-    public function cancelJob(User $poster, int $jobId, ?string $reason = null): array
+    public function cancelJob(User $poster, int $jobId, ?string $reason = null, ?User $adminOverride = null): array
     {
+        if ($poster->isBanned() && !($adminOverride?->isAdmin() ?? false)) {
+            return ['success' => false, 'message' => 'Banned accounts cannot modify jobs.'];
+        }
+        if (!$this->canManagePosterJobs($poster) && !($adminOverride?->isAdmin() ?? false)) {
+            return ['success' => false, 'message' => 'Poster access is required to cancel jobs.'];
+        }
         $job = Job::find($jobId);
         if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
         if ((int) $job->poster_id !== (int) $poster->id) {
@@ -622,53 +2008,238 @@ class JobService
 
         $db = Database::connect();
         try {
-            $db->beginTransaction();
+            $this->beginWriteTransaction($db);
+
+            $now = date('Y-m-d H:i:s');
+            $assignmentTableAvailable = JobAssignment::isAvailable();
+            $heldAssignments = [];
+            if ($assignmentTableAvailable) {
+                $assignmentSql = 'SELECT * FROM job_assignments WHERE job_id = :job_id AND payment_status = :payment_status';
+                if (Database::getDriverName() !== 'sqlite') $assignmentSql .= ' FOR UPDATE';
+                $assignmentStmt = $db->prepare($assignmentSql);
+                $assignmentStmt->execute([
+                    'job_id' => $job->id,
+                    'payment_status' => JobAssignment::PAYMENT_HELD,
+                ]);
+                $heldAssignments = $assignmentStmt->fetchAll(\PDO::FETCH_ASSOC);
+            }
 
             // Refund only this job's escrow, not every escrow held by the poster.
-            $assignedBid = $job->assigned_bid_id ? JobBid::find((int) $job->assigned_bid_id) : null;
-            $frozen = $assignedBid
-                ? min(
-                    (float) $poster->frozen_balance,
-                    SettingService::escrowAmount((float) $assignedBid->amount)
-                )
-                : 0.0;
-            if ($frozen > 0) {
-                $newWallet = round(((float) ($poster->wallet_balance ?? 0)) + $frozen, 4);
-                Fluent::table('users')
-                    ->where('id', '=', $poster->id)
-                    ->update([
-                        'wallet_balance' => $newWallet,
-                        'frozen_balance' => 0,
-                        'updated_at'     => date('Y-m-d H:i:s'),
+            $refundTotal = 0.0;
+            foreach ($heldAssignments as $heldAssignment) {
+                $refundTotal += SettingService::escrowAmount((float) $heldAssignment['payment_amount']);
+            }
+            if ($refundTotal <= 0 && empty($heldAssignments)) {
+                $assignedBid = $job->assigned_bid_id ? JobBid::find((int) $job->assigned_bid_id) : null;
+                $refundTotal = $assignedBid
+                    ? min(
+                        (float) ($poster->frozen_balance ?? 0),
+                        SettingService::escrowAmount((float) $assignedBid->amount)
+                    )
+                    : 0.0;
+            }
+            if ($refundTotal > 0) {
+                $frozenBefore = (float) ($poster->frozen_balance ?? 0);
+                if ($frozenBefore + 0.00005 < $refundTotal) {
+                    throw new \RuntimeException('Poster escrow balance is lower than the refundable job assignments.');
+                }
+                $newWallet = round((float) ($poster->wallet_balance ?? 0) + $refundTotal, 4);
+                $newFrozen = round($frozenBefore - $refundTotal, 4);
+                Fluent::table('users')->where('id', '=', $poster->id)->update([
+                    'wallet_balance' => $newWallet,
+                    'frozen_balance' => max(0, $newFrozen),
+                    'updated_at'     => $now,
+                ]);
+                foreach ($heldAssignments as $heldAssignment) {
+                    Fluent::table('job_assignments')->where('id', '=', (int) $heldAssignment['id'])->update([
+                        'status'         => JobAssignment::STATUS_CANCELLED,
+                        'payment_status' => JobAssignment::PAYMENT_REFUNDED,
+                        'updated_at'     => $now,
                     ]);
-                self::logTransaction(
-                    $poster->id, $job->id, Transaction::TYPE_REFUND,
-                    $frozen, $job->currency, $newWallet, 0,
-                    'job:' . $job->id, 'Refund on cancel' . ($reason ? ': ' . $reason : '')
-                );
+                    self::logTransaction(
+                        $poster->id,
+                        $job->id,
+                        Transaction::TYPE_REFUND,
+                        SettingService::escrowAmount((float) $heldAssignment['payment_amount']),
+                        $job->currency,
+                        $newWallet,
+                        $newFrozen,
+                        'assignment:' . (int) $heldAssignment['id'],
+                        'Refund on cancel' . ($reason ? ': ' . $reason : '')
+                    );
+                }
+                if (empty($heldAssignments)) {
+                    self::logTransaction(
+                        $poster->id, $job->id, Transaction::TYPE_REFUND,
+                        $refundTotal, $job->currency, $newWallet, $newFrozen,
+                        'job:' . $job->id, 'Refund on cancel' . ($reason ? ': ' . $reason : '')
+                    );
+                }
             }
 
             Fluent::table('jobs')
                 ->where('id', '=', $job->id)
-                ->update(['status' => Job::STATUS_CANCELLED, 'updated_at' => date('Y-m-d H:i:s')]);
+                ->update(['status' => Job::STATUS_CANCELLED, 'updated_at' => $now]);
             // Mark any pending bids as rejected
             Fluent::table('job_bids')
                 ->where('job_id', '=', $job->id)
                 ->where('status', '=', JobBid::STATUS_PENDING)
                 ->update([
                     'status'     => JobBid::STATUS_REJECTED,
-                    'decided_at' => date('Y-m-d H:i:s'),
+                    'decided_at' => $now,
                     'decided_by' => $poster->id,
-                    'updated_at' => date('Y-m-d H:i:s'),
+                    'updated_at' => $now,
                 ]);
 
-            $db->commit();
+            $this->commitWriteTransaction($db);
         } catch (\Throwable $e) {
-            $db->rollBack();
+            $this->rollbackWriteTransaction($db);
             return ['success' => false, 'message' => 'Cancel failed: ' . $e->getMessage()];
         }
 
+        $this->notifyUser(
+            $poster,
+            'Job cancelled',
+            'Your job “' . $job->title . '” was cancelled and eligible escrow was refunded.',
+            'warning',
+            'bi-x-circle',
+            '/poster/jobs/' . $job->id
+        );
+        $this->notifyAdmins(
+            'Job cancelled',
+            'Job “' . $job->title . '” was cancelled by its poster.',
+            'info',
+            'bi-x-circle',
+            '/admin/jobs/' . $job->id
+        );
+
         return ['success' => true, 'message' => 'Job cancelled.'];
+    }
+
+    /**
+     * Notify affected users about jobs whose deadline falls within the next
+     * window. The event key makes this safe to run from a minute/hourly
+     * scheduler without creating duplicate unread notifications.
+     */
+    public function notifyUpcomingDeadlines(int $windowHours = 24, ?string $now = null): int
+    {
+        $now = $now ?: date('Y-m-d H:i:s');
+        $until = date('Y-m-d H:i:s', strtotime($now) + (max(1, $windowHours) * 3600));
+        $statuses = [
+            Job::STATUS_OPEN,
+            Job::STATUS_IN_REVIEW,
+            Job::STATUS_ENGAGED,
+            Job::STATUS_ASSIGNED,
+            Job::STATUS_SUBMITTED,
+            Job::STATUS_REVISION,
+            Job::STATUS_DISPUTED,
+        ];
+        $jobs = Fluent::table('jobs')
+            ->whereIn('status', $statuses)
+            ->where('deadline_at', '>=', $now)
+            ->where('deadline_at', '<=', $until)
+            ->orderBy('deadline_at', 'asc')
+            ->get();
+
+        $notified = 0;
+        foreach ($jobs as $row) {
+            $job = new Job((array) $row);
+            $deadline = strtotime((string) $job->deadline_at);
+            if ($deadline === false) continue;
+            $hoursLeft = max(1, (int) ceil(($deadline - strtotime($now)) / 3600));
+            $eventKey = 'job-deadline:' . (int) $job->id . ':' . date('Y-m-d', $deadline);
+            $message = '“' . $job->title . '” is due in approximately ' . $hoursLeft . ' hour(s) (' . $job->deadline_at . ').';
+
+            NotificationService::sendOnce(
+                $job->poster(),
+                'Job deadline approaching',
+                $message,
+                $eventKey . ':poster',
+                'warning',
+                'bi-alarm',
+                '/poster/jobs/' . $job->id,
+                24
+            );
+            foreach (JobAssignment::forJob((int) $job->id) as $assignment) {
+                if (!$assignment->isActive()) continue;
+                NotificationService::sendOnce(
+                    $assignment->worker(),
+                    'Job deadline approaching',
+                    $message,
+                    $eventKey . ':worker:' . (int) $assignment->worker_id,
+                    'warning',
+                    'bi-alarm',
+                    '/jobs/' . $job->id,
+                    24
+                );
+            }
+            NotificationService::sendToAdmins(
+                'Job deadline approaching',
+                $message,
+                'warning',
+                'bi-alarm',
+                '/admin/jobs/' . $job->id,
+                $eventKey . ':admin',
+                true
+            );
+            $notified++;
+        }
+
+        return $notified;
+    }
+
+    private function notifyUser(
+        ?User $user,
+        string $title,
+        string $message,
+        string $tone = 'info',
+        string $icon = 'bi-bell',
+        ?string $actionUrl = null
+    ): void {
+        NotificationService::send($user, $title, $message, $tone, $icon, $actionUrl);
+    }
+
+    /**
+     * Start a write transaction that serializes SQLite marketplace decisions.
+     * Deferred SQLite transactions let two readers reach the same capacity
+     * check and then both fail while upgrading to a writer. IMMEDIATE makes
+     * one request own the write boundary up front, so the next request can
+     * re-check state and return a normal capacity/idempotency response.
+     */
+    private function beginWriteTransaction(\PDO $db): void
+    {
+        Database::beginWriteTransaction($db);
+    }
+
+    private function commitWriteTransaction(\PDO $db): void
+    {
+        Database::commitWriteTransaction($db);
+    }
+
+    private function rollbackWriteTransaction(\PDO $db): void
+    {
+        Database::rollbackWriteTransaction($db);
+    }
+
+    private function canManagePosterJobs(User $user): bool
+    {
+        return $user->isAdmin() || $user->isPoster();
+    }
+
+    private function isAdminId(int $userId): bool
+    {
+        $user = User::find($userId);
+        return $user !== null && $user->isAdmin();
+    }
+
+    private function notifyAdmins(
+        string $title,
+        string $message,
+        string $tone = 'info',
+        string $icon = 'bi-bell',
+        ?string $actionUrl = null
+    ): void {
+        NotificationService::sendToAdmins($title, $message, $tone, $icon, $actionUrl);
     }
 
     /**

@@ -194,6 +194,13 @@ class AuthController extends Controller
             'bi-stars',
             '/'
         );
+        NotificationService::sendToAdmins(
+            'New user registered',
+            ($user?->name ?: 'A new user') . ' created a JMJob account.',
+            'info',
+            'bi-person-plus',
+            '/admin/users'
+        );
         $session = UserSession::createForUser(
             (int) $id,
             $_SERVER['REMOTE_ADDR'] ?? null,
@@ -245,6 +252,14 @@ class AuthController extends Controller
                 'success' => false,
                 'message' => 'Invalid email or password.',
             ], 401);
+        }
+
+        if (!empty($row['is_banned'])) {
+            return Response::json([
+                'success' => false,
+                'message' => 'This account is banned.' . (!empty($row['ban_reason']) ? ' ' . $row['ban_reason'] : ''),
+                'error'   => 'banned',
+            ], 403);
         }
 
         $user = User::find((int) $row['id']);

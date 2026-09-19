@@ -30,6 +30,9 @@ class RewardService
         ?string $ip = null,
         ?string $ua = null
     ): array {
+        if ($user->isBanned()) {
+            return ['success' => false, 'message' => 'Banned accounts cannot receive rewards.'];
+        }
         $user->resetDailyCountersIfNeeded();
         if ($user->adsRemainingToday() <= 0) {
             return [
@@ -88,6 +91,9 @@ class RewardService
 
     public function creditWebTaskReward(User $user, float $reward, int $completionId): array
     {
+        if ($user->isBanned()) {
+            return ['success' => false, 'message' => 'Banned accounts cannot receive rewards.'];
+        }
         if ($reward <= 0) {
             return ['success' => false, 'message' => 'Invalid reward amount.'];
         }
@@ -144,6 +150,9 @@ class RewardService
 
     public function creditTgTaskReward(User $user, float $reward, int $completionId): array
     {
+        if ($user->isBanned()) {
+            return ['success' => false, 'message' => 'Banned accounts cannot receive rewards.'];
+        }
         // Telegram task rewards are typically smaller and don't reset daily
         // in the original, but we'll credit balance + lifetime only.
         $newBalance  = round(((float) $user->balance) + $reward, 4);

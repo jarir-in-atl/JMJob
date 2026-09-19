@@ -221,7 +221,11 @@ class Database
             }
         }
 
-        return new PDO("sqlite:{$path}", '', '', self::pdoOptions());
+        $pdo = new PDO("sqlite:{$path}", '', '', self::pdoOptions());
+        // Allow short-lived concurrent writers to wait for the active writer
+        // instead of failing immediately with SQLITE_BUSY.
+        $pdo->exec('PRAGMA busy_timeout = 5000');
+        return $pdo;
     }
 
     private static function pdoOptions(): array
@@ -325,6 +329,54 @@ class Database
     public static function rollback(): bool
     {
         return self::connect()->rollBack();
+    }
+
+    /**
+     * Begin a write transaction that serializes SQLite writers up front.
+     * Deferred SQLite transactions can let concurrent readers reach the same
+     * idempotency boundary and then both fail while upgrading to a writer.
+     */
+    public static function beginWriteTransaction(?PDO $pdo = null): void
+    {
+        $pdo ??= self::connect();
+        if (self::getDriverName() === 'sqlite') {
+            $deadline = microtime(true) + 15.0;
+            do {
+                try {
+                    $pdo->exec('BEGIN IMMEDIATE');
+                    return;
+                } catch (\PDOException $e) {
+                    $locked = str_contains(strtolower($e->getMessage()), 'locked');
+                    if (!$locked || microtime(true) >= $deadline) throw $e;
+                    usleep(50000);
+                }
+            } while (true);
+        }
+        $pdo->beginTransaction();
+    }
+
+    public static function commitWriteTransaction(?PDO $pdo = null): void
+    {
+        $pdo ??= self::connect();
+        if (self::getDriverName() === 'sqlite') {
+            $pdo->exec('COMMIT');
+            return;
+        }
+        $pdo->commit();
+    }
+
+    public static function rollbackWriteTransaction(?PDO $pdo = null): void
+    {
+        $pdo ??= self::connect();
+        try {
+            if (self::getDriverName() === 'sqlite') {
+                $pdo->exec('ROLLBACK');
+            } elseif ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+        } catch (\Throwable) {
+            // Preserve the original workflow error if rollback itself fails.
+        }
     }
 
     public static function transaction(callable $callback): mixed

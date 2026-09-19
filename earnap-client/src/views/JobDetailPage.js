@@ -43,8 +43,10 @@ function render(job, bids, bidCount, myBid, user) {
                 <div>
                     ${job.category ? `<span class="job-detail__cat"><i class="bi ${job.category.icon_class || ''}"></i> ${escapeHtml(job.category.name)}</span>` : ''}
                     <h1 class="job-detail__title">${escapeHtml(job.title)}</h1>
+                    ${job.subtitle ? `<p class="muted">${escapeHtml(job.subtitle)}</p>` : ''}
                     <div class="job-detail__meta">
-                        <span><i class="bi bi-cash"></i> Budget <strong>৳${parseFloat(job.budget).toFixed(2)}</strong></span>
+                        <span><i class="bi bi-cash"></i> Pay <strong>৳${parseFloat(job.cost_per_worker || job.budget || 0).toFixed(2)}</strong> / worker</span>
+                        <span><i class="bi bi-people"></i> ${Number(job.worker_count || 1)} available</span>
                         <span><i class="bi bi-people"></i> ${bidCount} bid${bidCount === 1 ? '' : 's'}</span>
                         <span><i class="bi bi-eye"></i> ${job.view_count} view${job.view_count === 1 ? '' : 's'}</span>
                         <span><i class="bi bi-clock"></i> Bidding closes in <strong>${closesLabel}</strong></span>
@@ -56,6 +58,7 @@ function render(job, bids, bidCount, myBid, user) {
                 <h3>Description</h3>
                 <p>${escapeHtml(job.description).replace(/\n/g, '<br>')}</p>
                 ${job.requirements ? `<h3>Requirements</h3><p>${escapeHtml(job.requirements).replace(/\n/g, '<br>')}</p>` : ''}
+                ${Array.isArray(job.proof_requirements) && job.proof_requirements.length ? `<h3>Proof required</h3><ul>${job.proof_requirements.map(requirement => `<li>${escapeHtml(requirement.title || (requirement.type === 'screenshot' ? 'Screenshot' : 'Written report'))}</li>`).join('')}</ul>` : ''}
                 <h3>Posted by</h3>
                 <p>${job.poster ? escapeHtml(job.poster.name) : 'Unknown'} <span class="muted">@${job.poster?.username || '?'}</span></p>
             </div>

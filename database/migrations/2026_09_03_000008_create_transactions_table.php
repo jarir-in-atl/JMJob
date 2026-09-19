@@ -17,7 +17,29 @@ use Nemesis\Core\Database;
  */
 class CreateTransactionsTable extends Migration {
     public function up() {
-        Database::connect()->exec("CREATE TABLE IF NOT EXISTS transactions (
+        $db = Database::connect();
+        if (Database::getDriverName() === 'sqlite') {
+            $db->exec("CREATE TABLE IF NOT EXISTS transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NULL,
+                job_id INTEGER NULL,
+                type TEXT NOT NULL,
+                amount NUMERIC NOT NULL,
+                currency TEXT NOT NULL DEFAULT 'BDT',
+                balance_after NUMERIC NULL,
+                frozen_after NUMERIC NULL,
+                reference TEXT NULL,
+                note TEXT NULL,
+                admin_id INTEGER NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )");
+            $db->exec('CREATE INDEX IF NOT EXISTS idx_tx_user ON transactions (user_id)');
+            $db->exec('CREATE INDEX IF NOT EXISTS idx_tx_job ON transactions (job_id)');
+            $db->exec('CREATE INDEX IF NOT EXISTS idx_tx_type ON transactions (type)');
+            $db->exec('CREATE INDEX IF NOT EXISTS idx_tx_created ON transactions (created_at)');
+            return;
+        }
+        $db->exec("CREATE TABLE IF NOT EXISTS transactions (
             id INT AUTO_INCREMENT PRIMARY KEY,
             user_id INT NULL,
             job_id INT NULL,

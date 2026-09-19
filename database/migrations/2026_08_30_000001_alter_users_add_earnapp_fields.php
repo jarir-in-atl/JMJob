@@ -6,6 +6,39 @@ use Nemesis\Core\Database;
 class AlterUsersAddEarnappFields extends Migration {
     public function up() {
         $db = Database::connect();
+
+        if (Database::getDriverName() !== 'mysql') {
+            $columns = [];
+            if (Database::getDriverName() === 'sqlite') {
+                $columns = array_column($db->query('PRAGMA table_info(users)')->fetchAll(), 'name');
+            } else {
+                $columns = $db->query("SELECT column_name FROM information_schema.columns WHERE table_name = 'users'")->fetchAll(PDO::FETCH_COLUMN);
+            }
+
+            $definitions = [
+                'name'            => 'TEXT NULL',
+                'referral_code'   => 'TEXT NULL',
+                'referred_by'     => 'INTEGER NULL',
+                'balance'         => 'NUMERIC NOT NULL DEFAULT 0.00',
+                'lifetime_earned' => 'NUMERIC NOT NULL DEFAULT 0.00',
+                'today_earned'    => 'NUMERIC NOT NULL DEFAULT 0.00',
+                'ads_limit'       => 'INTEGER NOT NULL DEFAULT 50',
+                'today_ads'       => 'INTEGER NOT NULL DEFAULT 0',
+                'last_ad_reset_at'=> 'DATE NULL',
+                'is_admin'        => 'INTEGER NOT NULL DEFAULT 0',
+                'updated_at'      => 'TEXT NULL',
+            ];
+            foreach ($definitions as $column => $definition) {
+                if (!in_array($column, $columns, true)) {
+                    $db->exec("ALTER TABLE users ADD COLUMN {$column} {$definition}");
+                }
+            }
+            if (!in_array('referral_code', $columns, true)) {
+                $db->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users (referral_code)');
+            }
+            return;
+        }
+
         // Add JMJob-specific columns to the existing users table.
         $db->exec("ALTER TABLE users ADD COLUMN name VARCHAR(100) NULL AFTER email");
         $db->exec("ALTER TABLE users ADD COLUMN referral_code VARCHAR(20) NULL UNIQUE AFTER name");

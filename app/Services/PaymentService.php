@@ -7,6 +7,7 @@ use App\Models\PaymentSubmission;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Services\NotificationService;
+use Nemesis\Core\Database;
 use Nemesis\Core\Fluent;
 use RuntimeException;
 
@@ -60,15 +61,25 @@ class PaymentService
             return ['success' => false, 'message' => 'This TRXID has already been submitted.'];
         }
 
-        $id = Fluent::table('payment_submissions')->insert([
-            'user_id'       => $user->id,
-            'gateway'       => $gateway,
-            'sender_number' => $senderNumber,
-            'amount'        => round($amount, 4),
-            'trxid'         => $trxid,
-            'status'        => PaymentSubmission::STATUS_PENDING,
-            'created_at'    => date('Y-m-d H:i:s'),
-        ]);
+        try {
+            $id = Fluent::table('payment_submissions')->insert([
+                'user_id'       => $user->id,
+                'gateway'       => $gateway,
+                'sender_number' => $senderNumber,
+                'amount'        => round($amount, 4),
+                'trxid'         => $trxid,
+                'status'        => PaymentSubmission::STATUS_PENDING,
+                'created_at'    => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $e) {
+            // The unique TRXID constraint is the final race-safe boundary
+            // when two requests pass the friendly preflight at once.
+            if (str_contains(strtolower($e->getMessage()), 'unique')
+                || str_contains(strtolower($e->getMessage()), 'duplicate')) {
+                return ['success' => false, 'message' => 'This TRXID has already been submitted.'];
+            }
+            return ['success' => false, 'message' => 'Failed to create payment submission.'];
+        }
 
         if (!$id) {
             return ['success' => false, 'message' => 'Failed to create payment submission.'];
@@ -97,16 +108,35 @@ class PaymentService
             return ['success' => false, 'message' => 'Forbidden. Admin access required.'];
         }
 
-        $user = $submission->user();
-        if ($user === null) {
-            return ['success' => false, 'message' => 'Submission user not found.'];
-        }
-
-        $db = \Nemesis\Core\Database::connect();
-        $amount = (float) $submission->amount;
+        $db = Database::connect();
+        $user = null;
+        $amount = 0.0;
 
         try {
-            $db->beginTransaction();
+            Database::beginWriteTransaction($db);
+
+            // Re-read both mutable rows after acquiring the write boundary.
+            // Two administrators may have loaded the same pending deposit;
+            // only the transaction that conditionally changes its pending
+            // status may credit the balance.
+            $submissionSql = 'SELECT * FROM payment_submissions WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $submissionSql .= ' FOR UPDATE';
+            $submissionStmt = $db->prepare($submissionSql);
+            $submissionStmt->execute(['id' => (int) $submission->id]);
+            $lockedSubmissionRow = $submissionStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$lockedSubmissionRow || ($lockedSubmissionRow['status'] ?? null) !== PaymentSubmission::STATUS_PENDING) {
+                throw new RuntimeException('Submission is no longer pending.');
+            }
+            $submission = new PaymentSubmission($lockedSubmissionRow);
+
+            $userSql = 'SELECT * FROM users WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $userSql .= ' FOR UPDATE';
+            $userStmt = $db->prepare($userSql);
+            $userStmt->execute(['id' => (int) $submission->user_id]);
+            $lockedUserRow = $userStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$lockedUserRow) throw new RuntimeException('Submission user not found.');
+            $user = new User($lockedUserRow);
+            $amount = (float) $submission->amount;
 
             // Deposits fund the role-specific available wallet. Workers use
             // `balance`; posters use `wallet_balance` for job escrow.
@@ -130,8 +160,9 @@ class PaymentService
             );
 
             // Update submission
-            Fluent::table('payment_submissions')
+            $updated = Fluent::table('payment_submissions')
                 ->where('id', '=', $submission->id)
+                ->where('status', '=', PaymentSubmission::STATUS_PENDING)
                 ->update([
                     'status'      => PaymentSubmission::STATUS_APPROVED,
                     'admin_id'    => $admin->id,
@@ -139,10 +170,11 @@ class PaymentService
                     'verified_at' => date('Y-m-d H:i:s'),
                     'updated_at'  => date('Y-m-d H:i:s'),
                 ]);
+            if ($updated !== 1) throw new RuntimeException('Submission is no longer pending.');
 
-            $db->commit();
+            Database::commitWriteTransaction($db);
         } catch (\Throwable $e) {
-            $db->rollBack();
+            Database::rollbackWriteTransaction($db);
             return ['success' => false, 'message' => 'Approval failed: ' . $e->getMessage()];
         }
 
@@ -182,15 +214,25 @@ class PaymentService
             return ['success' => false, 'message' => 'Submission user not found.'];
         }
 
-        Fluent::table('payment_submissions')
-            ->where('id', '=', $submission->id)
-            ->update([
-                'status'      => PaymentSubmission::STATUS_REJECTED,
-                'admin_id'    => $admin->id,
-                'admin_note'  => $note,
-                'verified_at' => date('Y-m-d H:i:s'),
-                'updated_at'  => date('Y-m-d H:i:s'),
-            ]);
+        $db = Database::connect();
+        try {
+            Database::beginWriteTransaction($db);
+            $updated = Fluent::table('payment_submissions')
+                ->where('id', '=', $submission->id)
+                ->where('status', '=', PaymentSubmission::STATUS_PENDING)
+                ->update([
+                    'status'      => PaymentSubmission::STATUS_REJECTED,
+                    'admin_id'    => $admin->id,
+                    'admin_note'  => $note,
+                    'verified_at' => date('Y-m-d H:i:s'),
+                    'updated_at'  => date('Y-m-d H:i:s'),
+                ]);
+            if ($updated !== 1) throw new RuntimeException('Submission is no longer pending.');
+            Database::commitWriteTransaction($db);
+        } catch (\Throwable $e) {
+            Database::rollbackWriteTransaction($db);
+            return ['success' => false, 'message' => 'Rejection failed: ' . $e->getMessage()];
+        }
 
         NotificationService::send(
             $user,

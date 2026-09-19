@@ -17,8 +17,44 @@ use Nemesis\Core\Database;
  *   disputed   → admin review required
  *   expired    → bidding window passed with no accepted bid
  */
-class CreateJobsTable extends Migration {
+class CreateMarketplaceJobsTable extends Migration {
     public function up() {
+        $driver = Database::getDriverName();
+        if ($driver === 'sqlite') {
+            Database::connect()->exec("CREATE TABLE IF NOT EXISTS jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                poster_id INTEGER NOT NULL,
+                category_id INTEGER NULL,
+                title TEXT NOT NULL,
+                slug TEXT NOT NULL,
+                description TEXT NOT NULL,
+                requirements TEXT NULL,
+                budget NUMERIC NOT NULL,
+                currency TEXT NOT NULL DEFAULT 'BDT',
+                deadline_at TEXT NULL,
+                bidding_closes_at TEXT NULL,
+                status TEXT NOT NULL DEFAULT 'open',
+                assigned_bid_id INTEGER NULL,
+                assigned_worker_id INTEGER NULL,
+                bid_count INTEGER NOT NULL DEFAULT 0,
+                view_count INTEGER NOT NULL DEFAULT 0,
+                is_featured INTEGER NOT NULL DEFAULT 0,
+                attachment_path TEXT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NULL
+            )");
+            foreach ([
+                'CREATE INDEX IF NOT EXISTS idx_jobs_poster ON jobs (poster_id)',
+                'CREATE INDEX IF NOT EXISTS idx_jobs_category ON jobs (category_id)',
+                'CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs (status)',
+                'CREATE INDEX IF NOT EXISTS idx_jobs_assigned_worker ON jobs (assigned_worker_id)',
+                'CREATE INDEX IF NOT EXISTS idx_jobs_bidding_closes ON jobs (bidding_closes_at)',
+            ] as $indexSql) {
+                Database::connect()->exec($indexSql);
+            }
+            return;
+        }
+
         Database::connect()->exec("CREATE TABLE IF NOT EXISTS jobs (
             id INT AUTO_INCREMENT PRIMARY KEY,
             poster_id INT NOT NULL,

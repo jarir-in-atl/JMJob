@@ -21,11 +21,12 @@ export function onUnauthorized(handler) {
 
 async function request(path, { method = 'GET', body, headers = {}, signal } = {}) {
     const url = path.startsWith('http') ? path : cfg.apiBase + path;
+    const multipart = typeof FormData !== 'undefined' && body instanceof FormData;
     const opts = {
         method,
         headers: {
-            'Content-Type': 'application/json',
             'Accept': 'application/json',
+            ...(multipart ? {} : { 'Content-Type': 'application/json' }),
             ...headers,
         },
     };
@@ -33,7 +34,7 @@ async function request(path, { method = 'GET', body, headers = {}, signal } = {}
         opts.headers.Authorization = `Bearer ${_token}`;
     }
     if (body !== undefined) {
-        opts.body = JSON.stringify(body);
+        opts.body = multipart ? body : JSON.stringify(body);
     }
     if (signal) {
         opts.signal = signal;
@@ -59,6 +60,22 @@ async function request(path, { method = 'GET', body, headers = {}, signal } = {}
         throw new ApiError(message, res.status, data);
     }
     return data;
+}
+
+async function downloadRequest(path) {
+    const url = path.startsWith('http') ? path : cfg.apiBase + path;
+    const headers = { Accept: 'text/csv' };
+    if (_token) headers.Authorization = `Bearer ${_token}`;
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+        let message = `HTTP ${res.status}`;
+        try {
+            const data = await res.json();
+            message = data?.message || message;
+        } catch { /* keep the HTTP status */ }
+        throw new ApiError(message, res.status, null);
+    }
+    return res.blob();
 }
 
 export class ApiError extends Error {
@@ -101,6 +118,9 @@ export const api = {
     // Ads
     adsConfig:      () => request('/ads/config'),
     adsNext:        () => request('/ads/next'),
+    videoAds:       () => request('/ads/videos'),
+    videoAdStart:   (body) => request('/ads/videos/start', { method: 'POST', body }),
+    videoAdClaim:   (body) => request('/ads/videos/claim', { method: 'POST', body }),
 
     // Web tasks
     webTasks:        () => request('/tasks/web'),
@@ -119,8 +139,15 @@ export const api = {
     adminPay:          (id, body = {}) => request(`/admin/withdrawals/${id}/pay`,     { method: 'POST', body }),
     adminUsers:        () => request('/admin/users'),
     adminUpdateUserRole: (id, role) => request(`/admin/users/${id}/role`, { method: 'POST', body: { role } }),
+    adminBanUser:      (id, body = {}) => request(`/admin/users/${id}/ban`, { method: 'POST', body }),
+    adminUnbanUser:    (id, body = {}) => request(`/admin/users/${id}/unban`, { method: 'POST', body }),
+    adminBanHistory:   (id) => request(`/admin/users/${id}/ban-history`),
     adminProviders:    () => request('/admin/ad-providers'),
     adminUpdateProvider: (id, body) => request(`/admin/ad-providers/${id}`, { method: 'POST', body }),
+    adminVideoAds:        () => request('/admin/video-ads'),
+    adminCreateVideoAd:   (formData) => request('/admin/video-ads', { method: 'POST', body: formData }),
+    adminUpdateVideoAd:   (id, formData) => request(`/admin/video-ads/${id}`, { method: 'POST', body: formData }),
+    adminDeleteVideoAd:   (id) => request(`/admin/video-ads/${id}`, { method: 'DELETE' }),
     adminResetDailyCounters: () => request('/admin/reset-daily-counters', { method: 'POST' }),
 
     // Payments (deposit / TRXID)
@@ -145,6 +172,7 @@ export const api = {
     workerBids:           () => request('/worker/bids'),
     workerActiveJobs:     () => request('/worker/active-jobs'),
     submitWork:           (id, body) => request(`/jobs/${id}/submit`, { method: 'POST', body }),
+    workerCancelAssignment: (id, body = {}) => request(`/worker/assignments/${id}/cancel`, { method: 'POST', body }),
     workerSubmissions:    () => request('/worker/submissions'),
 
     // Poster
@@ -188,7 +216,16 @@ export const api = {
     },
 
     adminJobs:                  (status = '') => request(`/admin/jobs${status ? `?status=${encodeURIComponent(status)}` : ''}`),
+    adminCreateJob:              (body) => request('/admin/jobs', { method: 'POST', body }),
+    adminJobDetail:              (id) => request(`/admin/jobs/${id}/detail`),
+    adminUpdateJob:              (id, body) => request(`/admin/jobs/${id}/edit`, { method: 'POST', body }),
+    adminDeleteJob:              (id) => request(`/admin/jobs/${id}`, { method: 'DELETE' }),
     adminJobSubmissions:        (id) => request(`/admin/jobs/${id}/submissions`),
+    adminFraudSubmissions:      () => request('/admin/fraud/submissions'),
+    adminReviewFraud:           (id, body = {}) => request(`/admin/fraud/submissions/${id}/review`, { method: 'POST', body }),
+    adminReviewSubmission:      (id, body = {}) => request(`/admin/submissions/${id}/review`, { method: 'POST', body }),
+    adminCancelAssignment:      (id, body = {}) => request(`/admin/assignments/${id}/cancel`, { method: 'POST', body }),
+    adminReassignAssignment:    (id, body = {}) => request(`/admin/assignments/${id}/reassign`, { method: 'POST', body }),
     adminApproveJob:            (id, body = {}) => request(`/admin/jobs/${id}/approve`, { method: 'POST', body }),
     adminDeclineJob:            (id, body = {}) => request(`/admin/jobs/${id}/decline`, { method: 'POST', body }),
     adminFlagJobDispute:        (id) => request(`/admin/jobs/${id}/dispute`, { method: 'POST' }),
@@ -198,5 +235,6 @@ export const api = {
         return request(`/admin/transactions${q ? '?' + q : ''}`);
     },
     adminReports:               () => request('/admin/reports'),
+    adminReportsExport:         () => downloadRequest('/admin/reports?format=csv'),
     adminRevenue:               () => request('/admin/revenue'),
 };

@@ -14,7 +14,24 @@ use Nemesis\Core\Database;
  */
 class CreateReviewsTable extends Migration {
     public function up() {
-        Database::connect()->exec("CREATE TABLE IF NOT EXISTS reviews (
+        $db = Database::connect();
+        if (Database::getDriverName() === 'sqlite') {
+            $db->exec("CREATE TABLE IF NOT EXISTS reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id INTEGER NOT NULL,
+                reviewer_id INTEGER NOT NULL,
+                reviewee_id INTEGER NOT NULL,
+                rating INTEGER NOT NULL,
+                comment TEXT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (job_id, reviewer_id)
+            )");
+            $db->exec('CREATE INDEX IF NOT EXISTS idx_reviews_reviewee ON reviews (reviewee_id)');
+            $db->exec('CREATE INDEX IF NOT EXISTS idx_reviews_reviewer ON reviews (reviewer_id)');
+            $db->exec('CREATE INDEX IF NOT EXISTS idx_reviews_rating ON reviews (rating)');
+            return;
+        }
+        $db->exec("CREATE TABLE IF NOT EXISTS reviews (
             id INT AUTO_INCREMENT PRIMARY KEY,
             job_id INT NOT NULL,
             reviewer_id INT NOT NULL,

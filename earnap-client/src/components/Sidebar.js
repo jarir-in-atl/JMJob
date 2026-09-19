@@ -20,6 +20,7 @@ const USER_NAV_ITEMS = [
 const ADMIN_NAV_ITEMS = [
     { path: '/admin', label: 'Overview', icon: 'bi-speedometer2' },
     { path: '/admin/pending-jobs', label: 'Job Post', icon: 'bi-file-earmark-plus' },
+    { path: '/admin/admin-job-post', label: 'Admin Job Post', icon: 'bi-plus-square' },
     { path: '/admin/active-jobs', label: 'Active Job', icon: 'bi-lightning-charge' },
     { path: '/admin/payments', label: 'Payments & TRX', icon: 'bi-cash-stack' },
     { path: '/admin/jobs', label: 'Job Moderation', icon: 'bi-shield-check' },
@@ -46,7 +47,7 @@ function getNavItems() {
     }
 
     const items = [...USER_NAV_ITEMS];
-    if (u) {
+    if (u && (u.is_admin || u.role === 'poster')) {
         items.push({ separator: true }, ...POSTER_NAV_ITEMS);
     }
     return items;
@@ -192,4 +193,3 @@ export function closeSidebar() {
     if (sidebar) sidebar.classList.remove('sidebar--open');
     if (overlay) overlay.classList.remove('sidebar-overlay--active');
 }
-

@@ -19,7 +19,7 @@ readonly class QueueConfig
     {
         return new static(
             driver:      (string) (getenv('QUEUE_DRIVER')  ?: 'database'),
-            table:       'jobs',
+            table:       'queue_jobs',
             failedTable: 'failed_jobs',
             retryAfter:  90,
             maxTries:    3,

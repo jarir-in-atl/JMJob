@@ -28,6 +28,8 @@ export function AdminPage() {
                 <button class="admin-tab" data-tab="payments"><i class="bi bi-cash-stack"></i> Deposits</button>
                 <button class="admin-tab" data-tab="users"><i class="bi bi-people"></i> Users & Roles</button>
                 <button class="admin-tab" data-tab="providers"><i class="bi bi-play-circle"></i> Ad Providers</button>
+                <button class="admin-tab" data-tab="video-ads"><i class="bi bi-film"></i> Video Ads</button>
+                <button class="admin-tab" data-tab="fraud"><i class="bi bi-shield-exclamation"></i> Fraud Review</button>
             </div>
             <div class="admin-tab-content" id="admin-content"><div class="spinner"></div></div>
         `;
@@ -54,6 +56,7 @@ async function renderTab(name, content) {
             ]);
             const s = statsResponse.data || {};
             const r = revenueResponse.data || {};
+            const m = s.marketplace || {};
             const symbol = r.currency_symbol || '৳';
             content.innerHTML = `
                 <div class="stat-grid admin-revenue-grid">
@@ -65,6 +68,8 @@ async function renderTab(name, content) {
                     ${adminStatTile('bi-people', 'Total users', number(r.total_users))}
                     ${adminStatTile('bi-hourglass-split', 'Pending deposits', number(r.pending_payments))}
                     ${adminStatTile('bi-lock', 'Held in escrow', money(r.escrow_total, symbol))}
+                    ${adminStatTile('bi-hourglass-split', 'Pending submissions', number(m.pending_submissions))}
+                    ${adminStatTile('bi-shield-exclamation', 'Flagged submissions', number(m.flagged_submissions))}
                 </div>
                 <div class="card admin-operations-card">
                     <div class="card__header">
@@ -78,7 +83,21 @@ async function renderTab(name, content) {
                         <div><span class="muted">Withdrawals</span><strong>${number(s.total_withdrawals)}</strong></div>
                         <div><span class="muted">Pending withdrawals</span><strong>${number(s.pending_withdrawals)}</strong></div>
                         <div><span class="muted">Total ad views</span><strong>${number(s.total_ad_views)}</strong></div>
+                        <div><span class="muted">Video ad views</span><strong>${number(s.video_ad_views)}</strong></div>
+                        <div><span class="muted">Video rewards paid</span><strong>${money(s.video_rewards_paid, symbol)}</strong></div>
+                        <div><span class="muted">Banned users</span><strong>${number(s.banned_users)}</strong></div>
                         <div><span class="muted">Lifetime paid</span><strong>${money(s.total_lifetime_paid, symbol)}</strong></div>
+                        <div><span class="muted">Pending jobs</span><strong>${number(m.pending_jobs)}</strong></div>
+                        <div><span class="muted">Rejected jobs</span><strong>${number(m.rejected_jobs)}</strong></div>
+                        <div><span class="muted">Total workers</span><strong>${number(m.total_workers)}</strong></div>
+                        <div><span class="muted">Approved submissions</span><strong>${number(m.approved_submissions)}</strong></div>
+                        <div><span class="muted">Rejected submissions</span><strong>${number(m.rejected_submissions)}</strong></div>
+                        <div><span class="muted">Job budget</span><strong>${money(m.total_job_budget, symbol)}</strong></div>
+                        <div><span class="muted">Completed payments</span><strong>${money(m.completed_payment, symbol)}</strong></div>
+                        <div><span class="muted">Pending payments</span><strong>${money(m.pending_payment, symbol)}</strong></div>
+                        <div><span class="muted">Commissions</span><strong>${money(m.commissions, symbol)}</strong></div>
+                        <div><span class="muted">Worker earnings</span><strong>${money(m.worker_earnings, symbol)}</strong></div>
+                        <div><span class="muted">Ad rewards</span><strong>${money(m.ad_earnings, symbol)}</strong></div>
                     </div>
                 </div>
                 <div class="card admin-config-card">
@@ -143,6 +162,7 @@ async function renderTab(name, content) {
                     </div>
                     <div class="admin-user-controls">
                         <span class="muted">Balance: ৳${Number(u.balance || 0).toFixed(2)} · Earned: ৳${Number(u.lifetime_earned || 0).toFixed(2)}</span>
+                        <span class="badge user-status-badge ${u.is_banned ? 'badge--danger' : 'badge--success'}">${u.is_banned ? 'BANNED' : 'ACTIVE'}</span>
                         <label class="admin-user-role-label">Role
                             <select class="admin-select admin-user-role" ${Number(u.id) === currentId ? 'disabled' : ''}>
                                 ${['worker', 'poster', 'admin'].map(role => `<option value="${role}" ${(u.role || (u.is_admin ? 'admin' : 'worker')) === role ? 'selected' : ''}>${role[0].toUpperCase() + role.slice(1)}</option>`).join('')}
@@ -164,6 +184,34 @@ async function renderTab(name, content) {
                         showFlash(e.message || 'Role update failed', 'error');
                     }
                 });
+
+                if (Number(u.id) !== currentId) {
+                    const banButton = document.createElement('button');
+                    banButton.className = `btn ${u.is_banned ? 'btn--success' : 'btn--danger'} btn--sm`;
+                    banButton.textContent = u.is_banned ? 'Unban user' : 'Ban user';
+                    banButton.addEventListener('click', async () => {
+                        const reason = prompt(u.is_banned ? 'Reason for unbanning:' : 'Reason for banning this user:', u.ban_reason || '');
+                        if (reason === null || (!u.is_banned && !reason.trim())) return;
+                        try {
+                            const updated = u.is_banned
+                                ? await api.adminUnbanUser(u.id, { reason })
+                                : await api.adminBanUser(u.id, { reason });
+                            u.is_banned = !!updated.data?.is_banned;
+                            u.ban_reason = u.is_banned ? reason : null;
+                            banButton.className = `btn ${u.is_banned ? 'btn--success' : 'btn--danger'} btn--sm`;
+                            banButton.textContent = u.is_banned ? 'Unban user' : 'Ban user';
+                            const status = row.querySelector('.user-status-badge');
+                            if (status) {
+                                status.className = `badge user-status-badge ${u.is_banned ? 'badge--danger' : 'badge--success'}`;
+                                status.textContent = u.is_banned ? 'BANNED' : 'ACTIVE';
+                            }
+                            showFlash(updated.message || 'User status updated.', 'success');
+                        } catch (e) {
+                            showFlash(e.message || 'Could not update user status.', 'error');
+                        }
+                    });
+                    row.querySelector('.admin-user-controls').appendChild(banButton);
+                }
                 list.appendChild(row);
             });
         } else if (name === 'providers') {
@@ -172,6 +220,42 @@ async function renderTab(name, content) {
             content.innerHTML = `<div class="admin-list"></div>`;
             const list = content.querySelector('.admin-list');
             items.forEach(p => list.appendChild(renderProvider(p, list)));
+        } else if (name === 'video-ads') {
+            await renderVideoAds(content);
+        } else if (name === 'fraud') {
+            const res = await api.adminFraudSubmissions();
+            const items = res.data || [];
+            content.innerHTML = `<div class="card"><p class="muted">Risk signals are advisory. Confirm fraud only after reviewing the proof. A confirmed decision can optionally ban the worker and revoke active sessions.</p></div><div class="admin-list" id="fraud-list"></div>`;
+            const list = content.querySelector('#fraud-list');
+            if (!items.length) list.innerHTML = '<p class="muted">No flagged submissions.</p>';
+            items.forEach(item => {
+                const row = document.createElement('div');
+                row.className = 'admin-row';
+                row.innerHTML = `
+                    <div>
+                        <strong>${escapeHtml(item.worker_name || 'Unknown worker')}</strong>
+                        <span class="muted">${escapeHtml(item.worker_email || '')} · Job: ${escapeHtml(item.job_title || '')}</span>
+                        <p>${escapeHtml(item.description || '')}</p>
+                        <span class="badge badge--danger">Risk ${Number(item.risk_score || 0).toFixed(0)}</span>
+                        <span class="muted">${escapeHtml((item.risk_flags || []).join(', ') || 'Manual review')}</span>
+                        ${item.attachment_url ? `<a href="${escapeHtml(item.attachment_url)}" target="_blank" rel="noopener">Open proof</a>` : ''}
+                    </div>
+                    <div class="admin-row__actions"><button class="btn btn--success btn--sm" data-fraud-decision="cleared">Clear</button><button class="btn btn--danger btn--sm" data-fraud-decision="confirmed_fraud">Confirm fraud</button></div>
+                `;
+                row.querySelectorAll('[data-fraud-decision]').forEach(button => button.addEventListener('click', async () => {
+                    const decision = button.dataset.fraudDecision;
+                    const note = decision === 'confirmed_fraud' ? prompt('Reason for confirming fraud:') : (prompt('Optional review note:') || '');
+                    if (note === null || (decision === 'confirmed_fraud' && !note.trim())) return;
+                    const banUser = decision === 'confirmed_fraud' && confirm('Also ban this worker and revoke active sessions?');
+                    try {
+                        const result = await api.adminReviewFraud(item.id, { decision, note, ban_user: banUser });
+                        showFlash(result.data?.user_banned ? 'Fraud review saved and worker banned.' : 'Fraud review saved.', 'success');
+                        row.remove();
+                        if (!list.children.length) list.innerHTML = '<p class="muted">No flagged submissions.</p>';
+                    } catch (e) { showFlash(e.message || 'Fraud review failed.', 'error'); }
+                }));
+                list.appendChild(row);
+            });
         }
     } catch (e) {
         content.innerHTML = '<p class="muted">Failed to load.</p>';
@@ -290,6 +374,72 @@ function renderProvider(p, list) {
             await api.adminUpdateProvider(p.id, payload);
             showFlash('Provider saved', 'success');
         } catch (e) { showFlash(e.message, 'error'); }
+    });
+    return row;
+}
+
+async function renderVideoAds(content) {
+    const response = await api.adminVideoAds();
+    const items = response.data || [];
+    content.innerHTML = `
+        <form class="card admin-video-ad-form" id="video-ad-form">
+            <h3 class="card__title">Add sponsored video</h3>
+            <div class="admin-row__form">
+                <label>Title <input name="title" required maxlength="160"></label>
+                <label>Video <input name="video" type="file" accept="video/*" required></label>
+                <label>Duration (seconds) <input name="duration_seconds" type="number" min="1" value="10" required></label>
+                <label>Reward <input name="reward_amount" type="number" min="0" step="0.0001" value="0.005" required></label>
+                <label>Daily limit (0 = unlimited) <input name="daily_limit" type="number" min="0" value="0"></label>
+                <label>Total limit (0 = unlimited) <input name="total_limit" type="number" min="0" value="0"></label>
+                <button class="btn btn--primary btn--sm" type="submit">Upload video ad</button>
+            </div>
+        </form>
+        <div class="admin-list" id="video-ad-list"></div>
+    `;
+    const list = content.querySelector('#video-ad-list');
+    if (!items.length) list.innerHTML = '<p class="muted">No video ads configured.</p>';
+    items.forEach(ad => list.appendChild(renderVideoAdRow(ad, list)));
+    content.querySelector('#video-ad-form').addEventListener('submit', async event => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        try {
+            await api.adminCreateVideoAd(new FormData(form));
+            showFlash('Video ad uploaded.', 'success');
+            await renderVideoAds(content);
+        } catch (e) { showFlash(e.message || 'Video upload failed.', 'error'); }
+    });
+}
+
+function renderVideoAdRow(ad, list) {
+    const row = document.createElement('div');
+    row.className = 'admin-row admin-row--provider';
+    row.innerHTML = `
+        <div class="admin-row__main">
+            <strong>${escapeHtml(ad.title)}</strong>
+            <span class="muted">${ad.duration_seconds}s · reward ${Number(ad.reward_amount || 0).toFixed(4)} · ${Number(ad.completed_views || 0)}/${Number(ad.total_views || 0)} completed</span>
+            <span class="badge ${ad.status === 'active' ? 'badge--green' : ''}">${escapeHtml(String(ad.status || '').toUpperCase())}</span>
+        </div>
+        <div class="admin-row__actions">
+            <button class="btn btn--ghost btn--sm video-ad-toggle">${ad.status === 'active' ? 'Pause' : 'Activate'}</button>
+            <button class="btn btn--danger btn--sm video-ad-delete">Delete</button>
+        </div>
+    `;
+    row.querySelector('.video-ad-toggle').addEventListener('click', async () => {
+        const form = new FormData();
+        form.append('status', ad.status === 'active' ? 'paused' : 'active');
+        try {
+            await api.adminUpdateVideoAd(ad.id, form);
+            showFlash('Video ad status updated.', 'success');
+            await renderVideoAds(list.parentElement);
+        } catch (e) { showFlash(e.message || 'Could not update video ad.', 'error'); }
+    });
+    row.querySelector('.video-ad-delete').addEventListener('click', async () => {
+        if (!confirm(`Delete “${ad.title}”?`)) return;
+        try {
+            await api.adminDeleteVideoAd(ad.id);
+            showFlash('Video ad deleted.', 'success');
+            row.remove();
+        } catch (e) { showFlash(e.message || 'Could not delete video ad.', 'error'); }
     });
     return row;
 }

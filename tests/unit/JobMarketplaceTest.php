@@ -20,6 +20,9 @@ use Nemesis\Testing\TestCase;
 use App\Models\Job;
 use App\Models\JobBid;
 use App\Models\JobSubmission;
+use App\Models\JobAssignment;
+use App\Models\VideoAd;
+use App\Models\VideoAdView;
 use App\Models\Transaction;
 use App\Models\Category;
 use App\Models\PlatformSetting;
@@ -92,6 +95,33 @@ class JobMarketplaceTest extends TestCase
     {
         $s = new JobSubmission();
         $this->assertEquals('job_submissions', $s->getTable());
+    }
+
+    public function testJobAssignmentStatusConstants(): void
+    {
+        $this->assertEquals('assigned', JobAssignment::STATUS_ASSIGNED);
+        $this->assertEquals('in_progress', JobAssignment::STATUS_IN_PROGRESS);
+        $this->assertEquals('submitted', JobAssignment::STATUS_SUBMITTED);
+        $this->assertEquals('revision', JobAssignment::STATUS_REVISION);
+        $this->assertEquals('completed', JobAssignment::STATUS_COMPLETED);
+        $this->assertTrue(in_array(JobAssignment::STATUS_SUBMITTED, JobAssignment::ACTIVE_STATUSES, true));
+        $this->assertFalse(in_array(JobAssignment::STATUS_COMPLETED, JobAssignment::ACTIVE_STATUSES, true));
+    }
+
+    public function testJobAssignmentTableName(): void
+    {
+        $assignment = new JobAssignment();
+        $this->assertEquals('job_assignments', $assignment->getTable());
+    }
+
+    public function testVideoAdModels(): void
+    {
+        $this->assertEquals('video_ads', (new VideoAd())->getTable());
+        $this->assertEquals('video_ad_views', (new VideoAdView())->getTable());
+        $this->assertEquals('active', VideoAd::STATUS_ACTIVE);
+        $this->assertEquals('paused', VideoAd::STATUS_PAUSED);
+        $this->assertTrue((new VideoAd(['status' => 'active']))->isActive());
+        $this->assertFalse((new VideoAd(['status' => 'paused']))->isActive());
     }
 
     // -------------------------------------------------------------------
@@ -189,6 +219,15 @@ class JobMarketplaceTest extends TestCase
             '2026_09_03_000007_create_job_submissions_table.php',
             '2026_09_03_000008_create_transactions_table.php',
             '2026_09_03_000009_create_reviews_table.php',
+            '2026_09_19_000001_create_job_assignments_table.php',
+            '2026_09_19_000002_add_job_submission_review_fields.php',
+            '2026_09_19_000003_add_user_bans_and_admin_audit.php',
+            '2026_09_19_000004_create_video_ads_and_settings.php',
+            '2026_09_19_000005_add_job_customer_details.php',
+            '2026_09_19_000006_resolve_jobs_table_collision.php',
+            '2026_09_19_000007_add_submission_risk_fields.php',
+            '2026_09_19_000008_add_fraud_policy_settings.php',
+            '2026_09_19_000009_reconcile_category_cost_fields.php',
         ];
         foreach ($expected as $f) {
             $path = base_path('database/migrations/' . $f);
@@ -207,6 +246,15 @@ class JobMarketplaceTest extends TestCase
             '2026_09_03_000007_create_job_submissions_table.php',
             '2026_09_03_000008_create_transactions_table.php',
             '2026_09_03_000009_create_reviews_table.php',
+            '2026_09_19_000001_create_job_assignments_table.php',
+            '2026_09_19_000002_add_job_submission_review_fields.php',
+            '2026_09_19_000003_add_user_bans_and_admin_audit.php',
+            '2026_09_19_000004_create_video_ads_and_settings.php',
+            '2026_09_19_000005_add_job_customer_details.php',
+            '2026_09_19_000006_resolve_jobs_table_collision.php',
+            '2026_09_19_000007_add_submission_risk_fields.php',
+            '2026_09_19_000008_add_fraud_policy_settings.php',
+            '2026_09_19_000009_reconcile_category_cost_fields.php',
         ];
         foreach ($files as $f) {
             $path = base_path('database/migrations/' . $f);
@@ -254,6 +302,7 @@ class JobMarketplaceTest extends TestCase
         $this->assertTrue(str_contains($content, '/bids/{id}'));
         $this->assertTrue(str_contains($content, '/worker/bids'));
         $this->assertTrue(str_contains($content, '/worker/active-jobs'));
+        $this->assertTrue(str_contains($content, '/worker/assignments/{id}/cancel'));
         $this->assertTrue(str_contains($content, '/jobs/{id}/submit'));
         $this->assertTrue(str_contains($content, '/worker/submissions'));
         // Poster
@@ -267,6 +316,16 @@ class JobMarketplaceTest extends TestCase
         $this->assertTrue(str_contains($content, '/admin/settings'));
         $this->assertTrue(str_contains($content, '/admin/transactions'));
         $this->assertTrue(str_contains($content, '/admin/revenue'));
+        $this->assertTrue(str_contains($content, '/ads/videos'));
+        $this->assertTrue(str_contains($content, '/ads/videos/start'));
+        $this->assertTrue(str_contains($content, '/ads/videos/claim'));
+        $this->assertTrue(str_contains($content, '/admin/video-ads'));
+        $this->assertTrue(str_contains($content, '/admin/jobs/{id}/detail'));
+        $this->assertTrue(str_contains($content, '/admin/jobs/{id}/edit'));
+        $this->assertTrue(str_contains($content, '/admin/assignments/{id}/cancel'));
+        $this->assertTrue(str_contains($content, '/admin/assignments/{id}/reassign'));
+        $this->assertTrue(str_contains($content, '/admin/fraud/submissions'));
+        $this->assertTrue(str_contains($content, '/admin/fraud/submissions/{id}/review'));
     }
 
     public function testControllerFilesSyntaxValid(): void
@@ -277,6 +336,13 @@ class JobMarketplaceTest extends TestCase
             'app/Http/Controllers/Api/JobController.php',
             'app/Http/Controllers/Api/PosterController.php',
             'app/Http/Controllers/Api/AdminSettingsController.php',
+            'app/Http/Controllers/Api/VideoAdController.php',
+            'app/Http/Controllers/Api/AdminVideoAdController.php',
+            'app/Http/Controllers/Api/AdminJobController.php',
+            'app/Services/NotificationService.php',
+            'app/Notifications/PlatformNotification.php',
+            'app/Console/Kernel.php',
+            'tests/JobMarketplaceIntegrationTest.php',
             'routes/api.php',
         ];
         foreach ($files as $f) {
@@ -334,7 +400,8 @@ class JobMarketplaceTest extends TestCase
         $content = file_get_contents(base_path('earnap-client/src/api.js'));
         foreach (['jobs', 'job', 'placeBid', 'workerBids', 'workerActiveJobs', 'submitWork',
                   'posterCreateJob', 'posterAcceptBid', 'posterReleasePayment',
-                  'adminCategories', 'adminSettings', 'adminUpdateSettings'] as $m) {
+                  'workerCancelAssignment', 'adminCategories', 'adminSettings', 'adminUpdateSettings',
+                  'videoAds', 'videoAdStart', 'videoAdClaim', 'adminVideoAds'] as $m) {
             $this->assertTrue(str_contains($content, $m), "Missing api method: $m");
         }
     }

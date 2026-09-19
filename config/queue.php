@@ -10,7 +10,8 @@ return [
         ],
         'database' => [
             'driver'     => 'database',
-            'table'      => 'jobs',
+            // Keep queue records separate from marketplace job listings.
+            'table'      => 'queue_jobs',
             'queue'      => 'default',
             'retry_after' => 90,
         ],

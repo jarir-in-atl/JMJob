@@ -7,6 +7,8 @@ use Nemesis\Core\Controller;
 use Nemesis\Http\Request;
 use Nemesis\Http\Response;
 use App\Models\AdProvider;
+use App\Services\AdConfigurationService;
+use App\Services\SettingService;
 use Nemesis\Core\Fluent;
 
 /**
@@ -45,6 +47,16 @@ class AdController extends Controller
                 'daily_limit'    => (int) (getenv('AD_DAILY_LIMIT') ?: 50),
                 'min_duration'   => (int) (getenv('AD_MIN_DURATION_SECONDS') ?: 12),
                 'default_reward' => (float) (getenv('AD_REWARD_PER_VIEW') ?: 0.005),
+                'advertisement_system_enabled' => (bool) SettingService::get('advertisement_system_enabled', true),
+                'watch_earn_enabled' => (bool) SettingService::get('watch_earn_enabled', true),
+                'website_ads_enabled' => (bool) SettingService::get('website_ads_enabled', true),
+                'app_ads_enabled' => (bool) SettingService::get('app_ads_enabled', true),
+                'website_publisher_id' => (string) SettingService::get('website_publisher_id', ''),
+                'app_publisher_id' => (string) SettingService::get('app_publisher_id', ''),
+                'website_ad_units' => (array) SettingService::get('website_ad_units', []),
+                'app_ad_units' => (array) SettingService::get('app_ad_units', []),
+                'ad_frequency_seconds' => (int) SettingService::get('ad_frequency_seconds', 60),
+                'placements' => AdConfigurationService::publicConfig(),
             ],
         ]);
     }

@@ -33,6 +33,9 @@ fi
 FTP_PORT=${FTP_PORT:-21}
 SERVER_ROOT="/public_html"
 LOCAL_ROOT="$SCRIPT_DIR"
+# APP_URL is commonly a local development URL; never use it as the production
+# migration target unless the deploy caller explicitly supplies SITE_URL.
+SITE_URL="${SITE_URL:-https://jmjob.xyz}"
 
 echo -e "${BLUE}============================================================${NC}"
 echo -e "${BLUE}  JMJob — Deployment${NC}"
@@ -78,7 +81,9 @@ open ftp://$FTP_USER:$FTP_PASS@$FTP_HOST:$FTP_PORT
 # account may contain unrelated server files that this app must leave intact.
 # Secrets, local tooling, source dependencies, tests, caches, and databases are
 # intentionally excluded from the production upload.
-mirror --reverse --verbose --no-perms --only-newer --parallel=1 \
+# Ignore unreliable FTP timestamps and compare file sizes instead. Do not use
+# --only-newer here: this host can report every local file as newer on each run.
+mirror --reverse --verbose --no-perms --ignore-time --parallel=1 \
   --exclude-glob '.env' \
   --exclude-glob '.env.*' \
   --exclude-glob '.git/' \
@@ -116,7 +121,7 @@ mirror --reverse --verbose --no-perms --only-newer --parallel=1 \
 # Public assets are flattened into the web root. A database helper is kept
 # private because it is not part of the public application entry point.
 cd $SERVER_ROOT
-mirror --reverse --verbose --no-perms --only-newer --parallel=1 \
+mirror --reverse --verbose --no-perms --ignore-time --parallel=1 \
   --exclude-glob 'create_missing_tables.php' \
   --exclude-glob 'index.php' \
   --exclude-glob 'index.html' \
@@ -156,11 +161,15 @@ echo -e "  📄 Blade:  views/app.blade.php"
 echo ""
 
 # ============================================================
-# Step 4: Run migrations & seed categories
+# Step 4: Run pending production migrations
 # ============================================================
-echo -e "${YELLOW}▶ Step 4: Running migrations and category seeder...${NC}"
+echo -e "${YELLOW}▶ Step 4: Running pending production migrations...${NC}"
 echo ""
-curl -s "https://jmjob.xyz/migration_runner.php?seed_categories=1" 2>&1
+curl -fsS --retry 2 --retry-delay 2 --max-time 60 \
+  -X POST \
+  "$SITE_URL/migration_runner.php"
+echo ""
+echo -e "${GREEN}  ✅ Migrations complete${NC}"
 echo ""
 
 # ============================================================

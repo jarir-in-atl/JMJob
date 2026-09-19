@@ -1,0 +1,438 @@
+<?php
+declare(strict_types=1);
+
+namespace App\Http\Controllers\Api;
+
+use App\Models\Job;
+use App\Models\JobAssignment;
+use App\Models\JobBid;
+use App\Models\JobSubmission;
+use App\Models\User;
+use App\Services\JobService;
+use App\Services\SettingService;
+use Nemesis\Core\Controller;
+use Nemesis\Core\Database;
+use Nemesis\Core\Fluent;
+use Nemesis\Http\Request;
+use Nemesis\Http\Response;
+
+/** Admin-created job posts and protected job detail management. */
+class AdminJobController extends Controller
+{
+    public function __construct(private JobService $jobService = new JobService()) {}
+
+    public function store(Request $request): Response
+    {
+        $admin = $request->getMeta('auth.user');
+        $body = $this->readJson($request);
+        $error = $this->validateJobInput($body, true);
+        if ($error !== null) return Response::json(['success' => false, 'message' => $error], 422);
+
+        $proof = $this->normalizeProofRequirements($body['proof_requirements'] ?? []);
+        $deadline = $this->dateValue($body['deadline_at'] ?? null) ?: date('Y-m-d H:i:s', time() + 7 * 86400);
+        $result = $this->jobService->createWorkflowJob(
+            $admin,
+            (int) $body['category_id'],
+            isset($body['subcategory_id']) && (int) $body['subcategory_id'] > 0 ? (int) $body['subcategory_id'] : null,
+            trim((string) $body['title']),
+            trim((string) $body['description']),
+            $proof,
+            (int) $body['worker_count'],
+            (float) $body['cost_per_worker'],
+            $deadline,
+            trim((string) ($body['subtitle'] ?? '')) ?: null,
+            trim((string) ($body['customer_name'] ?? '')) ?: $admin->name,
+            trim((string) ($body['customer_phone'] ?? '')) ?: ($admin->phone ?? null),
+            trim((string) ($body['customer_email'] ?? '')) ?: $admin->email
+        );
+        if (!($result['success'] ?? false)) return Response::json($result, 422);
+
+        $jobId = (int) $result['job']->id;
+        $publish = $this->truthy($body['publish'] ?? false);
+        $metadata = [
+            'requirements' => trim((string) ($body['requirements'] ?? '')) ?: null,
+            'subtitle' => trim((string) ($body['subtitle'] ?? '')) ?: null,
+            'customer_name' => trim((string) ($body['customer_name'] ?? '')) ?: $admin->name,
+            'customer_phone' => trim((string) ($body['customer_phone'] ?? '')) ?: ($admin->phone ?? null),
+            'customer_email' => trim((string) ($body['customer_email'] ?? '')) ?: $admin->email,
+            'admin_notes' => trim((string) ($body['admin_notes'] ?? '')) ?: null,
+            'created_by_admin_id' => (int) $admin->id,
+            'status' => $publish ? Job::STATUS_OPEN : Job::STATUS_PENDING_APPROVAL,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ];
+        Fluent::table('jobs')->where('id', '=', $jobId)->update($metadata);
+        $this->audit($admin, 'job.create', $jobId, ['publish' => $publish]);
+
+        return Response::json([
+            'success' => true,
+            'message' => $publish ? 'Admin job created and activated.' : 'Admin job saved for review.',
+            'data' => $this->detailPayload($jobId),
+        ], 201);
+    }
+
+    public function show(Request $request, int $id): Response
+    {
+        if (Job::find($id) === null) return Response::json(['success' => false, 'message' => 'Job not found.'], 404);
+        return Response::json(['success' => true, 'data' => $this->detailPayload($id)]);
+    }
+
+    public function update(Request $request, int $id): Response
+    {
+        $admin = $request->getMeta('auth.user');
+        $job = Job::find($id);
+        if ($job === null) return Response::json(['success' => false, 'message' => 'Job not found.'], 404);
+        $body = $this->readJson($request);
+        $error = $this->validateJobInput($body, false);
+        if ($error !== null) return Response::json(['success' => false, 'message' => $error], 422);
+
+        $assignedCount = $this->activeAssignmentCount($id);
+        $workerCount = array_key_exists('worker_count', $body) ? (int) $body['worker_count'] : (int) ($job->worker_count ?: 1);
+        $costPerWorker = array_key_exists('cost_per_worker', $body) ? (float) $body['cost_per_worker'] : (float) ($job->cost_per_worker ?: $job->budget);
+        if ($assignedCount > 0 && ($workerCount !== (int) ($job->worker_count ?: 1) || abs($costPerWorker - (float) ($job->cost_per_worker ?: $job->budget)) > 0.00001)) {
+            return Response::json(['success' => false, 'message' => 'Worker count and payment cannot change after assignments exist.'], 422);
+        }
+        if ($workerCount < $assignedCount) {
+            return Response::json(['success' => false, 'message' => 'Worker count cannot be lower than current assignments.'], 422);
+        }
+
+        $update = [];
+        foreach (['title', 'subtitle', 'description', 'requirements', 'customer_name', 'customer_phone', 'customer_email', 'admin_notes'] as $field) {
+            if (array_key_exists($field, $body)) $update[$field] = trim((string) ($body[$field] ?? '')) ?: null;
+        }
+        foreach (['category_id', 'subcategory_id'] as $field) {
+            if (array_key_exists($field, $body)) $update[$field] = (int) $body[$field] > 0 ? (int) $body[$field] : null;
+        }
+        if (array_key_exists('proof_requirements', $body)) {
+            $update['proof_requirements'] = json_encode($this->normalizeProofRequirements($body['proof_requirements']), JSON_UNESCAPED_UNICODE);
+        }
+        if (array_key_exists('deadline_at', $body)) {
+            $deadline = $this->dateValue($body['deadline_at']);
+            $update['deadline_at'] = $deadline;
+            $update['bidding_closes_at'] = $deadline;
+        }
+        if (array_key_exists('worker_count', $body) || array_key_exists('cost_per_worker', $body)) {
+            $feePercent = (float) ($job->system_fee_percent ?: SettingService::get('job_system_fee_percentage', 30.00));
+            $budget = round($workerCount * $costPerWorker, 4);
+            $fee = round($budget * $feePercent / 100, 4);
+            $update += [
+                'worker_count' => $workerCount,
+                'cost_per_worker' => $costPerWorker,
+                'budget' => $budget,
+                'system_fee_percent' => $feePercent,
+                'system_fee_amount' => $fee,
+                'total_payable_amount' => round($budget + $fee, 4),
+            ];
+        }
+        if (array_key_exists('publish', $body)) {
+            $update['status'] = $this->truthy($body['publish']) ? Job::STATUS_OPEN : Job::STATUS_PENDING_APPROVAL;
+        } elseif (isset($body['status']) && in_array((string) $body['status'], [Job::STATUS_PENDING_APPROVAL, Job::STATUS_OPEN, Job::STATUS_DECLINED], true)) {
+            $update['status'] = (string) $body['status'];
+        }
+        if (!$update) return Response::json(['success' => true, 'message' => 'No changes supplied.', 'data' => $this->detailPayload($id)]);
+
+        $update['updated_at'] = date('Y-m-d H:i:s');
+        try {
+            Fluent::table('jobs')->where('id', '=', $id)->update($update);
+        } catch (\Throwable $e) {
+            return Response::json(['success' => false, 'message' => 'Job update failed.'], 500);
+        }
+        $this->audit($admin, 'job.update', $id, ['fields' => array_keys($update)]);
+        return Response::json(['success' => true, 'message' => 'Job updated.', 'data' => $this->detailPayload($id)]);
+    }
+
+    public function delete(Request $request, int $id): Response
+    {
+        $admin = $request->getMeta('auth.user');
+        $job = Job::find($id);
+        if ($job === null) return Response::json(['success' => false, 'message' => 'Job not found.'], 404);
+        if ($this->activeAssignmentCount($id) > 0 || in_array((string) $job->status, [Job::STATUS_COMPLETED, Job::STATUS_DISPUTED], true)) {
+            return Response::json(['success' => false, 'message' => 'Assigned or closed jobs cannot be deleted; cancel or resolve them first.'], 422);
+        }
+
+        $db = Database::connect();
+        try {
+            Database::beginWriteTransaction($db);
+            Fluent::table('job_submissions')->where('job_id', '=', $id)->delete();
+            if (JobAssignment::isAvailable()) {
+                Fluent::table('job_assignments')->where('job_id', '=', $id)->delete();
+            }
+            Fluent::table('job_bids')->where('job_id', '=', $id)->delete();
+            Fluent::table('jobs')->where('id', '=', $id)->delete();
+            $this->audit($admin, 'job.delete', $id, ['title' => $job->title]);
+            Database::commitWriteTransaction($db);
+        } catch (\Throwable $e) {
+            Database::rollbackWriteTransaction($db);
+            return Response::json(['success' => false, 'message' => 'Job deletion failed.'], 500);
+        }
+        return Response::json(['success' => true, 'message' => 'Job deleted.', 'data' => ['id' => $id]]);
+    }
+
+    public function cancelAssignment(Request $request, int $id): Response
+    {
+        $admin = $request->getMeta('auth.user');
+        $body = $this->readJson($request);
+        $reason = trim((string) ($body['reason'] ?? 'Cancelled by administrator'));
+        if ($reason === '') return Response::json(['success' => false, 'message' => 'A cancellation reason is required.'], 422);
+
+        $result = $this->jobService->cancelAssignment($id, (int) $admin->id, $reason, 'admin');
+        if (!($result['success'] ?? false)) return Response::json($result, 422);
+        $assignment = $result['assignment'] ?? null;
+        $jobId = $assignment ? (int) $assignment->job_id : 0;
+        $this->audit($admin, 'assignment.cancel', $jobId, [
+            'assignment_id' => $id,
+            'reason' => $reason,
+        ]);
+        return Response::json([
+            'success' => true,
+            'message' => $result['message'],
+            'data' => $jobId > 0 ? $this->detailPayload($jobId) : ['assignment_id' => $id],
+        ]);
+    }
+
+    public function reassignAssignment(Request $request, int $id): Response
+    {
+        $admin = $request->getMeta('auth.user');
+        $body = $this->readJson($request);
+        $bidId = (int) ($body['bid_id'] ?? 0);
+        if ($bidId <= 0) return Response::json(['success' => false, 'message' => 'A pending bid is required for reassignment.'], 422);
+
+        $assignment = JobAssignment::find($id);
+        if ($assignment === null) return Response::json(['success' => false, 'message' => 'Assignment not found.'], 404);
+        $jobId = (int) $assignment->job_id;
+        $replacementBid = JobBid::find($bidId);
+        if ($replacementBid === null || (int) $replacementBid->job_id !== $jobId || !$replacementBid->isPending()) {
+            return Response::json(['success' => false, 'message' => 'Replacement bid must be a pending bid for the same job.'], 422);
+        }
+        $reason = trim((string) ($body['reason'] ?? 'Reassigned by administrator'));
+        $result = $this->jobService->reassignAssignment($id, $bidId, (int) $admin->id, $reason);
+        if (!($result['success'] ?? false)) return Response::json($result, 422);
+        $this->audit($admin, 'assignment.reassign', $jobId, [
+            'assignment_id' => $id,
+            'replacement_bid_id' => $bidId,
+            'reason' => $reason,
+        ]);
+        return Response::json([
+            'success' => true,
+            'message' => $result['message'],
+            'data' => $this->detailPayload($jobId),
+        ]);
+    }
+
+    private function detailPayload(int $id): array
+    {
+        $job = Job::find($id);
+        if ($job === null) return [];
+        $assignments = [];
+        foreach (JobAssignment::forJob($id) as $assignment) {
+            $worker = $assignment->worker();
+            $latest = JobSubmission::latestForAssignment((int) $assignment->id);
+            $assignments[] = [
+                'id' => (int) $assignment->id,
+                'bid_id' => (int) $assignment->bid_id,
+                'worker_id' => (int) $assignment->worker_id,
+                'status' => $assignment->status,
+                'payment_status' => $assignment->payment_status,
+                'payment_amount' => (float) $assignment->payment_amount,
+                'assigned_at' => $assignment->assigned_at,
+                'submitted_at' => $assignment->submitted_at,
+                'completed_at' => $assignment->completed_at,
+                'worker' => $worker ? [
+                    'id' => (int) $worker->id,
+                    'name' => $worker->name,
+                    'username' => $worker->username,
+                    'phone' => $worker->phone ?? null,
+                    'email' => $worker->email,
+                    'is_banned' => $worker->isBanned(),
+                ] : null,
+                'latest_submission_id' => $latest ? (int) $latest->id : null,
+                'latest_submission_status' => $latest?->status,
+            ];
+        }
+        $submissions = [];
+        foreach (JobSubmission::forJob($id) as $submission) {
+            $worker = $submission->worker();
+            $submissions[] = [
+                'id' => (int) $submission->id,
+                'assignment_id' => $submission->assignment_id ? (int) $submission->assignment_id : null,
+                'worker_id' => (int) $submission->worker_id,
+                'status' => $submission->status,
+                'description' => $submission->description,
+                'external_link' => $submission->external_link,
+                'attachment_url' => $submission->attachment_path ? '/api/jobs/submissions/' . (int) $submission->id . '/attachment' : null,
+                'attempt_number' => (int) ($submission->attempt_number ?: 1),
+                'submitted_at' => $submission->submitted_at ?: $submission->created_at,
+                'reviewed_at' => $submission->reviewed_at,
+                'reviewer_note' => $submission->reviewer_note,
+                'rejection_reason' => $submission->rejection_reason,
+                'risk_score' => (float) ($submission->risk_score ?? 0),
+                'risk_status' => $submission->risk_status ?? 'clear',
+                'risk_flags' => is_string($submission->risk_flags ?? null)
+                    ? (json_decode((string) $submission->risk_flags, true) ?: [])
+                    : ((array) ($submission->risk_flags ?? [])),
+                'worker' => $worker ? [
+                    'id' => (int) $worker->id,
+                    'name' => $worker->name,
+                    'phone' => $worker->phone ?? null,
+                    'email' => $worker->email,
+                ] : null,
+            ];
+        }
+        $bids = [];
+        foreach (JobBid::forJob($id) as $bid) {
+            $worker = $bid->worker();
+            $bids[] = [
+                'id' => (int) $bid->id,
+                'worker_id' => (int) $bid->worker_id,
+                'amount' => (float) $bid->amount,
+                'currency' => $bid->currency,
+                'proposal' => $bid->proposal,
+                'status' => $bid->status,
+                'created_at' => $bid->created_at,
+                'worker' => $worker ? [
+                    'id' => (int) $worker->id,
+                    'name' => $worker->name,
+                    'email' => $worker->email,
+                    'phone' => $worker->phone ?? null,
+                    'is_banned' => $worker->isBanned(),
+                ] : null,
+            ];
+        }
+        $customerName = $job->customer_name ?: ($job->poster()?->name ?? null);
+        return [
+            'job' => [
+                'id' => (int) $job->id,
+                'title' => $job->title,
+                'subtitle' => $job->subtitle ?? null,
+                'description' => $job->description,
+                'requirements' => $job->requirements,
+                'proof_requirements' => is_string($job->proof_requirements ?? null) ? (json_decode($job->proof_requirements, true) ?: []) : ((array) ($job->proof_requirements ?? [])),
+                'status' => $job->status,
+                'category_id' => $job->category_id ? (int) $job->category_id : null,
+                'subcategory_id' => $job->subcategory_id ? (int) $job->subcategory_id : null,
+                'customer_name' => $customerName,
+                'customer_phone' => $job->customer_phone ?? ($job->poster()?->phone ?? null),
+                'customer_email' => $job->customer_email ?? ($job->poster()?->email ?? null),
+                'budget' => (float) $job->budget,
+                'currency' => $job->currency,
+                'worker_count' => (int) ($job->worker_count ?: 1),
+                'cost_per_worker' => (float) ($job->cost_per_worker ?: $job->budget),
+                'total_payable_amount' => (float) ($job->total_payable_amount ?: $job->budget),
+                'deadline_at' => $job->deadline_at,
+                'created_at' => $job->created_at,
+                'updated_at' => $job->updated_at,
+                'admin_notes' => $job->admin_notes ?? null,
+                'created_by_admin_id' => $job->created_by_admin_id ? (int) $job->created_by_admin_id : null,
+            ],
+            'assignments' => $assignments,
+            'bids' => $bids,
+            'submissions' => $submissions,
+            'progress' => $this->progress($job, $assignments),
+        ];
+    }
+
+    private function progress(Job $job, array $assignments): array
+    {
+        $completed = 0; $pending = 0; $rejected = 0; $completedAmount = 0.0; $pendingAmount = 0.0;
+        foreach ($assignments as $assignment) {
+            if ($assignment['payment_status'] === JobAssignment::PAYMENT_RELEASED && $assignment['status'] === JobAssignment::STATUS_COMPLETED) {
+                $completed++;
+                $completedAmount += $assignment['payment_amount'];
+            } elseif ($assignment['status'] !== JobAssignment::STATUS_CANCELLED && $assignment['payment_status'] !== JobAssignment::PAYMENT_REFUNDED) {
+                $pending++;
+                $pendingAmount += $assignment['payment_amount'];
+            }
+            if ($assignment['latest_submission_status'] === JobSubmission::STATUS_REJECTED) $rejected++;
+        }
+        $total = (int) ($job->worker_count ?: 1);
+        // Assignment amounts represent worker compensation. Keep the
+        // platform fee visible separately so a completed job does not appear
+        // to have an unexplained balance remaining.
+        $workerBudget = (float) ($job->budget ?: $job->total_payable_amount);
+        $totalPayable = (float) ($job->total_payable_amount ?: $job->budget);
+        return [
+            'total_workers' => $total,
+            'completed_workers' => $completed,
+            'pending_workers' => $pending,
+            'rejected_workers' => $rejected,
+            'remaining_workers' => max(0, $total - $completed - $pending),
+            'total_amount' => $workerBudget,
+            'total_payable_amount' => $totalPayable,
+            'completed_amount' => round($completedAmount, 4),
+            'pending_amount' => round($pendingAmount, 4),
+            'remaining_amount' => max(0, round($workerBudget - $completedAmount - $pendingAmount, 4)),
+        ];
+    }
+
+    private function activeAssignmentCount(int $jobId): int
+    {
+        $count = 0;
+        foreach (JobAssignment::forJob($jobId) as $assignment) {
+            if ($assignment->status !== JobAssignment::STATUS_CANCELLED && $assignment->payment_status !== JobAssignment::PAYMENT_REFUNDED) $count++;
+        }
+        return $count;
+    }
+
+    private function validateJobInput(array $body, bool $required): ?string
+    {
+        foreach (['category_id', 'title', 'description', 'worker_count', 'cost_per_worker'] as $field) {
+            if ($required && (!array_key_exists($field, $body) || trim((string) $body[$field]) === '')) return $field . ' is required.';
+        }
+        if (isset($body['category_id']) && (int) $body['category_id'] <= 0) return 'category_id is invalid.';
+        if (isset($body['title']) && (trim((string) $body['title']) === '' || mb_strlen((string) $body['title']) > 160)) return 'title must be 1-160 characters.';
+        if (isset($body['worker_count']) && ((int) $body['worker_count'] < 1 || (int) $body['worker_count'] > 100000)) return 'worker_count is invalid.';
+        if (isset($body['cost_per_worker']) && (float) $body['cost_per_worker'] <= 0) return 'cost_per_worker must be positive.';
+        if (isset($body['customer_email']) && trim((string) $body['customer_email']) !== '' && filter_var($body['customer_email'], FILTER_VALIDATE_EMAIL) === false) return 'customer_email is invalid.';
+        if (isset($body['deadline_at']) && trim((string) $body['deadline_at']) !== '' && strtotime((string) $body['deadline_at']) === false) return 'deadline_at is invalid.';
+        return null;
+    }
+
+    private function normalizeProofRequirements(mixed $requirements): array
+    {
+        if (is_string($requirements)) $requirements = json_decode($requirements, true) ?: [];
+        $out = [];
+        foreach ((array) $requirements as $requirement) {
+            if (!is_array($requirement)) continue;
+            $type = ($requirement['type'] ?? 'text') === 'screenshot' ? 'screenshot' : 'text';
+            $title = trim((string) ($requirement['title'] ?? ($type === 'screenshot' ? 'Screenshot proof' : 'Written proof')));
+            if ($title !== '') $out[] = ['title' => mb_substr($title, 0, 160), 'type' => $type];
+        }
+        return $out;
+    }
+
+    private function dateValue(mixed $value): ?string
+    {
+        $value = trim((string) ($value ?? ''));
+        return $value === '' ? null : date('Y-m-d H:i:s', (int) strtotime($value));
+    }
+
+    private function truthy(mixed $value): bool
+    {
+        return in_array(strtolower(trim((string) $value)), ['1', 'true', 'yes', 'on'], true) || $value === true;
+    }
+
+    private function audit(User $admin, string $action, int $jobId, array $details): void
+    {
+        try {
+            Fluent::table('admin_action_logs')->insert([
+                'admin_id' => (int) $admin->id,
+                'action' => $action,
+                'entity_type' => 'job',
+                'entity_id' => $jobId,
+                'details' => json_encode($details, JSON_UNESCAPED_UNICODE),
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $e) {
+            // Audit storage is additive; it must not break the job workflow.
+        }
+    }
+
+    private function readJson(Request $request): array
+    {
+        $body = file_get_contents('php://input');
+        if ($body !== false && $body !== '') {
+            $data = json_decode($body, true);
+            if (is_array($data)) return $data;
+        }
+        return $request->all();
+    }
+}

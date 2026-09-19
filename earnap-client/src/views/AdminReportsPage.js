@@ -14,12 +14,28 @@ export function AdminReportsPage() {
             return;
         }
         root.innerHTML = `
-            <h1 class="page-title">Reports</h1>
-            <p class="muted">Aggregated transaction volume and marketplace job value by status.</p>
+            <div class="page-heading-row"><div><h1 class="page-title">Reports</h1><p class="muted">Aggregated transaction volume, assignment payments, submission risk, and marketplace job value.</p></div><button class="btn btn--ghost btn--sm" id="export-admin-report"><i class="bi bi-download"></i> Export CSV</button></div>
             <div id="admin-reports-content"><div class="spinner"></div></div>
         `;
+        root.querySelector('#export-admin-report')?.addEventListener('click', exportReport);
         await load();
     };
+}
+
+async function exportReport() {
+    try {
+        const blob = await api.adminReportsExport();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'jmjob-report.csv';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        alert(error.message || 'Could not export the report.');
+    }
 }
 
 async function load() {
@@ -44,6 +60,14 @@ async function load() {
                 <div class="card">
                     <h3 class="card__title">Jobs by status</h3>
                     <div class="admin-report-list">${renderJobs(data.jobs || [])}</div>
+                </div>
+                <div class="card">
+                    <h3 class="card__title">Assignments by payment state</h3>
+                    <div class="admin-report-list">${renderAssignments(data.assignments || [])}</div>
+                </div>
+                <div class="card">
+                    <h3 class="card__title">Submissions by risk</h3>
+                    <div class="admin-report-list">${renderSubmissions(data.submissions || [])}</div>
                 </div>
             </div>
         `;
@@ -72,6 +96,26 @@ function renderJobs(items) {
         <div class="admin-report-row">
             <span><strong>${escapeHtml(String(item.status || '').replace('_', ' '))}</strong><small>${number(item.job_count)} jobs</small></span>
             <strong>${money(item.budget)}</strong>
+        </div>
+    `).join('');
+}
+
+function renderAssignments(items) {
+    if (!items.length) return '<p class="muted">No assignments yet.</p>';
+    return items.map(item => `
+        <div class="admin-report-row">
+            <span><strong>${escapeHtml(String(item.status || '').replace('_', ' '))}</strong><small>${escapeHtml(String(item.payment_status || '').replace('_', ' '))} · ${number(item.assignment_count)} assignments</small></span>
+            <strong>${money(item.amount)}</strong>
+        </div>
+    `).join('');
+}
+
+function renderSubmissions(items) {
+    if (!items.length) return '<p class="muted">No submissions yet.</p>';
+    return items.map(item => `
+        <div class="admin-report-row">
+            <span><strong>${escapeHtml(String(item.status || '').replace('_', ' '))}</strong><small>${escapeHtml(String(item.risk_status || '').replace('_', ' '))}</small></span>
+            <strong>${number(item.submission_count)}</strong>
         </div>
     `).join('');
 }

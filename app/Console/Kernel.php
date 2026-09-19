@@ -5,6 +5,7 @@ declare(strict_types=1);
 
 namespace App\Console;
 
+use App\Services\JobService;
 use Nemesis\Console\Scheduler;
 
 /**
@@ -55,5 +56,9 @@ class Kernel
             if (!is_dir($dir)) @mkdir($dir, 0755, true);
             file_put_contents($log, $msg . PHP_EOL, FILE_APPEND | LOCK_EX);
         })->everyMinute()->name('heartbeat')->description('Scheduler heartbeat');
+
+        $scheduler->call(function () {
+            (new JobService())->notifyUpcomingDeadlines(24);
+        })->hourly()->name('job-deadline-reminders')->description('Notify job participants about approaching deadlines');
     }
 }

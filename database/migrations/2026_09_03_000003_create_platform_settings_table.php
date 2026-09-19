@@ -15,11 +15,25 @@ use Nemesis\Core\Fluent;
  */
 class CreatePlatformSettingsTable extends Migration {
     public function up() {
+        $db = Database::connect();
+        if (Database::getDriverName() === 'sqlite') {
+            $db->exec("CREATE TABLE IF NOT EXISTS platform_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                setting_key TEXT NOT NULL UNIQUE,
+                value TEXT NULL,
+                value_type TEXT NOT NULL DEFAULT 'string',
+                category TEXT NOT NULL DEFAULT 'general',
+                description TEXT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NULL
+            )");
+            $db->exec('CREATE INDEX IF NOT EXISTS idx_platform_settings_category ON platform_settings (category)');
+        } else {
         // NOTE: column is named `setting_key` (not `key`) because `key` is a
         // reserved word in MySQL/MariaDB and our Fluent query builder does
         // not quote column names. The model wraps this so the public API
         // (PlatformSetting::$key) is unchanged.
-        Database::connect()->exec("CREATE TABLE IF NOT EXISTS platform_settings (
+        $db->exec("CREATE TABLE IF NOT EXISTS platform_settings (
             id INT AUTO_INCREMENT PRIMARY KEY,
             setting_key VARCHAR(64) NOT NULL,
             value TEXT NULL,
@@ -31,6 +45,7 @@ class CreatePlatformSettingsTable extends Migration {
             UNIQUE KEY uq_platform_settings_key (setting_key),
             INDEX idx_platform_settings_category (category)
         ) ENGINE=INNODB;");
+        }
 
         // Seed defaults — using Fluent::table()->insert() which uses PDO
         // prepared statements correctly (Database::exec() only takes the

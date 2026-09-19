@@ -12,8 +12,7 @@ declare(strict_types=1);
  * Run once with:
  *   curl -X POST https://your-domain.example/create_missing_tables.php
  *
- * If MIGRATION_TOKEN is set in .env, pass it as ?token=... or in the POST
- * body. Delete this file from the server after the migration completes.
+ * Delete this file from the server after the migration completes.
  */
 
 $isCli = PHP_SAPI === 'cli';

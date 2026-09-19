@@ -42,6 +42,16 @@ class AuthenticateApi implements MiddlewareInterface
         if ($user === null) {
             return self::unauthorized('User no longer exists.');
         }
+        if (method_exists($user, 'isBanned') && $user->isBanned()) {
+            // Revoke the current token immediately; all other sessions are
+            // revoked by the admin ban action.
+            $session->delete();
+            return Response::json([
+                'success' => false,
+                'message' => 'This account is banned.' . ($user->ban_reason ? ' ' . $user->ban_reason : ''),
+                'error'   => 'banned',
+            ], 403);
+        }
 
         // Stash user + session on the request for downstream controllers.
         $request->setMeta('auth.user', $user);

@@ -16,6 +16,9 @@ use App\Http\Controllers\Api\PosterController;
 use App\Http\Controllers\Api\AdminSettingsController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\SocialLinksController;
+use App\Http\Controllers\Api\VideoAdController;
+use App\Http\Controllers\Api\AdminVideoAdController;
+use App\Http\Controllers\Api\AdminJobController;
 
 $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r) {
     // Health check
@@ -59,6 +62,10 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
 
         $r->get('/ads/config',       [AdController::class, 'config']);
         $r->get('/ads/next',         [AdController::class, 'next']);
+        $r->get('/ads/videos',       [VideoAdController::class, 'index']);
+        $r->add('POST', '/ads/videos/start', [VideoAdController::class, 'start']);
+        $r->add('POST', '/ads/videos/claim', [VideoAdController::class, 'claim']);
+        $r->get('/ads/videos/{id}/stream', [VideoAdController::class, 'stream']);
 
         $r->get('/tasks/web',                [WebTaskController::class, 'index'], 'tasks.web.index');
         $r->add('POST', '/tasks/web/start',   [WebTaskController::class, 'start']);
@@ -83,7 +90,9 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
         $r->add('DELETE', '/bids/{id}',         [JobController::class, 'withdrawBid']);
         $r->get('/worker/bids',                [JobController::class, 'myBids'],       'worker.bids');
         $r->get('/worker/active-jobs',         [JobController::class, 'activeJobs'],   'worker.active-jobs');
+        $r->add('POST', '/worker/assignments/{id}/cancel', [JobController::class, 'cancelAssignment']);
         $r->add('POST', '/jobs/{id}/submit',    [JobController::class, 'submit']);
+        $r->get('/jobs/submissions/{id}/attachment', [JobController::class, 'submissionAttachment']);
         $r->get('/worker/submissions',         [JobController::class, 'mySubmissions'], 'worker.submissions');
 
         // Poster endpoints
@@ -104,8 +113,20 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
             $r->add('POST', '/admin/withdrawals/{id}/pay',     [AdminController::class, 'pay']);
             $r->get('/admin/users',                 [AdminController::class, 'users'],     'admin.users');
             $r->add('POST', '/admin/users/{id}/role', [AdminController::class, 'updateRole']);
+            $r->add('POST', '/admin/users/{id}/ban', [AdminController::class, 'banUser']);
+            $r->add('POST', '/admin/users/{id}/unban', [AdminController::class, 'unbanUser']);
+            $r->get('/admin/users/{id}/ban-history', [AdminController::class, 'banHistory']);
             $r->get('/admin/jobs',                  [AdminController::class, 'jobs'],      'admin.jobs');
+            $r->add('POST', '/admin/jobs',            [AdminJobController::class, 'store']);
+            $r->get('/admin/jobs/{id}/detail',        [AdminJobController::class, 'show'], 'admin.job-detail');
+            $r->add('POST', '/admin/jobs/{id}/edit',   [AdminJobController::class, 'update']);
+            $r->add('DELETE', '/admin/jobs/{id}',     [AdminJobController::class, 'delete']);
+            $r->add('POST', '/admin/assignments/{id}/cancel', [AdminJobController::class, 'cancelAssignment']);
+            $r->add('POST', '/admin/assignments/{id}/reassign', [AdminJobController::class, 'reassignAssignment']);
             $r->get('/admin/jobs/{id}/submissions', [AdminController::class, 'jobSubmissions'], 'admin.job-submissions');
+            $r->get('/admin/fraud/submissions', [AdminController::class, 'fraudQueue'], 'admin.fraud-submissions');
+            $r->add('POST', '/admin/fraud/submissions/{id}/review', [AdminController::class, 'reviewFraud']);
+            $r->add('POST', '/admin/submissions/{id}/review', [AdminController::class, 'reviewSubmission']);
             $r->add('POST', '/admin/jobs/{id}/approve', [AdminController::class, 'approveJob']);
             $r->add('POST', '/admin/jobs/{id}/decline', [AdminController::class, 'declineJob']);
             $r->add('POST', '/admin/applications/{id}/approve', [AdminController::class, 'approveApplication']);
@@ -114,6 +135,10 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
             $r->get('/admin/stats',                 [AdminController::class, 'stats'],     'admin.stats');
             $r->get('/admin/ad-providers',          [AdminController::class, 'adProviders'], 'admin.providers');
             $r->add('POST', '/admin/ad-providers/{id}', [AdminController::class, 'updateAdProvider']);
+            $r->get('/admin/video-ads', [AdminVideoAdController::class, 'index'], 'admin.video-ads');
+            $r->add('POST', '/admin/video-ads', [AdminVideoAdController::class, 'store']);
+            $r->add('POST', '/admin/video-ads/{id}', [AdminVideoAdController::class, 'update']);
+            $r->add('DELETE', '/admin/video-ads/{id}', [AdminVideoAdController::class, 'delete']);
 
             // Daily Bonus Admin
             $r->add('POST', '/admin/reset-daily-counters', [DailyBonusController::class, 'resetCounters']);

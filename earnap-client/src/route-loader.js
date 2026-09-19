@@ -35,6 +35,8 @@ import { WorkerActiveJobsPage } from './views/WorkerActiveJobsPage.js';
 import { AdminCategoriesPage }  from './views/AdminCategoriesPage.js';
 import { AdminSettingsPage }    from './views/AdminSettingsPage.js';
 import { AdminJobsPage }        from './views/AdminJobsPage.js';
+import { AdminJobPostPage }     from './views/AdminJobPostPage.js';
+import { AdminJobDetailPage }   from './views/AdminJobDetailPage.js';
 import { AdminTransactionsPage } from './views/AdminTransactionsPage.js';
 import { AdminReportsPage }     from './views/AdminReportsPage.js';
 import { PosterDashboardPage }  from './views/PosterDashboardPage.js';
@@ -58,6 +60,7 @@ const VIEW_MAP = {
     '/admin/categories': AdminCategoriesPage,
     '/admin/settings':   AdminSettingsPage,
     '/admin/jobs':       AdminJobsPage,
+    '/admin/admin-job-post': AdminJobPostPage,
     '/admin/transactions': AdminTransactionsPage,
     '/admin/reports':      AdminReportsPage,
     '/deposit':         DepositPage,
@@ -105,6 +108,11 @@ async function renderCurrent() {
     const rawPath = window.location.hash.replace(/^#/, '') || '/';
     let path = rawPath.split('?')[0] || '/';
     if (!VIEW_MAP[path]) {
+        const adminJobMatch = path.match(/^\/admin\/jobs\/(\d+)$/);
+        if (adminJobMatch) {
+            await invokeView(() => AdminJobDetailPage(adminJobMatch[1]), path);
+            return;
+        }
         // Dynamic routes: /jobs/{id}
         const jobMatch = path.match(/^\/jobs\/(\d+)$/);
         if (jobMatch) {

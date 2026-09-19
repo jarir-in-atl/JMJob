@@ -12,7 +12,28 @@ use Nemesis\Core\Database;
  */
 class CreatePaymentSubmissionsTable extends Migration {
     public function up() {
-        Database::connect()->exec("CREATE TABLE IF NOT EXISTS payment_submissions (
+        $db = Database::connect();
+        if (Database::getDriverName() === 'sqlite') {
+            $db->exec("CREATE TABLE IF NOT EXISTS payment_submissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                gateway TEXT NOT NULL,
+                sender_number TEXT NOT NULL,
+                amount NUMERIC NOT NULL,
+                trxid TEXT NOT NULL UNIQUE,
+                status TEXT NOT NULL DEFAULT 'pending',
+                admin_id INTEGER NULL,
+                admin_note TEXT NULL,
+                verified_at TEXT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NULL
+            )");
+            $db->exec('CREATE INDEX IF NOT EXISTS idx_payment_user ON payment_submissions (user_id)');
+            $db->exec('CREATE INDEX IF NOT EXISTS idx_payment_status ON payment_submissions (status)');
+            $db->exec('CREATE INDEX IF NOT EXISTS idx_payment_gateway ON payment_submissions (gateway)');
+            return;
+        }
+        $db->exec("CREATE TABLE IF NOT EXISTS payment_submissions (
             id INT AUTO_INCREMENT PRIMARY KEY,
             user_id INT NOT NULL,
             gateway VARCHAR(20) NOT NULL,

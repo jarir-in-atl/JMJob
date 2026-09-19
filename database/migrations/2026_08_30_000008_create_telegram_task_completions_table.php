@@ -5,7 +5,19 @@ use Nemesis\Core\Database;
 
 class CreateTelegramTaskCompletionsTable extends Migration {
     public function up() {
-        Database::connect()->exec("CREATE TABLE IF NOT EXISTS telegram_task_completions (
+        $db = Database::connect();
+        if (Database::getDriverName() === 'sqlite') {
+            $db->exec("CREATE TABLE IF NOT EXISTS telegram_task_completions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                task_id INTEGER NOT NULL,
+                verified_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                reward NUMERIC NOT NULL DEFAULT 0.0000,
+                UNIQUE (user_id, task_id)
+            )");
+            return;
+        }
+        $db->exec("CREATE TABLE IF NOT EXISTS telegram_task_completions (
             id INT AUTO_INCREMENT PRIMARY KEY,
             user_id INT NOT NULL,
             task_id INT NOT NULL,

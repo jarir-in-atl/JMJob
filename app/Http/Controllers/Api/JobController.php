@@ -125,6 +125,7 @@ class JobController extends Controller
 
     public function bid(Request $request, int $id): Response
     {
+        if ($guard = $this->workerGuard($request)) return $guard;
         $user = $request->getMeta('auth.user');
         $body = (array) $this->readJson($request);
         $amount        = (float)  ($body['amount'] ?? 0);
@@ -141,6 +142,7 @@ class JobController extends Controller
 
     public function withdrawBid(Request $request, int $id): Response
     {
+        if ($guard = $this->workerGuard($request)) return $guard;
         $user = $request->getMeta('auth.user');
         $result = $this->jobService->withdrawBid($user, $id);
         if (!$result['success']) return Response::json($result, 422);
@@ -149,6 +151,7 @@ class JobController extends Controller
 
     public function myBids(Request $request): Response
     {
+        if ($guard = $this->workerGuard($request)) return $guard;
         $user = $request->getMeta('auth.user');
         $bids = JobBid::byWorker((int) $user->id, 100);
         return Response::json(['success' => true, 'data' => array_map(fn($b) => $this->serializeBid($b, true), $bids)]);
@@ -160,19 +163,47 @@ class JobController extends Controller
 
     public function activeJobs(Request $request): Response
     {
+        if ($guard = $this->workerGuard($request)) return $guard;
         $user = $request->getMeta('auth.user');
         $jobs = Job::assignedTo((int) $user->id, 100);
         return Response::json(['success' => true, 'data' => array_map(fn($j) => $this->serializeJob($j, true), $jobs)]);
     }
 
+    public function cancelAssignment(Request $request, int $id): Response
+    {
+        if ($guard = $this->workerGuard($request)) return $guard;
+        $user = $request->getMeta('auth.user');
+        $body = (array) $this->readJson($request);
+        $reason = trim((string) ($body['reason'] ?? 'Worker requested cancellation'));
+        if ($reason === '') return Response::json(['success' => false, 'message' => 'A cancellation reason is required.'], 422);
+
+        $result = $this->jobService->cancelAssignment($id, (int) $user->id, $reason, 'worker');
+        if (!($result['success'] ?? false)) return Response::json($result, 422);
+        return Response::json([
+            'success' => true,
+            'message' => $result['message'],
+            'data' => $result['assignment'] ?? null,
+        ]);
+    }
+
     public function submit(Request $request, int $id): Response
     {
+        if ($guard = $this->workerGuard($request)) return $guard;
         $user = $request->getMeta('auth.user');
         $body = (array) $this->readJson($request);
         $description   = isset($body['description']) ? (string) $body['description'] : null;
         $externalLink  = isset($body['external_link']) ? (string) $body['external_link'] : null;
+        $proofFile     = $request->file('screenshot') ?? $request->file('attachment');
 
-        $result = $this->jobService->submitWork($user, $id, $description, $externalLink);
+        $result = $this->jobService->submitWork(
+            $user,
+            $id,
+            $description,
+            $externalLink,
+            $proofFile,
+            $_SERVER['REMOTE_ADDR'] ?? null,
+            $_SERVER['HTTP_USER_AGENT'] ?? null
+        );
         if (!$result['success']) return Response::json($result, 422);
         return Response::json([
             'success' => true,
@@ -183,9 +214,47 @@ class JobController extends Controller
 
     public function mySubmissions(Request $request): Response
     {
+        if ($guard = $this->workerGuard($request)) return $guard;
         $user = $request->getMeta('auth.user');
         $subs = JobSubmission::byWorker((int) $user->id, 100);
         return Response::json(['success' => true, 'data' => array_map(fn($s) => $this->serializeSubmission($s, true), $subs)]);
+    }
+
+    public function submissionAttachment(Request $request, int $id): Response
+    {
+        $user = $request->getMeta('auth.user');
+        $submission = JobSubmission::find($id);
+        if ($submission === null) return Response::json(['success' => false, 'message' => 'Submission not found.'], 404);
+
+        $job = $submission->job();
+        $allowed = $user && $job && (
+            $user->isAdmin()
+            || (int) $submission->worker_id === (int) $user->id
+            || (int) $job->poster_id === (int) $user->id
+        );
+        if (!$allowed) return Response::json(['success' => false, 'message' => 'You are not allowed to view this proof.'], 403);
+
+        $relative = ltrim((string) $submission->attachment_path, '/');
+        if ($relative === '' || !str_starts_with($relative, 'job-proofs/')) {
+            return Response::json(['success' => false, 'message' => 'Proof attachment not found.'], 404);
+        }
+
+        $root = realpath(base_path('storage/job-proofs'));
+        $path = realpath(base_path('storage/' . $relative));
+        if ($root === false || $path === false || !str_starts_with($path, $root . DIRECTORY_SEPARATOR) || !is_file($path)) {
+            return Response::json(['success' => false, 'message' => 'Proof attachment not found.'], 404);
+        }
+
+        $mime = function_exists('mime_content_type')
+            ? (mime_content_type($path) ?: 'application/octet-stream')
+            : 'application/octet-stream';
+        return Response::stream(static function () use ($path): void {
+            readfile($path);
+        })
+            ->withHeader('Content-Type', $mime)
+            ->withHeader('Content-Length', (string) filesize($path))
+            ->withHeader('Content-Disposition', 'inline; filename="' . addslashes(basename($path)) . '"')
+            ->withHeader('X-Content-Type-Options', 'nosniff');
     }
 
     // -------------------------------------------------------------------
@@ -217,12 +286,14 @@ class JobController extends Controller
 
     public function createWorkflowJob(Request $request): Response
     {
+        if ($guard = $this->posterGuard($request)) return $guard;
         $user = $request->getMeta('auth.user');
         $body = (array) $this->readJson($request);
 
         $categoryId       = (int) ($body['category_id'] ?? 0);
         $subcategoryId    = isset($body['subcategory_id']) ? (int) $body['subcategory_id'] : null;
         $title            = (string) ($body['title'] ?? '');
+        $subtitle         = trim((string) ($body['subtitle'] ?? ''));
         $description      = (string) ($body['description'] ?? '');
         $proofRequirements= (array) ($body['proof_requirements'] ?? []);
         $workerCount      = (int) ($body['worker_count'] ?? 1);
@@ -238,7 +309,11 @@ class JobController extends Controller
             $proofRequirements,
             $workerCount,
             $costPerWorker,
-            $deadlineAt
+            $deadlineAt,
+            $subtitle,
+            $user->name,
+            $user->phone ?? null,
+            $user->email
         );
 
         if (!$result['success']) {
@@ -254,6 +329,7 @@ class JobController extends Controller
 
     public function applyForJob(Request $request, int $id): Response
     {
+        if ($guard = $this->workerGuard($request)) return $guard;
         $user = $request->getMeta('auth.user');
         $body = (array) $this->readJson($request);
         $proposal    = isset($body['proposal']) ? (string) $body['proposal'] : null;
@@ -273,6 +349,7 @@ class JobController extends Controller
 
     public function extendDeadline(Request $request, int $id): Response
     {
+        if ($guard = $this->posterGuard($request)) return $guard;
         $user = $request->getMeta('auth.user');
         $body = (array) $this->readJson($request);
         $days = (int) ($body['days'] ?? 7);
@@ -301,9 +378,18 @@ class JobController extends Controller
             'id'              => (int) $j->id,
             'slug'            => $j->slug,
             'title'           => $j->title,
+            'subtitle'        => $j->subtitle ?? null,
             'description'     => $j->description,
             'requirements'    => $j->requirements,
+            'customer_name'   => $j->customer_name ?? null,
+            'customer_phone'  => $j->customer_phone ?? null,
+            'customer_email'  => $j->customer_email ?? null,
             'budget'          => (float) $j->budget,
+            'worker_count'    => (int) ($j->worker_count ?? 1),
+            'cost_per_worker' => (float) ($j->cost_per_worker ?? $j->budget),
+            'proof_requirements' => is_string($j->proof_requirements ?? null)
+                ? (json_decode((string) $j->proof_requirements, true) ?: [])
+                : ((array) ($j->proof_requirements ?? [])),
             'currency'        => $j->currency,
             'category_id'     => (int) $j->category_id,
             'category'        => $category ? ['id' => (int) $category->id, 'name' => $category->name, 'icon_class' => $category->icon_class] : null,
@@ -326,6 +412,9 @@ class JobController extends Controller
                 'id'   => (int) $j->assignedWorker()->id,
                 'name' => $j->assignedWorker()->name,
             ] : null;
+            $out['assignment_id'] = $j->worker_assignment_id ? (int) $j->worker_assignment_id : null;
+            $out['assignment_status'] = $j->worker_assignment_status ?? null;
+            $out['assignment_payment_status'] = $j->worker_assignment_payment_status ?? null;
         }
         return $out;
     }
@@ -369,10 +458,21 @@ class JobController extends Controller
             'job_id'         => (int) $s->job_id,
             'worker_id'      => (int) $s->worker_id,
             'bid_id'         => (int) $s->bid_id,
+            'assignment_id'  => $s->assignment_id !== null ? (int) $s->assignment_id : null,
             'description'    => $s->description,
+            'attachment_path'=> $s->attachment_path,
+            'attachment_url' => $s->attachment_path ? '/api/jobs/submissions/' . (int) $s->id . '/attachment' : null,
             'external_link'  => $s->external_link,
             'status'         => $s->status,
+            'attempt_number' => (int) ($s->attempt_number ?: 1),
+            'submitted_at'   => $s->submitted_at,
             'reviewer_note'  => $s->reviewer_note,
+            'rejection_reason' => $s->rejection_reason,
+            'risk_score'     => (float) ($s->risk_score ?? 0),
+            'risk_status'    => $s->risk_status ?? 'clear',
+            'risk_flags'     => is_string($s->risk_flags ?? null)
+                ? (json_decode((string) $s->risk_flags, true) ?: [])
+                : ((array) ($s->risk_flags ?? [])),
             'created_at'     => $s->created_at,
             'reviewed_at'    => $s->reviewed_at,
         ];
@@ -393,5 +493,43 @@ class JobController extends Controller
             }
         }
         return $request->all();
+    }
+
+    private function workerGuard(Request $request): ?Response
+    {
+        $user = $request->getMeta('auth.user');
+        if ($user === null) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Authentication required.',
+            ], 401);
+        }
+        if (!$user->isWorker()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Worker access required.',
+                'error' => 'forbidden',
+            ], 403);
+        }
+        return null;
+    }
+
+    private function posterGuard(Request $request): ?Response
+    {
+        $user = $request->getMeta('auth.user');
+        if ($user === null) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Authentication required.',
+            ], 401);
+        }
+        if (!$user->isAdmin() && !$user->isPoster()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Poster access required.',
+                'error' => 'forbidden',
+            ], 403);
+        }
+        return null;
     }
 }

@@ -1,7 +1,7 @@
 // AdminJobsPage — Job Post (Pending Approval), Active Job management, Moderation, and Worker Proof Viewer.
 
 import { api } from '../api.js';
-import { showFlash, currentUser } from '../state.js';
+import { showFlash, currentUser, navigate } from '../state.js';
 
 const STATUSES = [
     { value: 'pending_approval', label: 'Job Post (Pending Approval)' },
@@ -44,6 +44,7 @@ export function AdminJobsPage() {
                     <h1 class="page-title">Job Management Center</h1>
                     <p class="muted">Review pending user job postings, activate approved jobs, track live active jobs, and inspect worker proofs & screenshots.</p>
                 </div>
+                <button class="btn btn--primary" id="admin-create-job"><i class="bi bi-plus-circle"></i> Admin Job Post</button>
             </div>
 
             <div class="admin-tabs" style="margin-bottom: 20px;">
@@ -90,6 +91,7 @@ export function AdminJobsPage() {
         });
 
         root.querySelector('#admin-job-refresh').addEventListener('click', load);
+        root.querySelector('#admin-create-job').addEventListener('click', () => navigate('/admin/admin-job-post'));
         await load();
     };
 }
@@ -121,8 +123,9 @@ function renderJob(job) {
         metricsHtml = `
             <div class="admin-job-row__metrics" style="display: flex; gap: 16px; margin: 10px 0; background: rgba(0,0,0,0.03); padding: 10px 14px; border-radius: 6px; font-size: 13px;">
                 <div><i class="bi bi-clock-history"></i> <strong>Days Remaining:</strong> <span style="color:#d97706;">${escapeHtml(job.days_remaining || 'N/A')}</span></div>
-                <div><i class="bi bi-people"></i> <strong>Active Workers:</strong> ${Number(job.active_workers_count || 0)} / ${Number(job.worker_count || 1)} working</div>
-                <div><i class="bi bi-check2-square"></i> <strong>Tasks Remaining:</strong> ${Number(job.remaining_tasks_count || 0)} slots left</div>
+                <div><i class="bi bi-people"></i> <strong>Workers:</strong> ${Number(job.completed_workers || 0)} completed / ${Number(job.pending_workers || 0)} pending / ${Number(job.rejected_workers || 0)} rejected</div>
+                <div><i class="bi bi-hourglass-split"></i> <strong>Unassigned:</strong> ${Number(job.remaining_workers ?? job.remaining_tasks_count ?? 0)} slots</div>
+                <div><i class="bi bi-cash-stack"></i> <strong>Paid:</strong> ${escapeHtml(job.currency || 'BDT')} ${Number(job.completed_amount || 0).toFixed(2)} / <strong>Remaining:</strong> ${Number(job.remaining_amount || 0).toFixed(2)}</div>
             </div>
         `;
     }
@@ -137,11 +140,13 @@ function renderJob(job) {
         </div>
 
         <p class="admin-job-row__description muted">${escapeHtml(job.description || '')}</p>
+        ${job.subtitle ? `<p class="muted"><strong>Subtitle:</strong> ${escapeHtml(job.subtitle)}</p>` : ''}
 
         ${metricsHtml}
 
         <div class="admin-job-row__meta">
-            <span><strong>Poster:</strong> ${escapeHtml(job.poster?.name || '(deleted)')} (${escapeHtml(job.poster?.email || '')})</span>
+            <span><strong>Customer:</strong> ${escapeHtml(job.customer_name || job.poster?.name || '(deleted)')} (${escapeHtml(job.customer_email || job.poster?.email || '')})</span>
+            ${job.customer_phone ? `<span><strong>Phone:</strong> ${escapeHtml(job.customer_phone)}</span>` : ''}
             <span><strong>Category:</strong> ${escapeHtml(job.category_name || 'Uncategorized')}</span>
             <span><strong>Workers Needed:</strong> ${Number(job.worker_count || 1)}</span>
             <span><strong>Cost/Worker:</strong> ${escapeHtml(job.currency || 'BDT')} ${Number(job.cost_per_worker || 0).toFixed(2)}</span>
@@ -157,6 +162,7 @@ function renderJob(job) {
     const actions = row.querySelector('.admin-row__actions');
 
     if (!isPending && !isDeclined) {
+        actions.appendChild(actionButton('View Job Details', 'btn--ghost', () => navigate(`/admin/jobs/${job.id}`)));
         actions.appendChild(actionButton('View Proofs & Screenshots', 'btn--ghost', () => viewProofSubmissions(job.id, job.title)));
     }
 
@@ -212,7 +218,7 @@ async function viewProofSubmissions(jobId, jobTitle) {
 
         content.innerHTML = submissions.map(sub => {
             const proofData = sub.work_proof_data || {};
-            const attachment = sub.attachment_path ? (sub.attachment_path.startsWith('http') ? sub.attachment_path : `/storage/${sub.attachment_path}`) : null;
+            const attachment = sub.attachment_url || (sub.attachment_path ? (sub.attachment_path.startsWith('http') ? sub.attachment_path : `/storage/${sub.attachment_path}`) : null);
             const isImage = attachment && /\.(jpg|jpeg|png|gif|webp)$/i.test(attachment);
 
             return `
@@ -242,8 +248,53 @@ async function viewProofSubmissions(jobId, jobTitle) {
                 </div>
             `;
         }).join('');
+
+        content.querySelectorAll('.card').forEach((card, index) => {
+            const submission = submissions[index];
+            if (!submission || submission.status !== 'pending_review') return;
+
+            const actions = document.createElement('div');
+            actions.style.cssText = 'display:flex; gap:8px; margin-top:12px;';
+
+            const approve = document.createElement('button');
+            approve.className = 'btn btn--success btn--sm';
+            approve.textContent = 'Approve for payment review';
+            approve.addEventListener('click', () => reviewSubmission(submission, jobId, jobTitle, approve, reject));
+
+            const reject = document.createElement('button');
+            reject.className = 'btn btn--danger btn--sm';
+            reject.textContent = 'Reject';
+            reject.addEventListener('click', () => reviewSubmission(submission, jobId, jobTitle, reject, approve));
+
+            actions.append(approve, reject);
+            card.appendChild(actions);
+        });
     } catch (error) {
         content.innerHTML = `<p class="muted">Failed to load submissions: ${escapeHtml(error.message || 'unknown error')}</p>`;
+    }
+}
+
+async function reviewSubmission(submission, jobId, jobTitle, button, sibling) {
+    const decision = button.textContent.startsWith('Approve') ? 'approve' : 'reject';
+    const note = decision === 'reject'
+        ? prompt('Rejection reason:')
+        : (prompt('Optional admin note:') || '');
+    if (note === null) return;
+    if (decision === 'reject' && !note.trim()) {
+        showFlash('A rejection reason is required.', 'error');
+        return;
+    }
+
+    button.disabled = true;
+    sibling.disabled = true;
+    try {
+        await api.adminReviewSubmission(submission.id, { decision, note });
+        showFlash(decision === 'approve' ? 'Submission approved for payment review.' : 'Submission rejected.', 'success');
+        await viewProofSubmissions(jobId, jobTitle);
+    } catch (error) {
+        button.disabled = false;
+        sibling.disabled = false;
+        showFlash(error.message || 'Could not review submission.', 'error');
     }
 }
 

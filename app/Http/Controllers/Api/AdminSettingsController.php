@@ -7,6 +7,7 @@ use Nemesis\Core\Controller;
 use Nemesis\Http\Request;
 use Nemesis\Http\Response;
 use App\Models\Category;
+use App\Services\AdConfigurationService;
 use App\Services\SettingService;
 use Nemesis\Core\Database;
 
@@ -19,25 +20,64 @@ class AdminSettingsController extends Controller
     public function updateSettings(Request $request): Response
     {
         $body = (array) $this->readJson($request);
-        $updated = [];
         $pdo = Database::connect();
+        $changes = [];
         foreach ($body as $key => $value) {
+            if (!is_string($key)) continue;
             $stmt = $pdo->prepare("SELECT `id`, `value_type`, `category`, `description` FROM platform_settings WHERE `setting_key` = :key LIMIT 1");
             $stmt->execute([':key' => $key]);
             $existing = $stmt->fetch(\PDO::FETCH_ASSOC);
             if ($existing === false) continue;
+            $adError = AdConfigurationService::validate($key, $value);
+            if ($adError !== null) {
+                return Response::json(['success' => false, 'message' => $adError, 'error' => 'invalid_ad_configuration'], 422);
+            }
             $type = $existing['value_type'];
             $category = $existing['category'];
-            $stored = match ($type) {
-                'integer', 'percent' => (string) (int) $value,
-                'decimal'            => (string) (float) $value,
-                'boolean'            => $value ? '1' : '0',
-                'json'               => json_encode($value),
-                default              => (string) $value,
-            };
-            $upd = $pdo->prepare("UPDATE platform_settings SET `value` = :val, `value_type` = :type, `category` = :cat, `description` = :desc, `updated_at` = NOW() WHERE `setting_key` = :key");
-            $upd->execute([':val' => $stored, ':type' => $type, ':cat' => $category, ':desc' => $existing['description'], ':key' => $key]);
-            $updated[] = $key;
+            try {
+                $stored = match ($type) {
+                    'integer', 'percent' => (string) (int) $value,
+                    'decimal'            => (string) (float) $value,
+                    'boolean'            => $value ? '1' : '0',
+                    'json'               => json_encode($value, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+                    default              => (string) $value,
+                };
+            } catch (\Throwable $e) {
+                return Response::json(['success' => false, 'message' => "Invalid value for {$key}.", 'error' => 'invalid_setting_value'], 422);
+            }
+            $changes[] = [
+                'key' => $key,
+                'stored' => $stored,
+                'type' => $type,
+                'category' => $category,
+                'description' => $existing['description'],
+            ];
+        }
+
+        $updated = [];
+        if ($changes !== []) {
+            try {
+                Database::beginWriteTransaction($pdo);
+                $upd = $pdo->prepare("UPDATE platform_settings SET `value` = :val, `value_type` = :type, `category` = :cat, `description` = :desc, `updated_at` = :updated_at WHERE `setting_key` = :key");
+                foreach ($changes as $change) {
+                    $upd->execute([
+                        ':val' => $change['stored'],
+                        ':type' => $change['type'],
+                        ':cat' => $change['category'],
+                        ':desc' => $change['description'],
+                        ':updated_at' => date('Y-m-d H:i:s'),
+                        ':key' => $change['key'],
+                    ]);
+                    $updated[] = $change['key'];
+                }
+                Database::commitWriteTransaction($pdo);
+            } catch (\Throwable $e) {
+                Database::rollbackWriteTransaction($pdo);
+                return Response::json(['success' => false, 'message' => 'Settings could not be saved atomically.', 'error' => 'settings_write_failed'], 500);
+            }
+        }
+        if ($updated !== []) {
+            SettingService::clearCache();
         }
         return Response::json(['success' => true, 'message' => count($updated) . ' setting(s) updated.', 'data' => ['updated' => $updated]]);
     }
@@ -63,7 +103,8 @@ class AdminSettingsController extends Controller
         if ($stmt->fetch()) {
             return Response::json(['success' => false, 'message' => 'A category with that slug already exists.'], 422);
         }
-        $stmt = $pdo->prepare("INSERT INTO categories (name, slug, description, icon_class, is_active, display_order, min_cost, created_at, updated_at) VALUES (:name, :slug, :desc, :icon, :active, :order, :min_cost, NOW(), NOW())");
+        $now = date('Y-m-d H:i:s');
+        $stmt = $pdo->prepare("INSERT INTO categories (name, slug, description, icon_class, is_active, display_order, min_cost, created_at, updated_at) VALUES (:name, :slug, :desc, :icon, :active, :order, :min_cost, :created_at, :updated_at)");
         $stmt->execute([
             ':name'     => $name,
             ':slug'     => $slug,
@@ -72,6 +113,8 @@ class AdminSettingsController extends Controller
             ':active'   => (int) ($body['is_active'] ?? 1),
             ':order'    => (int) ($body['display_order'] ?? 0),
             ':min_cost' => (float) ($body['min_cost'] ?? 1.00),
+            ':created_at' => $now,
+            ':updated_at' => $now,
         ]);
         $id = (int) $pdo->lastInsertId();
         $stmt = $pdo->prepare("SELECT * FROM categories WHERE id = :id");
@@ -122,7 +165,10 @@ class AdminSettingsController extends Controller
         $stmt->execute([':id' => $id]);
         $jobCount = (int) $stmt->fetch(\PDO::FETCH_ASSOC)['c'];
         if ($jobCount > 0) {
-            $pdo->prepare("UPDATE categories SET is_active = 0, updated_at = NOW() WHERE id = :id")->execute([':id' => $id]);
+            $pdo->prepare("UPDATE categories SET is_active = 0, updated_at = :updated_at WHERE id = :id")->execute([
+                ':updated_at' => date('Y-m-d H:i:s'),
+                ':id' => $id,
+            ]);
             return Response::json(['success' => true, 'message' => "Category has {$jobCount} job(s) attached; deactivated instead of deleted."]);
         }
         $pdo->prepare("DELETE FROM categories WHERE id = :id")->execute([':id' => $id]);
@@ -150,7 +196,8 @@ class AdminSettingsController extends Controller
             return Response::json(['success' => false, 'message' => 'category_id, name, and slug are required.'], 422);
         }
         $pdo = Database::connect();
-        $stmt = $pdo->prepare("INSERT INTO subcategories (category_id, name, slug, description, is_active, display_order, min_cost, created_at, updated_at) VALUES (:cat_id, :name, :slug, :desc, :active, :order, :min_cost, NOW(), NOW())");
+        $now = date('Y-m-d H:i:s');
+        $stmt = $pdo->prepare("INSERT INTO subcategories (category_id, name, slug, description, is_active, display_order, min_cost, created_at, updated_at) VALUES (:cat_id, :name, :slug, :desc, :active, :order, :min_cost, :created_at, :updated_at)");
         $stmt->execute([
             ':cat_id'   => $catId,
             ':name'     => $name,
@@ -159,6 +206,8 @@ class AdminSettingsController extends Controller
             ':active'   => (int) ($body['is_active'] ?? 1),
             ':order'    => (int) ($body['display_order'] ?? 0),
             ':min_cost' => (float) ($body['min_cost'] ?? 1.00),
+            ':created_at' => $now,
+            ':updated_at' => $now,
         ]);
         $id = (int) $pdo->lastInsertId();
         $stmt = $pdo->prepare("SELECT s.*, c.name AS category_name FROM subcategories s LEFT JOIN categories c ON c.id = s.category_id WHERE s.id = :id");
@@ -301,26 +350,118 @@ class AdminSettingsController extends Controller
                 (SELECT COALESCE(SUM(budget), 0) FROM jobs) AS job_value"
         )->fetch(\PDO::FETCH_ASSOC) ?: [];
 
+        $assignmentRows = [];
+        $submissionRows = [];
+        $assignmentTotals = [
+            'assignment_count' => 0,
+            'held_amount' => 0.0,
+            'released_amount' => 0.0,
+        ];
+        $submissionTotals = [
+            'submission_count' => 0,
+            'flagged_submission_count' => 0,
+        ];
+        try {
+            $assignmentRows = $pdo->query(
+                "SELECT status, payment_status, COUNT(*) AS assignment_count,
+                        COALESCE(SUM(payment_amount), 0) AS amount
+                 FROM job_assignments
+                 GROUP BY status, payment_status
+                 ORDER BY status, payment_status"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+            foreach ($assignmentRows as $row) {
+                $assignmentTotals['assignment_count'] += (int) ($row['assignment_count'] ?? 0);
+                if (($row['payment_status'] ?? '') === 'held') {
+                    $assignmentTotals['held_amount'] += (float) ($row['amount'] ?? 0);
+                }
+                if (($row['payment_status'] ?? '') === 'released') {
+                    $assignmentTotals['released_amount'] += (float) ($row['amount'] ?? 0);
+                }
+            }
+        } catch (\Throwable) {
+            // Assignment reporting is additive; older hosts can still use
+            // the original jobs/transactions report before its migration.
+        }
+        try {
+            $submissionRows = $pdo->query(
+                "SELECT status, COALESCE(risk_status, 'clear') AS risk_status,
+                        COUNT(*) AS submission_count
+                 FROM job_submissions
+                 GROUP BY status, risk_status
+                 ORDER BY status, risk_status"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+            foreach ($submissionRows as $row) {
+                $submissionTotals['submission_count'] += (int) ($row['submission_count'] ?? 0);
+                if (($row['risk_status'] ?? '') === 'flagged') {
+                    $submissionTotals['flagged_submission_count'] += (int) ($row['submission_count'] ?? 0);
+                }
+            }
+        } catch (\Throwable) {
+            // Risk columns are optional during staged migration rollout.
+        }
+
+        $data = [
+            'totals' => [
+                'transaction_count' => (int) ($totals['transaction_count'] ?? 0),
+                'transaction_volume' => (float) ($totals['transaction_volume'] ?? 0),
+                'job_count' => (int) ($totals['job_count'] ?? 0),
+                'job_value' => (float) ($totals['job_value'] ?? 0),
+                ...$assignmentTotals,
+                ...$submissionTotals,
+            ],
+            'transactions' => array_map(static fn(array $row): array => [
+                'type' => (string) $row['type'],
+                'transaction_count' => (int) $row['transaction_count'],
+                'amount' => (float) $row['amount'],
+            ], $transactionRows),
+            'jobs' => array_map(static fn(array $row): array => [
+                'status' => (string) $row['status'],
+                'job_count' => (int) $row['job_count'],
+                'budget' => (float) $row['budget'],
+            ], $jobRows),
+            'assignments' => array_map(static fn(array $row): array => [
+                'status' => (string) $row['status'],
+                'payment_status' => (string) $row['payment_status'],
+                'assignment_count' => (int) $row['assignment_count'],
+                'amount' => (float) $row['amount'],
+            ], $assignmentRows),
+            'submissions' => array_map(static fn(array $row): array => [
+                'status' => (string) $row['status'],
+                'risk_status' => (string) $row['risk_status'],
+                'submission_count' => (int) $row['submission_count'],
+            ], $submissionRows),
+        ];
+
+        if (strtolower(trim((string) $request->query('format', ''))) === 'csv') {
+            $handle = fopen('php://temp', 'r+');
+            if ($handle === false) {
+                return Response::json(['success' => false, 'message' => 'Report export could not be created.'], 500);
+            }
+            fputcsv($handle, ['section', 'key', 'subkey', 'count', 'amount']);
+            foreach ($data['transactions'] as $row) {
+                fputcsv($handle, ['transactions', $row['type'], '', $row['transaction_count'], $row['amount']]);
+            }
+            foreach ($data['jobs'] as $row) {
+                fputcsv($handle, ['jobs', $row['status'], '', $row['job_count'], $row['budget']]);
+            }
+            foreach ($data['assignments'] as $row) {
+                fputcsv($handle, ['assignments', $row['status'], $row['payment_status'], $row['assignment_count'], $row['amount']]);
+            }
+            foreach ($data['submissions'] as $row) {
+                fputcsv($handle, ['submissions', $row['status'], $row['risk_status'], $row['submission_count'], '']);
+            }
+            rewind($handle);
+            $csv = stream_get_contents($handle);
+            fclose($handle);
+            return Response::text((string) $csv)
+                ->withHeader('Content-Type', 'text/csv; charset=UTF-8')
+                ->withHeader('Content-Disposition', 'attachment; filename="jmjob-report.csv"')
+                ->withHeader('X-Content-Type-Options', 'nosniff');
+        }
+
         return Response::json([
             'success' => true,
-            'data'    => [
-                'totals' => [
-                    'transaction_count'  => (int) ($totals['transaction_count'] ?? 0),
-                    'transaction_volume' => (float) ($totals['transaction_volume'] ?? 0),
-                    'job_count'          => (int) ($totals['job_count'] ?? 0),
-                    'job_value'          => (float) ($totals['job_value'] ?? 0),
-                ],
-                'transactions' => array_map(static fn(array $row): array => [
-                    'type'              => $row['type'],
-                    'transaction_count' => (int) $row['transaction_count'],
-                    'amount'            => (float) $row['amount'],
-                ], $transactionRows),
-                'jobs' => array_map(static fn(array $row): array => [
-                    'status'    => $row['status'],
-                    'job_count' => (int) $row['job_count'],
-                    'budget'    => (float) $row['budget'],
-                ], $jobRows),
-            ],
+            'data'    => $data,
         ]);
     }
 

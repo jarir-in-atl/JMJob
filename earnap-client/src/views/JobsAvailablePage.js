@@ -189,10 +189,11 @@ function renderJobs() {
                 ${job.is_featured ? '<span class="job-card__badge">Featured</span>' : ''}
             </div>
             <h3 class="job-card__title">${escapeHtml(job.title)}</h3>
+            ${job.subtitle ? `<p class="job-card__subtitle muted">${escapeHtml(job.subtitle)}</p>` : ''}
             <p class="job-card__desc">${escapeHtml(truncate(job.description, 140))}</p>
             <div class="job-card__foot">
-                <span class="job-card__budget">৳${Number.parseFloat(job.budget || 0).toFixed(2)}</span>
-                <span class="job-card__bids"><i class="bi bi-people"></i> ${Number(job.bid_count || 0)} bid${Number(job.bid_count) === 1 ? '' : 's'}</span>
+                <span class="job-card__budget">৳${Number.parseFloat(job.cost_per_worker || job.budget || 0).toFixed(2)} / worker</span>
+                <span class="job-card__bids"><i class="bi bi-people"></i> ${Number(job.worker_count || 1)} available</span>
             </div>
         </a>
     `).join('');

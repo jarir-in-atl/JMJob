@@ -34,6 +34,8 @@ class User extends Model
         'name', 'email', 'username', 'password', 'referral_code',
         'referred_by', 'balance', 'lifetime_earned', 'today_earned',
         'ads_limit', 'today_ads', 'last_ad_reset_at', 'is_admin',
+        'role',
+        'phone', 'is_banned', 'banned_at', 'banned_by', 'ban_reason',
     ];
     protected $hidden = ['password'];
 
@@ -53,6 +55,31 @@ class User extends Model
     public function isAdmin(): bool
     {
         return (bool) ($this->is_admin ?? 0);
+    }
+
+    public function isPoster(): bool
+    {
+        return !$this->isAdmin() && strtolower((string) ($this->role ?? '')) === 'poster';
+    }
+
+    /**
+     * Worker accounts are the only accounts allowed to bid, apply, submit,
+     * and manage their own marketplace assignments. An empty role is treated
+     * as the historical worker default for older records.
+     */
+    public function isWorker(): bool
+    {
+        if ($this->isAdmin() || $this->isPoster()) {
+            return false;
+        }
+
+        $role = strtolower(trim((string) ($this->role ?? '')));
+        return $role === '' || $role === 'worker';
+    }
+
+    public function isBanned(): bool
+    {
+        return (bool) ($this->is_banned ?? 0);
     }
 
     public function adsRemainingToday(): int

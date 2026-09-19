@@ -19,6 +19,9 @@ class CreateNotificationsTable extends Migration
                 read_at DATETIME NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )");
+            Database::connect()->exec('CREATE INDEX IF NOT EXISTS idx_notifications_notifiable ON notifications (notifiable_type, notifiable_id)');
+            Database::connect()->exec('CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications (notifiable_id, read_at)');
+            Database::connect()->exec('CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications (created_at)');
             return;
         }
 

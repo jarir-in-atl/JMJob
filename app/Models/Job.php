@@ -35,7 +35,8 @@ class Job extends Model
     }
 
     protected $fillable = [
-        'poster_id', 'category_id', 'subcategory_id', 'title', 'slug', 'description', 'requirements',
+        'poster_id', 'category_id', 'subcategory_id', 'title', 'subtitle', 'slug', 'description', 'requirements',
+        'customer_name', 'customer_phone', 'customer_email', 'admin_notes', 'created_by_admin_id',
         'proof_requirements', 'budget', 'worker_count', 'cost_per_worker', 'system_fee_percent',
         'system_fee_amount', 'total_payable_amount', 'currency', 'deadline_at', 'bidding_closes_at',
         'status', 'decline_reason', 'assigned_bid_id', 'assigned_worker_id', 'bid_count', 'view_count',
@@ -145,6 +146,29 @@ class Job extends Model
 
     public static function assignedTo(int $userId, int $limit = 50): array
     {
+        $jobs = [];
+
+        // New multi-worker assignments are the source of truth when present.
+        try {
+            $assignmentRows = Fluent::table('job_assignments')
+                ->where('worker_id', '=', $userId)
+                ->whereIn('status', JobAssignment::ACTIVE_STATUSES)
+                ->orderBy('updated_at', 'desc')
+                ->limit($limit)
+                ->get()->all();
+            foreach ($assignmentRows as $row) {
+                $job = static::find((int) $row['job_id']);
+                if ($job !== null) {
+                    $job->worker_assignment_id = (int) $row['id'];
+                    $job->worker_assignment_status = $row['status'];
+                    $job->worker_assignment_payment_status = $row['payment_status'];
+                    $jobs[(int) $job->id] = $job;
+                }
+            }
+        } catch (\Throwable $e) {
+            // Fall back to the legacy pointer while older hosts are upgraded.
+        }
+
         try {
             $rows = Fluent::table('jobs')
                 ->where('assigned_worker_id', '=', $userId)
@@ -152,10 +176,17 @@ class Job extends Model
                 ->orderBy('updated_at', 'desc')
                 ->limit($limit)
                 ->get()->all();
-            return array_map(fn($r) => new self((array) $r), $rows);
+            foreach ($rows as $row) {
+                $job = new self((array) $row);
+                // Prefer the assignment-backed instance when both the new
+                // table and legacy pointer contain the same job.
+                if (!isset($jobs[(int) $job->id])) $jobs[(int) $job->id] = $job;
+            }
         } catch (\Throwable $e) {
-            return [];
+            // The assignment query may still provide results.
         }
+
+        return array_slice(array_values($jobs), 0, max(1, $limit));
     }
 
     public static function findBySlug(string $slug): ?self

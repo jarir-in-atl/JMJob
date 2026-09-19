@@ -48,11 +48,13 @@ function render() {
                 <div class="active-job-card__head">
                     <div>
                         <h3>${escapeHtml(j.title)}</h3>
-                        <div class="muted">Budget: ৳${parseFloat(j.budget).toFixed(2)}</div>
+                        ${j.subtitle ? `<div class="muted">${escapeHtml(j.subtitle)}</div>` : ''}
+                        <div class="muted">Pay: ৳${parseFloat(j.cost_per_worker || j.budget || 0).toFixed(2)} · Deadline: ${escapeHtml(j.deadline_at || 'None')}</div>
                     </div>
                     <span class="badge badge--status badge--${status}">${status.toUpperCase()}</span>
                 </div>
                 ${mySub ? renderExistingSubmission(j, mySub) : renderSubmitForm(j)}
+                ${!mySub && j.assignment_id ? `<div class="active-job-card__actions"><button type="button" class="btn btn--ghost btn--sm" data-cancel-assignment="${j.assignment_id}">Request cancellation</button><small class="muted">Available before submitting work.</small></div>` : ''}
             </div>
         `;
     }).join('');
@@ -73,6 +75,8 @@ function renderExistingSubmission(job, sub) {
 }
 
 function renderSubmitForm(job) {
+    const requiresScreenshot = Array.isArray(job.proof_requirements)
+        && job.proof_requirements.some(requirement => requirement && requirement.type === 'screenshot');
     return `
         <form class="submit-form" data-job-id="${job.id}">
             <label class="submit-form__label">
@@ -82,6 +86,11 @@ function renderSubmitForm(job) {
             <label class="submit-form__label">
                 External link (optional — Google Drive, GitHub, Figma, etc.)
                 <input name="external_link" type="url" placeholder="https://…">
+            </label>
+            <label class="submit-form__label">
+                Screenshot proof ${requiresScreenshot ? '(required)' : '(optional)'}
+                <input name="screenshot" type="file" accept="image/jpeg,image/png,image/gif,image/webp" ${requiresScreenshot ? 'required' : ''}>
+                <small class="muted">JPG, PNG, GIF, or WEBP; maximum 10 MB.</small>
             </label>
             <button type="submit" class="btn btn--success btn--xl" data-submit-btn>
                 <i class="bi bi-send"></i> Submit Work
@@ -99,16 +108,34 @@ function wireForms() {
             const btn = form.querySelector('[data-submit-btn]');
             btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass"></i> Submitting…';
             try {
-                await api.submitWork(jobId, {
-                    description: String(fd.get('description') || '').trim(),
-                    external_link: String(fd.get('external_link') || '').trim() || null,
-                });
+                const payload = new FormData();
+                payload.append('description', String(fd.get('description') || '').trim());
+                payload.append('external_link', String(fd.get('external_link') || '').trim());
+                const screenshot = fd.get('screenshot');
+                if (screenshot instanceof File && screenshot.size > 0) payload.append('screenshot', screenshot);
+                await api.submitWork(jobId, payload);
                 showFlash('Work submitted!', 'success');
                 WorkerActiveJobsPage()();
             } catch (err) {
                 showFlash(err.message || 'Failed to submit.', 'error');
             } finally {
                 btn.disabled = false; btn.innerHTML = '<i class="bi bi-send"></i> Submit Work';
+            }
+        });
+    });
+
+    document.querySelectorAll('[data-cancel-assignment]').forEach(button => {
+        button.addEventListener('click', async () => {
+            const reason = prompt('Why do you need to cancel this assignment?');
+            if (!reason || !reason.trim()) return;
+            button.disabled = true;
+            try {
+                await api.workerCancelAssignment(button.dataset.cancelAssignment, { reason: reason.trim() });
+                showFlash('Assignment cancelled and returned for reassignment.', 'success');
+                WorkerActiveJobsPage()();
+            } catch (error) {
+                showFlash(error.message || 'Could not cancel assignment.', 'error');
+                button.disabled = false;
             }
         });
     });

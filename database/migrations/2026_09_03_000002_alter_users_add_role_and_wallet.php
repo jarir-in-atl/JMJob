@@ -24,6 +24,26 @@ class AlterUsersAddRoleAndWallet extends Migration {
     public function up() {
         $db = Database::connect();
 
+        if (Database::getDriverName() === 'sqlite') {
+            $columns = array_column($db->query('PRAGMA table_info(users)')->fetchAll(), 'name');
+            $definitions = [
+                'role'               => "TEXT NOT NULL DEFAULT 'worker'",
+                'wallet_balance'     => 'NUMERIC NOT NULL DEFAULT 0.0000',
+                'frozen_balance'     => 'NUMERIC NOT NULL DEFAULT 0.0000',
+                'total_spent'        => 'NUMERIC NOT NULL DEFAULT 0.0000',
+                'total_posted_earned'=> 'NUMERIC NOT NULL DEFAULT 0.0000',
+                'rating'             => 'NUMERIC NOT NULL DEFAULT 0.00',
+                'rating_count'       => 'INTEGER NOT NULL DEFAULT 0',
+            ];
+            foreach ($definitions as $column => $definition) {
+                if (!in_array($column, $columns, true)) {
+                    $db->exec("ALTER TABLE users ADD COLUMN {$column} {$definition}");
+                }
+            }
+            $db->exec('CREATE INDEX IF NOT EXISTS idx_users_role ON users (role)');
+            return;
+        }
+
         // Per-driver check helper
         $columnExists = function (string $table, string $column) use ($db) {
             $driver = Database::getDriverName();

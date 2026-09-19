@@ -5,6 +5,8 @@ namespace App\Services;
 
 use App\Models\User;
 use App\Models\Withdrawal;
+use App\Services\NotificationService;
+use Nemesis\Core\Database;
 use Nemesis\Core\Fluent;
 
 class WithdrawalService
@@ -23,47 +25,69 @@ class WithdrawalService
         if (!preg_match('/^[0-9+\-]{8,20}$/', $walletAddress)) {
             return ['success' => false, 'message' => 'Invalid wallet address format.'];
         }
-        if ((float) $user->balance < $amount) {
-            return [
-                'success' => false,
-                'message' => 'Insufficient balance. Available: $' . number_format((float) $user->balance, 2),
-            ];
-        }
-        if (!$user->canWithdraw()) {
-            $minReferrals = (int) (getenv('WITHDRAW_MIN_REFERRALS') ?: 0);
-            return [
-                'success' => false,
-                'message' => "You need at least {$minReferrals} referral(s) to withdraw.",
-            ];
+        if ($user->isBanned()) {
+            return ['success' => false, 'message' => 'Banned users cannot request withdrawals.'];
         }
 
-        // Pending withdrawal cap: 1 at a time
-        $pending = Withdrawal::pendingForUser((int) $user->id);
-        if (count($pending) > 0) {
-            return [
-                'success' => false,
-                'message' => 'You already have a pending withdrawal. Wait for it to be processed.',
-            ];
-        }
+        $db = Database::connect();
+        try {
+            Database::beginWriteTransaction($db);
+            $lockSql = 'SELECT * FROM users WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $lockSql .= ' FOR UPDATE';
+            $lock = $db->prepare($lockSql);
+            $lock->execute(['id' => (int) $user->id]);
+            $lockedRow = $lock->fetch(\PDO::FETCH_ASSOC);
+            $currentUser = $lockedRow ? new User($lockedRow) : null;
+            if ($currentUser === null) throw new \RuntimeException('User not found.');
+            if ($currentUser->isBanned()) throw new \RuntimeException('Banned users cannot request withdrawals.');
+            if ((float) $currentUser->balance < $amount) {
+                throw new \RuntimeException('Insufficient balance. Available: $' . number_format((float) $currentUser->balance, 2));
+            }
+            if (!$currentUser->canWithdraw()) {
+                $minReferrals = (int) (getenv('WITHDRAW_MIN_REFERRALS') ?: 0);
+                throw new \RuntimeException("You need at least {$minReferrals} referral(s) to withdraw.");
+            }
+            if (count(Withdrawal::pendingForUser((int) $currentUser->id)) > 0) {
+                throw new \RuntimeException('You already have a pending withdrawal. Wait for it to be processed.');
+            }
 
-        $id = Fluent::table('withdrawals')->insert([
-            'user_id'        => $user->id,
-            'amount'         => $amount,
-            'gateway'        => $gateway,
-            'wallet_address' => $walletAddress,
-            'status'         => Withdrawal::STATUS_PENDING,
-            'requested_at'   => date('Y-m-d H:i:s'),
-        ]);
-
-        // Decrement balance
-        $newBalance = round(((float) $user->balance) - $amount, 4);
-        Fluent::table('users')
-            ->where('id', '=', $user->id)
-            ->update([
-                'balance'    => $newBalance,
-                'updated_at' => date('Y-m-d H:i:s'),
+            $now = date('Y-m-d H:i:s');
+            $id = (int) Fluent::table('withdrawals')->insert([
+                'user_id'        => $currentUser->id,
+                'amount'         => $amount,
+                'gateway'        => $gateway,
+                'wallet_address' => $walletAddress,
+                'status'         => Withdrawal::STATUS_PENDING,
+                'requested_at'   => $now,
             ]);
+            $newBalance = round(((float) $currentUser->balance) - $amount, 4);
+            Fluent::table('users')->where('id', '=', $currentUser->id)->update([
+                'balance'    => $newBalance,
+                'updated_at' => $now,
+            ]);
+            Database::commitWriteTransaction($db);
+        } catch (\Throwable $e) {
+            Database::rollbackWriteTransaction($db);
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+
         $user->balance = $newBalance;
+
+        NotificationService::send(
+            $user,
+            'Withdrawal requested',
+            'Your withdrawal request for ' . number_format($amount, 2) . ' BDT is awaiting admin review.',
+            'info',
+            'bi-wallet2',
+            '/withdraw'
+        );
+        NotificationService::sendToAdmins(
+            'New withdrawal request',
+            ($user->name ?: $user->email) . ' requested a ' . number_format($amount, 2) . ' BDT withdrawal.',
+            'info',
+            'bi-wallet2',
+            '/admin/withdrawals'
+        );
 
         return [
             'success'    => true,

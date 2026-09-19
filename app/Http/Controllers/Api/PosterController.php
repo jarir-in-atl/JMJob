@@ -61,11 +61,16 @@ class PosterController extends Controller
         $body = (array) $this->readJson($request);
         $categoryId     = (int)    ($body['category_id'] ?? 0);
         $title          = (string) ($body['title'] ?? '');
+        $subtitle       = trim((string) ($body['subtitle'] ?? ''));
         $description    = (string) ($body['description'] ?? '');
+        $requirements   = isset($body['requirements']) ? (string) $body['requirements'] : null;
         $subcategoryId  = isset($body['subcategory_id']) ? (int) $body['subcategory_id'] : null;
         $proofReqs      = isset($body['proof_requirements']) ? (array) $body['proof_requirements'] : [];
         $workerCount    = isset($body['worker_count']) ? (int) $body['worker_count'] : 1;
         $costPerWorker  = isset($body['cost_per_worker']) ? (float) $body['cost_per_worker'] : 0;
+        $budget         = isset($body['budget']) ? (float) $body['budget'] : 0;
+        $deadlineAt     = !empty($body['deadline_at']) ? (string) $body['deadline_at'] : null;
+        $windowHours    = isset($body['bidding_window_hours']) ? (int) $body['bidding_window_hours'] : null;
 
         if ($categoryId <= 0 || $title === '' || $description === '') {
             return Response::json(['success' => false, 'message' => 'category_id, title, and description are required.'], 422);
@@ -73,12 +78,27 @@ class PosterController extends Controller
 
         if ($workerCount > 0 && $costPerWorker > 0) {
             $deadline = $deadlineAt ?? date('Y-m-d H:i:s', time() + 7 * 86400);
-            $result = $this->jobService->createWorkflowJob($user, $categoryId, $subcategoryId, $title, $description, $proofReqs, $workerCount, $costPerWorker, $deadline);
+            $result = $this->jobService->createWorkflowJob(
+                $user, $categoryId, $subcategoryId, $title, $description,
+                $proofReqs, $workerCount, $costPerWorker, $deadline,
+                $subtitle, $user->name, $user->phone ?? null, $user->email
+            );
         } else {
             if ($budget <= 0) {
                 return Response::json(['success' => false, 'message' => 'budget is required.'], 422);
             }
             $result = $this->jobService->create($user, $categoryId, $title, $description, $requirements, $budget, $deadlineAt, $windowHours);
+            if (($result['success'] ?? false) && $subtitle !== '') {
+                try {
+                    \Nemesis\Core\Fluent::table('jobs')->where('id', '=', $result['job']->id)->update([
+                        'subtitle' => $subtitle,
+                        'customer_name' => $user->name,
+                        'customer_phone' => $user->phone ?? null,
+                        'customer_email' => $user->email,
+                        'updated_at' => date('Y-m-d H:i:s'),
+                    ]);
+                } catch (\Throwable $e) {}
+            }
         }
 
         if (!$result['success']) return Response::json($result, 422);
@@ -166,11 +186,20 @@ class PosterController extends Controller
     private function posterGuard(Request $request): ?Response
     {
         $user = $request->getMeta('auth.user');
-        if ($user) return null;
-        return Response::json([
-            'success' => false,
-            'message' => 'Authentication required.',
-        ], 401);
+        if ($user === null) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Authentication required.',
+            ], 401);
+        }
+        if (!$user->isAdmin() && !$user->isPoster()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Poster access required.',
+                'error' => 'forbidden',
+            ], 403);
+        }
+        return null;
     }
 
     private function serializeJob(Job $job): array
@@ -196,7 +225,11 @@ class PosterController extends Controller
         return [
             'id'                   => (int) $job->id,
             'title'                => $job->title,
+            'subtitle'             => $job->subtitle ?? null,
             'description'          => $job->description,
+            'customer_name'        => $job->customer_name ?? null,
+            'customer_phone'       => $job->customer_phone ?? null,
+            'customer_email'       => $job->customer_email ?? null,
             'requirements'         => $job->requirements,
             'budget'               => (float) $job->budget,
             'currency'             => $job->currency,

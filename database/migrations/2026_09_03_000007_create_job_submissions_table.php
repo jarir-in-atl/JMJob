@@ -14,7 +14,29 @@ use Nemesis\Core\Database;
  */
 class CreateJobSubmissionsTable extends Migration {
     public function up() {
-        Database::connect()->exec("CREATE TABLE IF NOT EXISTS job_submissions (
+        $db = Database::connect();
+        if (Database::getDriverName() === 'sqlite') {
+            $db->exec("CREATE TABLE IF NOT EXISTS job_submissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id INTEGER NOT NULL,
+                worker_id INTEGER NOT NULL,
+                bid_id INTEGER NOT NULL,
+                description TEXT NULL,
+                attachment_path TEXT NULL,
+                external_link TEXT NULL,
+                status TEXT NOT NULL DEFAULT 'pending_review',
+                reviewed_at TEXT NULL,
+                reviewed_by INTEGER NULL,
+                reviewer_note TEXT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NULL
+            )");
+            $db->exec('CREATE INDEX IF NOT EXISTS idx_submissions_job ON job_submissions (job_id)');
+            $db->exec('CREATE INDEX IF NOT EXISTS idx_submissions_worker ON job_submissions (worker_id)');
+            $db->exec('CREATE INDEX IF NOT EXISTS idx_submissions_status ON job_submissions (status)');
+            return;
+        }
+        $db->exec("CREATE TABLE IF NOT EXISTS job_submissions (
             id INT AUTO_INCREMENT PRIMARY KEY,
             job_id INT NOT NULL,
             worker_id INT NOT NULL,

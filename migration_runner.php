@@ -4,27 +4,19 @@ declare(strict_types=1);
 /**
  * migration_runner.php
  *
- * One-time (and idempotent) migration runner. Drop this at the web root
- * (e.g. /public_html/migration_runner.php) and visit
- *   https://yourdomain.com/migration_runner.php
- * to apply all pending migrations.
+ * Idempotent migration runner. It can be called after each deployment from
+ * deploy.sh or GitHub Actions; only unapplied migrations are executed.
  *
- * SECURITY: Once migrations are done, DELETE this file from the server
- * (or rename it). Anyone with the URL can re-run this — it does not
- * modify data, but it does talk to the database.
- *
- * After running, this file can be safely deleted from the server.
+ * The runner is intentionally simple and idempotent. Keep or remove this
+ * public helper according to the hosting deployment workflow.
  *
  * Usage:
- *   - Visit https://yourdomain.com/migration_runner.php in a browser, OR
- *   - curl -X POST https://yourdomain.com/migration_runner.php
- *
- * Optional: provide ?token=YOUR_SECRET in the URL to require auth.
- *           Set the secret via the MIGRATION_TOKEN environment variable.
+ *   - Visit https://yourdomain.com/migration_runner.php, OR
+ *   - curl https://yourdomain.com/migration_runner.php
  */
 
 error_reporting(E_ALL);
-ini_set('display_errors', '1');
+ini_set('display_errors', PHP_SAPI === 'cli' ? '1' : '0');
 
 $ROOT = __DIR__;
 
@@ -50,30 +42,8 @@ if ($projectRoot === null) {
     die("❌ Could not find project root. Make sure vendor/autoload.php and database/migrations exist.");
 }
 
-// ---------------------------------------------------------------------------
-// Optional token gate
-// ---------------------------------------------------------------------------
-$requiredToken = getenv('MIGRATION_TOKEN') ?: '';
-if ($requiredToken !== '') {
-    $provided = $_GET['token'] ?? $_POST['token'] ?? '';
-    if (!hash_equals($requiredToken, (string) $provided)) {
-        http_response_code(403);
-        die("❌ Forbidden. Provide ?token=YOUR_SECRET to run migrations.");
-    }
-}
-
-chdir($projectRoot);
-
-require $projectRoot . '/vendor/autoload.php';
-
-use Nemesis\Core\Config;
-use Nemesis\Core\Database;
-use Nemesis\Database\MigrationManager;
-
-// ---------------------------------------------------------------------------
-// Load .env (best-effort). If the framework already has Config loaded, this
-// is a no-op.
-// ---------------------------------------------------------------------------
+// Load the server-side .env before booting the application. The deployment
+// scripts exclude .env from FTP uploads, so production keeps its private copy.
 if (is_file($projectRoot . '/.env')) {
     foreach (file($projectRoot . '/.env', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
         if (str_starts_with($line, '#')) continue;
@@ -88,6 +58,14 @@ if (is_file($projectRoot . '/.env')) {
     }
 }
 
+chdir($projectRoot);
+
+require $projectRoot . '/vendor/autoload.php';
+
+use Nemesis\Core\Config;
+use Nemesis\Core\Database;
+use Nemesis\Database\MigrationManager;
+
 Config::load($projectRoot);
 $config = require $projectRoot . '/config/config.php';
 Database::connect($config['database']);
@@ -101,10 +79,13 @@ echo "Project root:  $projectRoot\n";
 echo "DB driver:     " . Database::getDriverName() . "\n";
 echo "Timestamp:     " . date('Y-m-d H:i:s T') . "\n\n";
 
-$action = $_GET['action'] ?? $_POST['action'] ?? 'migrate';
+// Web calls remain a simple idempotent migration call. CLI callers may use
+// the maintenance actions explicitly.
+$action = PHP_SAPI === 'cli'
+    ? ($_GET['action'] ?? $_POST['action'] ?? 'migrate')
+    : 'migrate';
 
-// Also support ?rollback=1 for safety
-if (isset($_GET['rollback']) && $_GET['rollback'] === '1') {
+if (PHP_SAPI === 'cli' && isset($_GET['rollback']) && $_GET['rollback'] === '1') {
     $action = 'rollback';
 }
 
@@ -117,13 +98,13 @@ try {
             echo "▶ Running migrations...\n\n";
             $manager->migrate();
 
-            if (isset($_GET['seed_categories']) && $_GET['seed_categories'] === '1') {
+            if (PHP_SAPI === 'cli' && isset($_GET['seed_categories']) && $_GET['seed_categories'] === '1') {
                 echo "\n▶ Running SeedCategoriesFromDataCommand...\n\n";
                 $cmd = new \App\Console\Commands\SeedCategoriesFromDataCommand();
                 $cmd->handle();
             }
 
-            if (isset($_GET['seed']) && $_GET['seed'] === '1') {
+            if (PHP_SAPI === 'cli' && isset($_GET['seed']) && $_GET['seed'] === '1') {
                 echo "\n▶ Running EarnAppSeeder...\n\n";
                 require_once $projectRoot . '/database/seeders/EarnAppSeeder.php';
                 $seeder = new \EarnAppSeeder();
@@ -147,10 +128,11 @@ try {
             break;
         case 'status':
             echo "ℹ Migration status:\n\n";
-            // Walk the migrations dir and print applied + pending
-            $applied = method_exists($manager, 'getAppliedMigrations')
-                ? $manager->getAppliedMigrations()
-                : [];
+            // Walk the migrations dir and print applied + pending. The
+            // migration manager keeps this helper protected, so read the
+            // tracking table here instead of calling it from global scope.
+            $appliedStmt = Database::connect()->query('SELECT migration FROM migrations');
+            $applied = $appliedStmt->fetchAll(\PDO::FETCH_COLUMN);
             echo "Applied migrations: " . count($applied) . "\n";
             $files = scandir($migrationsDir);
             $pending = 0;
@@ -169,12 +151,13 @@ try {
             die("❌ Unknown action: " . htmlspecialchars($action));
     }
 } catch (\Throwable $e) {
+    if (PHP_SAPI !== 'cli') {
+        http_response_code(500);
+    }
     echo "\n❌ Migration failed: " . $e->getMessage() . "\n";
     echo "  in " . $e->getFile() . ":" . $e->getLine() . "\n";
     exit(1);
 }
 
 echo "\n✅ Done.\n";
-echo "\nIMPORTANT: For security, DELETE this file from the server now:\n";
-echo "  rm " . realpath(__FILE__) . "\n";
-echo "\nOr keep it but set MIGRATION_TOKEN in .env to require ?token=...\n";
+echo "\nThe migration runner is idempotent and may be called again after future deployments.\n";

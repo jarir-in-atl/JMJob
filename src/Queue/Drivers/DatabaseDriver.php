@@ -14,7 +14,7 @@ class DatabaseDriver implements QueueDriver
 {
     protected string $table;
 
-    public function __construct(string $table = 'jobs')
+    public function __construct(string $table = 'queue_jobs')
     {
         $this->table = $table;
         $this->ensureTable();

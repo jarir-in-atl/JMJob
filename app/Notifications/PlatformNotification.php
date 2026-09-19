@@ -15,6 +15,7 @@ class PlatformNotification extends Notification
         private string $tone = 'info',
         private string $icon = 'bi-bell',
         private ?string $actionUrl = null,
+        private ?string $eventKey = null,
     ) {}
 
     public function via(object $notifiable): array
@@ -37,12 +38,16 @@ class PlatformNotification extends Notification
 
     public function toDatabase(object $notifiable): array
     {
-        return [
+        $data = [
             'title'      => $this->title,
             'message'    => $this->message,
             'tone'       => $this->tone,
             'icon'       => $this->icon,
             'action_url' => $this->actionUrl,
         ];
+        if ($this->eventKey !== null && trim($this->eventKey) !== '') {
+            $data['event_key'] = $this->eventKey;
+        }
+        return $data;
     }
 }

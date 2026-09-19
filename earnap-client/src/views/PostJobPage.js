@@ -24,6 +24,7 @@ export function PostJobPage() {
             subCategoryId: '',
             // Step 2
             title: '',
+            subtitle: '',
             description: '', // Task Instructions
             thumbnailBase64: '',
             proofRequirements: [
@@ -180,6 +181,10 @@ function renderStep2(container, root, state) {
                 <input id="job-title-input" type="text" maxlength="160" required placeholder="e.g. Design a modern business logo" value="${escapeHtml(state.title)}">
             </label>
 
+            <label>Job Subtitle (Optional)
+                <input id="job-subtitle-input" type="text" maxlength="255" placeholder="Short summary shown on job cards" value="${escapeHtml(state.subtitle)}">
+            </label>
+
             <label>Task Instructions (Description)
                 <textarea id="job-desc-input" rows="5" required placeholder="Explain step by step instructions for workers…">${escapeHtml(state.description)}</textarea>
             </label>
@@ -310,6 +315,7 @@ function renderStep2(container, root, state) {
 
 function saveStep2Inputs(container, state) {
     state.title = container.querySelector('#job-title-input')?.value || '';
+    state.subtitle = container.querySelector('#job-subtitle-input')?.value || '';
     state.description = container.querySelector('#job-desc-input')?.value || '';
 
     const rows = container.querySelectorAll('.proof-pair-row');
@@ -448,6 +454,7 @@ function renderStep3(container, root, state) {
                 category_id: Number(state.mainCategoryId),
                 subcategory_id: state.subCategoryId ? Number(state.subCategoryId) : null,
                 title: state.title.trim(),
+                subtitle: state.subtitle.trim(),
                 description: state.description.trim(),
                 thumbnail: state.thumbnailBase64 || null,
                 proof_requirements: state.proofRequirements,
@@ -517,7 +524,7 @@ function toSqlDate(value) {
 
 function hasPosterAccess() {
     const user = currentUser.get();
-    return !!user;
+    return !!user && (user.is_admin || user.role === 'poster');
 }
 
 function escapeHtml(value) {

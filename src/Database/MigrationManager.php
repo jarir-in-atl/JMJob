@@ -51,6 +51,12 @@ class MigrationManager {
             $className = pathinfo($file, PATHINFO_FILENAME);
             $className = preg_replace('/^\d{4}_\d{2}_\d{2}_\d{6}_/', '', $className);
             $className = str_replace('_', '', ucwords($className, '_'));
+            // The legacy queue migration and marketplace migration originally
+            // shared the same filename-derived class name. Keep the historical
+            // filename while allowing both migrations to load in one process.
+            if ($file === '2026_09_03_000005_create_jobs_table.php') {
+                $className = 'CreateMarketplaceJobsTable';
+            }
             
             echo "Migrating: $file (Class: $className)\n";
             $instance = new $className();
@@ -71,6 +77,11 @@ class MigrationManager {
         require_once $this->path . '/' . $lastMigration;
         $className = pathinfo($lastMigration, PATHINFO_FILENAME);
         $className = preg_replace('/^\d{4}_\d{2}_\d{2}_\d{6}_/', '', $className);
+        if ($lastMigration === '2026_09_03_000005_create_jobs_table.php') {
+            $className = 'CreateMarketplaceJobsTable';
+        } else {
+            $className = str_replace('_', '', ucwords($className, '_'));
+        }
 
         echo "Rolling back: $lastMigration\n";
         $instance = new $className();
