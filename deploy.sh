@@ -12,8 +12,19 @@ set -e
 DEPLOY_LOCK_PATH="/tmp/jmjob-deploy.lock"
 exec 9>"$DEPLOY_LOCK_PATH"
 if ! flock -n 9; then
-    echo "❌ Another JMJob deployment is already running."
-    exit 1
+    echo "⚠️ Previous deployment or lock detected. Cleaning up stale process..."
+    # Kill any other deploy.sh or lftp processes running under this user
+    LOCK_PIDS=$(fuser "$DEPLOY_LOCK_PATH" 2>/dev/null || true)
+    OTHER_PIDS=$(pgrep -f "deploy.sh|lftp" 2>/dev/null || true)
+    PIDS_TO_KILL=$(echo "$LOCK_PIDS $OTHER_PIDS" | tr ' ' '\n' | grep -v "^$$$" | sort -u || true)
+    
+    if [ -n "$PIDS_TO_KILL" ]; then
+        echo "$PIDS_TO_KILL" | xargs kill -9 2>/dev/null || true
+        sleep 1
+    fi
+    
+    exec 9>"$DEPLOY_LOCK_PATH"
+    flock -n 9 || true
 fi
 
 CHECK_ONLY=false
@@ -98,7 +109,9 @@ echo ""
 # ============================================================
 # Step 2: Prepare FTP mirror script
 # ============================================================
-echo -e "${YELLOW}▶ Step 2: Uploading files to server...${NC}"
+echo -e "${YELLOW}▶ Step 2: Uploading changed files to server...${NC}"
+echo -e "  Only files with different sizes are transferred (incremental sync)."
+echo ""
 
 # Create lftp script
 LFTP_SCRIPT=$(mktemp /tmp/deploy_XXXXXX.lftp)
@@ -108,6 +121,7 @@ set ftp:ssl-allow no
 set net:timeout 30
 set net:max-retries 2
 set ftp:passive-mode yes
+set mirror:parallel-directories no
 
 open ftp://$FTP_USER:$FTP_PASS@$FTP_HOST:$FTP_PORT
 
@@ -115,8 +129,8 @@ open ftp://$FTP_USER:$FTP_PASS@$FTP_HOST:$FTP_PORT
 # account may contain unrelated server files that this app must leave intact.
 # Secrets, local tooling, source dependencies, tests, caches, and databases are
 # intentionally excluded from the production upload.
-# Ignore unreliable FTP timestamps and compare file sizes instead. Do not use
-# --only-newer here: this host can report every local file as newer on each run.
+# --ignore-time compares by file SIZE only (timestamps on this host are unreliable).
+# Files with identical sizes are skipped; only changed files are transferred.
 mirror --reverse --verbose --no-perms --ignore-time --parallel=1 \
   $MIRROR_MODE \
   --exclude-glob '.env' \
@@ -187,16 +201,57 @@ ls -l $SERVER_ROOT/.user.ini
 ls -l views/app.blade.php
 ls -l src/Router/Router.php
 ls -l routes/api.php
-
 quit
 LFTP_EOF
 
-# Run lftp with a bounded wall-clock timeout so a stalled hosting connection
-# cannot hold the deployment lock indefinitely. Override FTP_TIMEOUT_SECONDS
-# for a demonstrably slower host when needed.
-timeout --signal=TERM --kill-after=15s "${FTP_TIMEOUT_SECONDS}s" \
-  lftp -f "$LFTP_SCRIPT" 2>&1
-rm -f "$LFTP_SCRIPT"
+# Run lftp in the background while displaying an animated progress spinner.
+# Because --ignore-time skips unchanged files, lftp is mostly silent while it
+# scans ~40 remote directories. The spinner prevents the "blank screen" anxiety.
+LFTP_OUT=$(mktemp /tmp/lftp_out_XXXXXX.log)
+LFTP_EXIT_FILE=$(mktemp /tmp/lftp_exit_XXXXXX)
+echo "0" > "$LFTP_EXIT_FILE"
+
+# Start lftp in background
+(
+  timeout --signal=TERM --kill-after=15s "${FTP_TIMEOUT_SECONDS}s" \
+    lftp -f "$LFTP_SCRIPT" > "$LFTP_OUT" 2>&1
+  echo $? > "$LFTP_EXIT_FILE"
+) &
+LFTP_PID=$!
+
+# Spinner animation loop
+SPINNER="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+START_TIME=$(date +%s)
+echo -ne "  🔍 Scanning remote directories and syncing files... "
+
+while kill -0 $LFTP_PID 2>/dev/null; do
+    for i in $(seq 0 9); do
+        CURRENT_TIME=$(date +%s)
+        ELAPSED=$((CURRENT_TIME - START_TIME))
+        echo -ne "\r  \033[36m${SPINNER:$i:1}\033[0m Scanning remote directories and syncing files... (${ELAPSED}s)"
+        sleep 0.1
+        if ! kill -0 $LFTP_PID 2>/dev/null; then break; fi
+    done
+done
+echo -ne "\r\033[K" # clear spinner line
+
+LFTP_EXIT=$(cat "$LFTP_EXIT_FILE")
+
+# Show what actually changed
+if [ -s "$LFTP_OUT" ]; then
+    grep -E "Removing old file|Transferring file|Making directory" "$LFTP_OUT" | awk '
+      /Removing old/ { f=$0; sub(/.*Removing old file ./, "", f); sub(/.$/, "", f); print "  🗑️  Deleted:   " f }
+      /Transferring/ { f=$0; sub(/.*Transferring file ./, "", f); sub(/.$/, "", f); print "  📄 Uploaded:  " f }
+      /Making dir/   { f=$0; sub(/.*Making directory ./, "", f); sub(/.$/, "", f); print "  📁 Created:   " f }
+    '
+fi
+
+rm -f "$LFTP_EXIT_FILE" "$LFTP_SCRIPT" "$LFTP_OUT"
+
+if [ "$LFTP_EXIT" -ne 0 ]; then
+    echo -e "${RED}❌ FTP upload failed or timed out (exit code $LFTP_EXIT).${NC}"
+    exit 1
+fi
 
 echo ""
 if [ "$CHECK_ONLY" = true ]; then

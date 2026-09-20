@@ -61,9 +61,11 @@ export async function login(email, password) {
 
 export async function register(payload) {
     const res = await api.register(payload);
-    authToken.set(res.data.token);
-    currentUser.set(res.data.user);
-    return res.data.user;
+    if (res.data && res.data.token && res.data.user) {
+        authToken.set(res.data.token);
+        currentUser.set(res.data.user);
+    }
+    return res;
 }
 
 export async function requestRegistrationOtp(payload) {

@@ -12,6 +12,8 @@ use Nemesis\Core\Fluent;
 use Nemesis\Core\Validator;
 use Nemesis\Services\Mailer;
 use App\Services\NotificationService;
+use App\Services\SettingService;
+use App\Services\SmsNetBdClient;
 
 /**
  * AuthController — register, login, logout, me.
@@ -25,8 +27,8 @@ class AuthController extends Controller
 
     /**
      * POST /api/auth/register
-     * Starts the registration OTP flow.
-     * Body: { name, email, password, password_confirmation, referral_code? }
+     * Completes registration directly, or starts the SMS OTP flow when enabled.
+     * Body: { name, email, phone?, password, password_confirmation, referral_code? }
      */
     public function register(Request $request): Response
     {
@@ -35,7 +37,7 @@ class AuthController extends Controller
 
     /**
      * POST /api/auth/register/request-otp
-     * Stores a pending registration and emails a short-lived OTP.
+     * Stores a pending registration and sends a short-lived SMS OTP when enabled.
      */
     public function requestRegistrationOtp(Request $request): Response
     {
@@ -69,6 +71,26 @@ class AuthController extends Controller
             ], 422);
         }
 
+        $otpEnabled = SettingService::registrationOtpEnabled();
+        $phone = trim((string) ($data['phone'] ?? ''));
+        if ($otpEnabled && $phone !== '') {
+            $phone = SmsNetBdClient::normalizeBangladeshNumber($phone);
+            if ($phone === null) {
+                return Response::json([
+                    'success' => false,
+                    'message' => 'Validation failed.',
+                    'errors'  => ['phone' => ['Use a valid Bangladesh mobile number, or leave phone empty for email verification.']],
+                ], 422);
+            }
+        } elseif ($phone !== '') {
+            $phone = SmsNetBdClient::normalizeBangladeshNumber($phone) ?? $phone;
+        }
+
+        $data['phone'] = $phone !== '' ? $phone : null;
+        if (!$otpEnabled) {
+            return $this->completeRegistration($data);
+        }
+
         $otp = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
         $expiresAt = date('Y-m-d H:i:s', time() + 15 * 60);
         $referralCode = trim((string) ($data['referral_code'] ?? ''));
@@ -79,6 +101,7 @@ class AuthController extends Controller
         $pendingId = Fluent::table('registration_otps')->insert([
             'name'          => trim((string) $data['name']),
             'email'         => $data['email'],
+            'phone'         => $data['phone'],
             'password_hash' => password_hash((string) $data['password'], PASSWORD_BCRYPT),
             'referral_code' => $referralCode !== '' ? $referralCode : null,
             'otp_hash'      => password_hash($otp, PASSWORD_DEFAULT),
@@ -87,14 +110,27 @@ class AuthController extends Controller
             'created_at'    => date('Y-m-d H:i:s'),
         ]);
 
-        if (!$this->sendRegistrationOtpEmail($data['email'], $otp, trim((string) $data['name']))) {
-            Fluent::table('registration_otps')->where('id', '=', $pendingId)->delete();
-            return $this->mailFailureResponse('We could not send the verification code.');
+        if ($data['phone'] !== null) {
+            if (!(new SmsNetBdClient())->sendOtp((string) $data['phone'], $otp)) {
+                Fluent::table('registration_otps')->where('id', '=', $pendingId)->delete();
+                return Response::json([
+                    'success' => false,
+                    'message' => 'We could not send the verification code by SMS.',
+                    'error'   => 'sms_delivery_failed',
+                ], 503);
+            }
+            $deliveryMessage = 'A verification code was sent to your phone number.';
+        } else {
+            if (!$this->sendRegistrationOtpEmail($data['email'], $otp, trim((string) $data['name']))) {
+                Fluent::table('registration_otps')->where('id', '=', $pendingId)->delete();
+                return $this->mailFailureResponse('We could not send the verification code by email.');
+            }
+            $deliveryMessage = 'A verification code was sent to your email address.';
         }
 
         return Response::json([
             'success' => true,
-            'message' => 'A verification code was sent to your email address.',
+            'message' => $deliveryMessage,
             'data'    => ['expires_in' => 900],
         ]);
     }
@@ -145,12 +181,26 @@ class AuthController extends Controller
             ], 400);
         }
 
+        return $this->completeRegistration([
+            'name' => $pending['name'],
+            'email' => $pending['email'],
+            'password_hash' => $pending['password_hash'],
+            'referral_code' => $pending['referral_code'] ?? null,
+            'phone' => $pending['phone'] ?? null,
+        ], (int) $pending['id']);
+    }
+
+    private function completeRegistration(array $data, ?int $pendingId = null): Response
+    {
+        $email = strtolower(trim((string) ($data['email'] ?? '')));
         $exists = Fluent::table('users')
             ->select(['COUNT(*) AS c'])
-            ->where('email', '=', $data['email'])
+            ->where('email', '=', $email)
             ->first();
         if ((int) ($exists['c'] ?? 0) > 0) {
-            Fluent::table('registration_otps')->where('id', '=', $pending['id'])->delete();
+            if ($pendingId !== null) {
+                Fluent::table('registration_otps')->where('id', '=', $pendingId)->delete();
+            }
             return Response::json([
                 'success' => false,
                 'message' => 'Email is already registered.',
@@ -158,21 +208,22 @@ class AuthController extends Controller
         }
 
         $referredBy = null;
-        if (!empty($pending['referral_code'])) {
+        if (!empty($data['referral_code'])) {
             $referrer = Fluent::table('users')
                 ->select(['id'])
-                ->where('referral_code', '=', $pending['referral_code'])
+                ->where('referral_code', '=', $data['referral_code'])
                 ->first();
             $referredBy = $referrer ? (int) $referrer['id'] : null;
         }
 
         $id = Fluent::table('users')->insert([
-            'name'            => $pending['name'],
-            'email'           => $pending['email'],
-            'username'        => User::generateUsername((string) $pending['name']),
-            'password'        => $pending['password_hash'],
+            'name'            => trim((string) ($data['name'] ?? '')),
+            'email'           => $email,
+            'username'        => User::generateUsername((string) ($data['name'] ?? '')),
+            'password'        => $data['password_hash'] ?? password_hash((string) ($data['password'] ?? ''), PASSWORD_BCRYPT),
             'referral_code'   => User::generateReferralCode(),
             'referred_by'     => $referredBy,
+            'phone'           => $data['phone'] ?? null,
             'balance'         => 0,
             'lifetime_earned' => 0,
             'today_earned'    => 0,
@@ -183,7 +234,9 @@ class AuthController extends Controller
             'created_at'      => date('Y-m-d H:i:s'),
             'updated_at'      => date('Y-m-d H:i:s'),
         ]);
-        Fluent::table('registration_otps')->where('id', '=', $pending['id'])->delete();
+        if ($pendingId !== null) {
+            Fluent::table('registration_otps')->where('id', '=', $pendingId)->delete();
+        }
 
         $user = User::find((int) $id);
         NotificationService::send(

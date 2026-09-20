@@ -18,6 +18,7 @@ const SETTING_LABELS = {
     fraud_shared_identity_worker_threshold: 'Fraud: Shared Identity Threshold',
     fraud_review_threshold: 'Fraud: Review Score Threshold',
     fraud_ban_requires_confirmation: 'Fraud: Require Explicit Ban Confirmation',
+    registration_otp_enabled: 'Registration OTP Verification',
 };
 
 export function AdminSettingsPage() {

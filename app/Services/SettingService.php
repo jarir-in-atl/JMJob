@@ -165,6 +165,11 @@ class SettingService
         return (bool) self::get('ad_network_enabled', true);
     }
 
+    public static function registrationOtpEnabled(): bool
+    {
+        return (bool) self::get('registration_otp_enabled', false);
+    }
+
     /**
      * Returns the effective escrow amount to hold for a bid of $amount,
      * given the current escrow_mode and (if relevant) escrow_percent.

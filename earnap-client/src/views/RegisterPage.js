@@ -1,5 +1,5 @@
 import {
-    requestRegistrationOtp,
+    register,
     verifyRegistrationOtp,
     navigate,
     showFlash,
@@ -19,11 +19,12 @@ export function RegisterPage() {
             root.className = 'view view--auth';
 
             if (step === 'otp') {
+                const channel = registration.phone ? 'phone' : 'email';
                 root.innerHTML = [
                     '<div class="auth-card">',
-                    '<h1 class="auth-card__title">Check your email</h1>',
+                    '<h1 class="auth-card__title">Check your ' + channel + '</h1>',
                     '<p class="auth-card__sub">Enter the 6-digit code sent to <strong>',
-                    escapeHtml(registration.email),
+                    escapeHtml(registration.phone || registration.email),
                     '</strong>.</p>',
                     '<form id="register-otp-form" class="auth-form">',
                     '<label class="auth-form__label">Verification code',
@@ -58,6 +59,9 @@ export function RegisterPage() {
                 '<label class="auth-form__label">Email',
                 '<input name="email" type="email" required placeholder="you@example.com">',
                 '</label>',
+                '<label class="auth-form__label">Phone <span class="muted">(optional — leave empty for email verification)</span>',
+                '<input name="phone" type="tel" placeholder="01XXXXXXXXX" autocomplete="tel">',
+                '</label>',
                 '<label class="auth-form__label">Password',
                 '<input name="password" type="password" required minlength="6" placeholder="At least 6 characters">',
                 '</label>',
@@ -65,40 +69,46 @@ export function RegisterPage() {
                 '<input name="password_confirmation" type="password" required minlength="6" placeholder="Repeat your password">',
                 '</label>',
                 ref ? '<input type="hidden" name="referral_code" value="' + escapeHtml(ref) + '">' : '',
-                '<button type="submit" class="btn btn--primary btn--xl">Send verification code</button>',
+                '<button type="submit" class="btn btn--primary btn--xl">Create account</button>',
                 '</form>',
                 '<p class="auth-card__alt">Already have an account? <a href="#/login">Log in</a></p>',
                 '</div>',
             ].join('');
 
-            root.querySelector('#register-form').addEventListener('submit', requestOtp);
+            root.querySelector('#register-form').addEventListener('submit', submitRegistration);
         };
 
-        const requestOtp = async (event) => {
+        const submitRegistration = async (event) => {
             event.preventDefault();
             const form = event.currentTarget;
             const fd = new FormData(form);
             const btn = form.querySelector('button[type="submit"]');
             btn.disabled = true;
-            btn.textContent = 'Sending code…';
+            btn.textContent = 'Creating account…';
 
             registration = {
                 name: String(fd.get('name') || '').trim(),
                 email: String(fd.get('email') || '').trim().toLowerCase(),
+                phone: String(fd.get('phone') || '').trim(),
                 password: String(fd.get('password') || ''),
                 password_confirmation: String(fd.get('password_confirmation') || ''),
                 referral_code: String(fd.get('referral_code') || ''),
             };
 
             try {
-                await requestRegistrationOtp(registration);
+                const response = await register(registration);
+                if (response?.data?.token) {
+                    showFlash('Account created — welcome!', 'success');
+                    navigate('/');
+                    return;
+                }
                 step = 'otp';
                 showFlash('Verification code sent. It expires in 15 minutes.', 'success');
                 render();
             } catch (error) {
                 showFlash(firstError(error) || 'Could not send the verification code.', 'error');
                 btn.disabled = false;
-                btn.textContent = 'Send verification code';
+                btn.textContent = 'Create account';
             }
         };
 
