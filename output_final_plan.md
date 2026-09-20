@@ -342,6 +342,7 @@ Fresh disposable migration followed by the expanded integration and both race su
 - [x] Applied the same bounded FTP timeout, termination grace period, and retry limits to the GitHub production mirror; its fifteen-minute first-run window matches the proven manual deployment duration.
 - [x] Excluded the repository's CI metadata and unrelated untracked file from the local FTP mirror so deployment comparison cannot propose uploading them.
 - [x] Aligned the GitHub public-asset mirror with the local deployment layout by preserving the working document-root `index.php`/`index.html` instead of uploading the incompatible `public/` front controller.
+- [x] Disabled the GitHub FTP deployment job; production deployment is now performed manually through `deploy.sh`, while GitHub remains the CI/backup repository.
 
 Read-only live smoke checks were refreshed after the notification slice: `https://jmjob.xyz/` and `/js/app.js` returned 200, `/api/health` returned 200 JSON, and unauthenticated `/api/jobs` and `/api/admin/stats` returned 401 JSON. No authenticated production read or write was attempted.
 
