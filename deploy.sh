@@ -58,7 +58,7 @@ if [ -z "$FTP_HOST" ] || [ -z "$FTP_USER" ] || [ -z "$FTP_PASS" ]; then
 fi
 
 FTP_PORT=${FTP_PORT:-21}
-FTP_TIMEOUT_SECONDS=${FTP_TIMEOUT_SECONDS:-300}
+FTP_TIMEOUT_SECONDS=${FTP_TIMEOUT_SECONDS:-1800}
 SERVER_ROOT="/public_html"
 LOCAL_ROOT="$SCRIPT_DIR"
 # APP_URL is commonly a local development URL; never use it as the production
@@ -113,7 +113,11 @@ echo -e "${YELLOW}▶ Step 2: Uploading changed files to server...${NC}"
 echo -e "  Only files with different sizes are transferred (incremental sync)."
 echo ""
 
-# Create lftp script
+# Create lftp script dynamically based on local folders.
+# Instead of one giant silent mirror, we instruct lftp to process each folder
+# individually (mirror --no-recursion). This gives us the exact synchronous
+# "Scan folder -> upload -> scan folder" output behavior you wanted without
+# the long upfront wait.
 LFTP_SCRIPT=$(mktemp /tmp/deploy_XXXXXX.lftp)
 trap 'rm -f "$LFTP_SCRIPT"' EXIT
 cat > "$LFTP_SCRIPT" << LFTP_EOF
@@ -121,79 +125,43 @@ set ftp:ssl-allow no
 set net:timeout 30
 set net:max-retries 2
 set ftp:passive-mode yes
-set mirror:parallel-directories no
-
 open ftp://$FTP_USER:$FTP_PASS@$FTP_HOST:$FTP_PORT
+LFTP_EOF
 
-# Upload the complete deployable backend tree. Do not use --delete: the hosting
-# account may contain unrelated server files that this app must leave intact.
-# Secrets, local tooling, source dependencies, tests, caches, and databases are
-# intentionally excluded from the production upload.
-# --ignore-time compares by file SIZE only (timestamps on this host are unreliable).
-# Files with identical sizes are skipped; only changed files are transferred.
-mirror --reverse --verbose --no-perms --ignore-time --parallel=1 \
-  $MIRROR_MODE \
-  --exclude-glob '.env' \
-  --exclude-glob '.env.*' \
-  --exclude-glob '.git/' \
-  --exclude-glob '.git/**' \
-  --exclude-glob '.github/' \
-  --exclude-glob '.github/**' \
-  --exclude-glob '.kilo/' \
-  --exclude-glob '.kilo/**' \
-  --exclude-glob '.codex/' \
-  --exclude-glob '.codex/**' \
-  --exclude-glob '.agents/' \
-  --exclude-glob '.agents/**' \
-  --exclude-glob '.vscode/' \
-  --exclude-glob '.vscode/**' \
-  --exclude-glob '.idea/' \
-  --exclude-glob '.idea/**' \
-  --exclude-glob '.ssh/' \
-  --exclude-glob '.ssh/**' \
-  --exclude-glob 'public/' \
-  --exclude-glob 'public/**' \
-  --exclude-glob 'earnap-client/' \
-  --exclude-glob 'earnap-client/**' \
-  --exclude-glob 'vendor/' \
-  --exclude-glob 'vendor/**' \
-  --exclude-glob 'node_modules/' \
-  --exclude-glob 'node_modules/**' \
-  --exclude-glob 'storage/' \
-  --exclude-glob 'storage/**' \
-  --exclude-glob 'tests/' \
-  --exclude-glob 'tests/**' \
-  --exclude-glob 'examples/' \
-  --exclude-glob 'examples/**' \
-  --exclude-glob 'docs/' \
-  --exclude-glob 'docs/**' \
-  --exclude-glob '.backup/' \
-  --exclude-glob '.backup/**' \
-  --exclude-glob '*.sqlite' \
-  --exclude-glob '*.sqlite-*' \
-  --exclude-glob '*.sql' \
-  --exclude-glob '*.dump' \
-  --exclude-glob '*.log' \
-  --exclude-glob '8' \
-  --exclude-glob '*.md' \
-  --exclude-glob 'test_*.php' \
-  --exclude-glob 'verify_*.php' \
-  $LOCAL_ROOT/ $SERVER_ROOT/
+# 1. Backend files (skip public/ which is flattened later)
+find "$LOCAL_ROOT" \
+  \( -name ".git" -o -name "vendor" -o -name "node_modules" -o -name "storage" -o -name "public" -o -name "earnap-client" -o -name "tests" -o -name "examples" -o -name "docs" -o -name ".backup" -o -name ".vscode" -o -name ".idea" -o -name ".github" -o -name ".kilo" -o -name ".codex" -o -name ".agents" \) -prune \
+  -o -type d -print | sort | while read DIR; do
+    REL_DIR="${DIR#$LOCAL_ROOT/}"
+    if [ "$REL_DIR" = "$LOCAL_ROOT" ]; then REL_DIR="."; fi
+    
+    echo "echo \"FOLDER: $REL_DIR\"" >> "$LFTP_SCRIPT"
+    echo "mirror --no-recursion --reverse --verbose --no-perms --ignore-time $MIRROR_MODE \\" >> "$LFTP_SCRIPT"
+    echo "  --exclude-glob '.env*' --exclude-glob '*.sqlite*' --exclude-glob '*.sql' --exclude-glob '*.dump' --exclude-glob '*.log' --exclude-glob '*.md' --exclude-glob 'test_*.php' --exclude-glob 'verify_*.php' --exclude-glob '8' \\" >> "$LFTP_SCRIPT"
+    if [ "$REL_DIR" = "." ]; then
+        echo "  $DIR/ $SERVER_ROOT/" >> "$LFTP_SCRIPT"
+    else
+        echo "  $DIR/ $SERVER_ROOT/$REL_DIR/" >> "$LFTP_SCRIPT"
+    fi
+done
 
-# Public assets are flattened into the web root. A database helper is kept
-# private because it is not part of the public application entry point.
-cd $SERVER_ROOT
-mirror --reverse --verbose --no-perms --ignore-time --parallel=1 \
-  $MIRROR_MODE \
-  --exclude-glob 'create_missing_tables.php' \
-  --exclude-glob 'index.php' \
-  --exclude-glob 'index.html' \
-  --exclude-glob '*.sqlite' \
-  --exclude-glob '*.sqlite-*' \
-  --exclude-glob '*.log' \
-  $LOCAL_ROOT/public/ ./
+# 2. Public assets (flattened into web root)
+echo "cd $SERVER_ROOT" >> "$LFTP_SCRIPT"
+find "$LOCAL_ROOT/public" -type d | sort | while read DIR; do
+    REL_DIR="${DIR#$LOCAL_ROOT/public/}"
+    if [ "$REL_DIR" = "$LOCAL_ROOT/public" ]; then REL_DIR="."; fi
+    
+    echo "echo \"FOLDER: public/$REL_DIR\"" >> "$LFTP_SCRIPT"
+    echo "mirror --no-recursion --reverse --verbose --no-perms --ignore-time $MIRROR_MODE \\" >> "$LFTP_SCRIPT"
+    echo "  --exclude-glob 'create_missing_tables.php' --exclude-glob 'index.php' --exclude-glob 'index.html' --exclude-glob '*.sqlite*' --exclude-glob '*.log' \\" >> "$LFTP_SCRIPT"
+    if [ "$REL_DIR" = "." ]; then
+        echo "  $DIR/ ./" >> "$LFTP_SCRIPT"
+    else
+        echo "  $DIR/ ./$REL_DIR/" >> "$LFTP_SCRIPT"
+    fi
+done
 
-# Verify the files involved in this deployment.
+cat >> "$LFTP_SCRIPT" << LFTP_EOF
 ls -l $SERVER_ROOT/css/app-v2.css
 ls -l $SERVER_ROOT/js/app.js
 ls -l $SERVER_ROOT/index.php
@@ -204,49 +172,36 @@ ls -l routes/api.php
 quit
 LFTP_EOF
 
-# Run lftp in the background while displaying an animated progress spinner.
-# Because --ignore-time skips unchanged files, lftp is mostly silent while it
-# scans ~40 remote directories. The spinner prevents the "blank screen" anxiety.
-LFTP_OUT=$(mktemp /tmp/lftp_out_XXXXXX.log)
+# Execute the script and parse the output synchronously.
 LFTP_EXIT_FILE=$(mktemp /tmp/lftp_exit_XXXXXX)
 echo "0" > "$LFTP_EXIT_FILE"
-
-# Start lftp in background
+set +e
 (
   timeout --signal=TERM --kill-after=15s "${FTP_TIMEOUT_SECONDS}s" \
-    lftp -f "$LFTP_SCRIPT" > "$LFTP_OUT" 2>&1
+    lftp -f "$LFTP_SCRIPT" 2>&1
   echo $? > "$LFTP_EXIT_FILE"
-) &
-LFTP_PID=$!
-
-# Spinner animation loop
-SPINNER="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-START_TIME=$(date +%s)
-echo -ne "  🔍 Scanning remote directories and syncing files... "
-
-while kill -0 $LFTP_PID 2>/dev/null; do
-    for i in $(seq 0 9); do
-        CURRENT_TIME=$(date +%s)
-        ELAPSED=$((CURRENT_TIME - START_TIME))
-        echo -ne "\r  \033[36m${SPINNER:$i:1}\033[0m Scanning remote directories and syncing files... (${ELAPSED}s)"
-        sleep 0.1
-        if ! kill -0 $LFTP_PID 2>/dev/null; then break; fi
-    done
-done
-echo -ne "\r\033[K" # clear spinner line
-
+) | tr '\r' '\n' | awk '
+  /^FOLDER:/ { 
+    folder = $0; sub(/^FOLDER: /, "", folder);
+    print "  📁 Checking folder: " folder; fflush(); next 
+  }
+  /Transferring file/ { 
+    f = $0; sub(/.*Transferring file ./, "", f); sub(/.$/, "", f);
+    print "  📄 Uploaded: " f; fflush(); next 
+  }
+  /Removing old file/ { 
+    f = $0; sub(/.*Removing old file ./, "", f); sub(/.$/, "", f);
+    print "  🗑️  Deleted:   " f; fflush(); next 
+  }
+  /Making directory/ {
+    f = $0; sub(/.*Making directory ./, "", f); sub(/.$/, "", f);
+    print "  📁 Created:  " f; fflush(); next
+  }
+  /^-rw/ { print "  ✅ " $0; fflush(); next }
+'
+set -e
 LFTP_EXIT=$(cat "$LFTP_EXIT_FILE")
-
-# Show what actually changed
-if [ -s "$LFTP_OUT" ]; then
-    grep -E "Removing old file|Transferring file|Making directory" "$LFTP_OUT" | awk '
-      /Removing old/ { f=$0; sub(/.*Removing old file ./, "", f); sub(/.$/, "", f); print "  🗑️  Deleted:   " f }
-      /Transferring/ { f=$0; sub(/.*Transferring file ./, "", f); sub(/.$/, "", f); print "  📄 Uploaded:  " f }
-      /Making dir/   { f=$0; sub(/.*Making directory ./, "", f); sub(/.$/, "", f); print "  📁 Created:   " f }
-    '
-fi
-
-rm -f "$LFTP_EXIT_FILE" "$LFTP_SCRIPT" "$LFTP_OUT"
+rm -f "$LFTP_EXIT_FILE" "$LFTP_SCRIPT"
 
 if [ "$LFTP_EXIT" -ne 0 ]; then
     echo -e "${RED}❌ FTP upload failed or timed out (exit code $LFTP_EXIT).${NC}"
