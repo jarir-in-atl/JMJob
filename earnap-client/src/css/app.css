@@ -1281,11 +1281,11 @@ button { font-family: inherit; cursor: pointer; }
 .admin-config-card { flex-direction: row; align-items: center; justify-content: space-between; border-left: 4px solid #6366f1; }
 
 /* Poster workflow */
-.poster-form { display: flex; flex-direction: column; gap: 16px; }
-.poster-form label { display: flex; flex-direction: column; gap: 6px; color: var(--text); font-weight: 600; font-size: 13px; }
-.poster-form input,
-.poster-form select,
-.poster-form textarea {
+.poster-form, .admin-job-form { display: flex; flex-direction: column; gap: 16px; }
+.poster-form label, .admin-job-form label { display: flex; flex-direction: column; gap: 6px; color: var(--text); font-weight: 600; font-size: 13px; }
+.poster-form input, .admin-job-form input,
+.poster-form select, .admin-job-form select,
+.poster-form textarea, .admin-job-form textarea {
     width: 100%;
     box-sizing: border-box;
     padding: 10px 12px;
@@ -1297,13 +1297,13 @@ button { font-family: inherit; cursor: pointer; }
     font-size: 14px;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.poster-form textarea {
+.poster-form textarea, .admin-job-form textarea {
     resize: vertical;
     min-height: 90px;
 }
-.poster-form input:focus,
-.poster-form select:focus,
-.poster-form textarea:focus {
+.poster-form input:focus, .admin-job-form input:focus,
+.poster-form select:focus, .admin-job-form select:focus,
+.poster-form textarea:focus, .admin-job-form textarea:focus {
     outline: none;
     border-color: var(--primary);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
@@ -1845,3 +1845,6 @@ button { font-family: inherit; cursor: pointer; }
     gap: 8px;
     align-items: center;
 }
+.admin-job-proof-options { display: flex; gap: 16px; margin-top: 8px; }
+.admin-job-proof-options label { flex-direction: row; align-items: center; gap: 8px; font-weight: 400; cursor: pointer; }
+.admin-job-proof-options input[type="checkbox"] { width: 18px; height: 18px; padding: 0; margin: 0; }
