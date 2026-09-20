@@ -2883,11 +2883,11 @@ class JobService
     /**
      * Insert a transactions ledger row.
      */
-    public static function logTransaction(?int $userId, ?int $jobId, string $type, float $amount, string $currency, ?float $balanceAfter, ?float $frozenAfter, ?string $reference, ?string $note): int
+    public static function logTransaction(int|string|null $userId, int|string|null $jobId, string $type, float $amount, string $currency, ?float $balanceAfter, ?float $frozenAfter, ?string $reference, ?string $note): int
     {
         return (int) Fluent::table('transactions')->insert([
-            'user_id'       => $userId,
-            'job_id'        => $jobId,
+            'user_id'       => $userId === null ? null : (int) $userId,
+            'job_id'        => $jobId === null ? null : (int) $jobId,
             'type'          => $type,
             'amount'        => round($amount, 4),
             'currency'      => $currency,
