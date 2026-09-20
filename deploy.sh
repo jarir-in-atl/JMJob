@@ -136,7 +136,7 @@ find "$LOCAL_ROOT" \
     if [ "$REL_DIR" = "$LOCAL_ROOT" ]; then REL_DIR="."; fi
     
     echo "echo \"FOLDER: $REL_DIR\"" >> "$LFTP_SCRIPT"
-    echo "mirror --no-recursion --reverse --verbose --no-perms --ignore-time $MIRROR_MODE \\" >> "$LFTP_SCRIPT"
+    echo "mirror --no-recursion --reverse --verbose --no-perms --only-newer $MIRROR_MODE \\" >> "$LFTP_SCRIPT"
     echo "  --exclude-glob '.env*' --exclude-glob '*.sqlite*' --exclude-glob '*.sql' --exclude-glob '*.dump' --exclude-glob '*.log' --exclude-glob '*.md' --exclude-glob 'test_*.php' --exclude-glob 'verify_*.php' --exclude-glob '8' \\" >> "$LFTP_SCRIPT"
     if [ "$REL_DIR" = "." ]; then
         echo "  $DIR/ $SERVER_ROOT/" >> "$LFTP_SCRIPT"
@@ -152,7 +152,7 @@ find "$LOCAL_ROOT/public" -type d | sort | while read DIR; do
     if [ "$REL_DIR" = "$LOCAL_ROOT/public" ]; then REL_DIR="."; fi
     
     echo "echo \"FOLDER: public/$REL_DIR\"" >> "$LFTP_SCRIPT"
-    echo "mirror --no-recursion --reverse --verbose --no-perms --ignore-time $MIRROR_MODE \\" >> "$LFTP_SCRIPT"
+    echo "mirror --no-recursion --reverse --verbose --no-perms --only-newer $MIRROR_MODE \\" >> "$LFTP_SCRIPT"
     echo "  --exclude-glob 'create_missing_tables.php' --exclude-glob 'index.php' --exclude-glob 'index.html' --exclude-glob '*.sqlite*' --exclude-glob '*.log' \\" >> "$LFTP_SCRIPT"
     if [ "$REL_DIR" = "." ]; then
         echo "  $DIR/ ./" >> "$LFTP_SCRIPT"
