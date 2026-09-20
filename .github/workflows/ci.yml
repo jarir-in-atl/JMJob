@@ -259,9 +259,18 @@ jobs:
         run: |
           set -e
           TEST_DB="$(mktemp /tmp/jmjob-ci-XXXXXX.sqlite)"
+          trap 'rm -f "$TEST_DB" .env' EXIT
           DB_DRIVER=sqlite DB_DATABASE="$TEST_DB" php migration_runner.php
           DB_DRIVER=sqlite DB_DATABASE="$TEST_DB" php migration_runner.php
           JOB_MARKETPLACE_TEST_DB="$TEST_DB" php tests/DatabaseDumperSQLiteTest.php
+          printf '%s\n' \
+            'APP_ENV=testing' \
+            'APP_KEY=ci-only-key-012345678901234567890123456789' \
+            'APP_TIMEZONE=UTC' \
+            'CACHE_DRIVER=file' \
+            'QUEUE_DRIVER=sync' \
+            'DB_DRIVER=sqlite' \
+            "DB_DATABASE=$TEST_DB" > .env
           DB_DRIVER=sqlite DB_DATABASE="$TEST_DB" php nemesis schedule:run
           JOB_MARKETPLACE_TEST_DB="$TEST_DB" php tests/JobMarketplaceIntegrationTest.php
           JOB_MARKETPLACE_TEST_DB="$TEST_DB" php tests/JobMarketplaceConcurrencyTest.php
