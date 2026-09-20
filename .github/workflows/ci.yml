@@ -335,8 +335,9 @@ jobs:
           # of *.sqlite* — the trailing * in `*.sqlite*` is invalid regex).
           # Keep a stalled hosting connection from holding the serialized
           # production deployment forever. The local deploy.sh uses the same
-          # five-minute ceiling and termination grace period.
-          timeout --signal=TERM --kill-after=15s 300s \
+          # fifteen-minute ceiling and termination grace period; the longer
+          # first-run window is needed for this hosting account's full mirror.
+          timeout --signal=TERM --kill-after=15s 900s \
             lftp -u "$FTP_USERNAME","$FTP_PASSWORD" "$FTP_HOST" <<'EOF'
           set net:timeout 30
           set net:max-retries 2

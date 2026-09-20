@@ -339,7 +339,7 @@ Fresh disposable migration followed by the expanded integration and both race su
 - [x] Replaced deployment-only URL checks with a shared read-only live smoke contract covering HTML/JSON/JavaScript content types and the expected unauthenticated 401 responses for marketplace and admin APIs; both local deployment and the checkout-free GitHub artifact path invoke the same script, and the build now fails if that script is absent.
 - [x] Added a genuinely read-only web migration status action and made live smoke require `Pending: 0`; the disposable web check passes, while the current production smoke intentionally reports the older remote runner until this uncommitted change is deployed.
 - [x] Bounded the local FTP mirror with a five-minute configurable timeout plus a 15-second termination grace period, preventing a stalled hosting connection from holding the deployment lock indefinitely.
-- [x] Applied the same five-minute FTP timeout, termination grace period, and retry limits to the GitHub production mirror; this will take effect when the workflow change is pushed.
+- [x] Applied the same bounded FTP timeout, termination grace period, and retry limits to the GitHub production mirror; its fifteen-minute first-run window matches the proven manual deployment duration.
 - [x] Excluded the repository's CI metadata and unrelated untracked file from the local FTP mirror so deployment comparison cannot propose uploading them.
 
 Read-only live smoke checks were refreshed after the notification slice: `https://jmjob.xyz/` and `/js/app.js` returned 200, `/api/health` returned 200 JSON, and unauthenticated `/api/jobs` and `/api/admin/stats` returned 401 JSON. No authenticated production read or write was attempted.
