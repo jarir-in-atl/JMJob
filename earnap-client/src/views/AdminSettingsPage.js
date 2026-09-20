@@ -13,6 +13,11 @@ const SETTING_LABELS = {
     website_ads_enabled: 'Website Ads',
     app_ads_enabled: 'Android App Ads',
     ad_frequency_seconds: 'Ad Frequency (seconds)',
+    fraud_min_description_chars: 'Fraud: Minimum Description Characters',
+    fraud_daily_submission_velocity_limit: 'Fraud: Daily Submission Limit',
+    fraud_shared_identity_worker_threshold: 'Fraud: Shared Identity Threshold',
+    fraud_review_threshold: 'Fraud: Review Score Threshold',
+    fraud_ban_requires_confirmation: 'Fraud: Require Explicit Ban Confirmation',
 };
 
 export function AdminSettingsPage() {

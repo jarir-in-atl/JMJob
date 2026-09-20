@@ -35,6 +35,7 @@ class PaymentController extends Controller
 
     public function gateways(Request $request): Response
     {
+        if ($guard = $this->bannedGuard($request)) return $guard;
         $items = array_map(
             fn($g) => [
                 'key'           => $g['key'],
@@ -89,6 +90,7 @@ class PaymentController extends Controller
 
     public function submissions(Request $request): Response
     {
+        if ($guard = $this->bannedGuard($request)) return $guard;
         $user = $request->getMeta('auth.user');
         $subs = $this->payments->listForUser((int) $user->id, 100);
 
@@ -188,6 +190,13 @@ class PaymentController extends Controller
     private function bannedGuard(Request $request): ?Response
     {
         $user = $request->getMeta('auth.user');
+        if ($user === null) {
+            return Response::json([
+                'success' => false,
+                'error' => 'unauthorized',
+                'message' => 'Authentication required.',
+            ], 401);
+        }
         if ($user !== null && $user->isBanned()) {
             return Response::json([
                 'success' => false,
@@ -206,6 +215,13 @@ class PaymentController extends Controller
                 'success' => false,
                 'message' => 'Authentication required.',
             ], 401);
+        }
+        if (method_exists($admin, 'isBanned') && $admin->isBanned()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'This account is banned.',
+                'error' => 'banned',
+            ], 403);
         }
         if (!$admin->isAdmin()) {
             return Response::json([

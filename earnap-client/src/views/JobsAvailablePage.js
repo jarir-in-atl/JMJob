@@ -193,7 +193,7 @@ function renderJobs() {
             <p class="job-card__desc">${escapeHtml(truncate(job.description, 140))}</p>
             <div class="job-card__foot">
                 <span class="job-card__budget">৳${Number.parseFloat(job.cost_per_worker || job.budget || 0).toFixed(2)} / worker</span>
-                <span class="job-card__bids"><i class="bi bi-people"></i> ${Number(job.worker_count || 1)} available</span>
+                <span class="job-card__bids"><i class="bi bi-people"></i> ${Number(job.remaining_workers ?? job.worker_count ?? 1)} available</span>
             </div>
         </a>
     `).join('');

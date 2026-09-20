@@ -21,6 +21,13 @@ class AdminOnly implements MiddlewareInterface
                 'error'   => 'unauthorized',
             ], 401);
         }
+        if (method_exists($user, 'isBanned') && $user->isBanned()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'This account is banned.',
+                'error'   => 'banned',
+            ], 403);
+        }
         if (!method_exists($user, 'isAdmin') || !$user->isAdmin()) {
             return Response::json([
                 'success' => false,

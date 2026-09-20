@@ -242,6 +242,13 @@ class DailyBonusController extends Controller
                 'message' => 'Authentication required.',
             ], 401);
         }
+        if (method_exists($admin, 'isBanned') && $admin->isBanned()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'This account is banned.',
+                'error' => 'banned',
+            ], 403);
+        }
         if (!$admin->isAdmin()) {
             return Response::json([
                 'success' => false,

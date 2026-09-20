@@ -17,6 +17,13 @@ use Nemesis\Core\Database;
 class AdminSettingsController extends Controller
 {
 
+    private const FRAUD_INTEGER_BOUNDS = [
+        'fraud_min_description_chars' => [1, 10000],
+        'fraud_daily_submission_velocity_limit' => [1, 10000],
+        'fraud_shared_identity_worker_threshold' => [2, 1000],
+        'fraud_review_threshold' => [1, 1000],
+    ];
+
     public function updateSettings(Request $request): Response
     {
         if ($guard = $this->adminGuard($request)) return $guard;
@@ -32,6 +39,27 @@ class AdminSettingsController extends Controller
             $adError = AdConfigurationService::validate($key, $value);
             if ($adError !== null) {
                 return Response::json(['success' => false, 'message' => $adError, 'error' => 'invalid_ad_configuration'], 422);
+            }
+            if (isset(self::FRAUD_INTEGER_BOUNDS[$key])) {
+                [$minimum, $maximum] = self::FRAUD_INTEGER_BOUNDS[$key];
+                $validInteger = filter_var($value, FILTER_VALIDATE_INT, [
+                    'options' => ['min_range' => $minimum, 'max_range' => $maximum],
+                ]);
+                if ($validInteger === false) {
+                    return Response::json([
+                        'success' => false,
+                        'message' => "{$key} must be an integer between {$minimum} and {$maximum}.",
+                        'error' => 'invalid_fraud_policy',
+                    ], 422);
+                }
+            } elseif ($key === 'fraud_ban_requires_confirmation'
+                && !is_bool($value)
+                && !in_array($value, [0, 1, '0', '1'], true)) {
+                return Response::json([
+                    'success' => false,
+                    'message' => 'fraud_ban_requires_confirmation must be boolean.',
+                    'error' => 'invalid_fraud_policy',
+                ], 422);
             }
             $type = $existing['value_type'];
             $category = $existing['category'];
@@ -521,6 +549,13 @@ class AdminSettingsController extends Controller
                 'success' => false,
                 'message' => 'Authentication required.',
             ], 401);
+        }
+        if (method_exists($admin, 'isBanned') && $admin->isBanned()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'This account is banned.',
+                'error' => 'banned',
+            ], 403);
         }
         if (!$admin->isAdmin()) {
             return Response::json([

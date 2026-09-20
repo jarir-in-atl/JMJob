@@ -32,6 +32,7 @@ class UserController extends Controller
      */
     public function show(Request $request): Response
     {
+        if ($guard = $this->authGuard($request)) return $guard;
         $user = $request->getMeta('auth.user');
         return Response::json([
             'success' => true,
@@ -48,6 +49,7 @@ class UserController extends Controller
      */
     public function reward(Request $request): Response
     {
+        if ($guard = $this->authGuard($request)) return $guard;
         $user = $request->getMeta('auth.user');
         if ($user !== null && $user->isBanned()) {
             return Response::json([
@@ -128,6 +130,7 @@ class UserController extends Controller
      */
     public function withdraw(Request $request): Response
     {
+        if ($guard = $this->authGuard($request)) return $guard;
         $user = $request->getMeta('auth.user');
         $body = $this->readJson($request);
 
@@ -171,6 +174,7 @@ class UserController extends Controller
      */
     public function withdrawals(Request $request): Response
     {
+        if ($guard = $this->authGuard($request)) return $guard;
         $user = $request->getMeta('auth.user');
         $rows = Withdrawal::where('user_id', '=', $user->id)
             ->orderBy('id', 'desc')
@@ -190,6 +194,7 @@ class UserController extends Controller
      */
     public function referrals(Request $request): Response
     {
+        if ($guard = $this->authGuard($request)) return $guard;
         $user = $request->getMeta('auth.user');
         $rows = \App\Models\User::where('referred_by', '=', $user->id)
             ->orderBy('id', 'desc')
@@ -216,7 +221,9 @@ class UserController extends Controller
                 'total_commission'  => $totalCommission,
                 'commission_rate'   => (float) (getenv('REFERRAL_COMMISSION_RATE') ?: 0.5),
                 'referral_code'     => $user->referral_code,
-                'referral_link'     => $this->buildReferralLink($user->referral_code),
+                'referral_link'     => $user->referral_code !== null && trim((string) $user->referral_code) !== ''
+                    ? $this->buildReferralLink((string) $user->referral_code)
+                    : null,
             ],
         ]);
     }
@@ -226,6 +233,7 @@ class UserController extends Controller
      */
     public function ads(Request $request): Response
     {
+        if ($guard = $this->authGuard($request)) return $guard;
         $user = $request->getMeta('auth.user');
         $rows = AdView::where('user_id', '=', $user->id)
             ->orderBy('id', 'desc')
@@ -308,5 +316,24 @@ class UserController extends Controller
             }
         }
         return $request->all();
+    }
+
+    private function authGuard(Request $request): ?Response
+    {
+        $user = $request->getMeta('auth.user');
+        if ($user === null) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Authentication required.',
+            ], 401);
+        }
+        if (method_exists($user, 'isBanned') && $user->isBanned()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'This account is banned.',
+                'error'   => 'banned',
+            ], 403);
+        }
+        return null;
     }
 }

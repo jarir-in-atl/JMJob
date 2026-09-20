@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use Nemesis\Core\Controller;
+use Nemesis\Core\Fluent;
 use Nemesis\Http\Request;
 use Nemesis\Http\Response;
 use App\Models\Job;
@@ -392,6 +393,7 @@ class JobController extends Controller
     {
         $category = $j->category();
         $poster   = $j->poster();
+        [$activeWorkers, $remainingWorkers] = $this->workerSlotSummary($j);
         $out = [
             'id'              => (int) $j->id,
             'slug'            => $j->slug,
@@ -404,6 +406,9 @@ class JobController extends Controller
             'customer_email'  => $j->customer_email ?? null,
             'budget'          => (float) $j->budget,
             'worker_count'    => (int) ($j->worker_count ?? 1),
+            'active_workers_count' => $activeWorkers,
+            'remaining_workers' => $remainingWorkers,
+            'available_workers' => $remainingWorkers,
             'cost_per_worker' => (float) ($j->cost_per_worker ?? $j->budget),
             'proof_requirements' => is_string($j->proof_requirements ?? null)
                 ? (json_decode((string) $j->proof_requirements, true) ?: [])
@@ -435,6 +440,47 @@ class JobController extends Controller
             $out['assignment_payment_status'] = $j->worker_assignment_payment_status ?? null;
         }
         return $out;
+    }
+
+    /**
+     * Return assignment-backed capacity while retaining the legacy pointer
+     * fallback for hosts that have not completed the additive migration.
+     *
+     * @return array{0:int,1:int}
+     */
+    private function workerSlotSummary(Job $job): array
+    {
+        $totalWorkers = max(1, (int) ($job->worker_count ?? 1));
+        $assignedWorkers = 0;
+        $completedWorkers = 0;
+
+        try {
+            $assignments = Fluent::table('job_assignments')
+                ->where('job_id', '=', $job->id)
+                ->whereNotIn('status', [JobAssignment::STATUS_CANCELLED])
+                ->whereNotIn('payment_status', [JobAssignment::PAYMENT_REFUNDED])
+                ->get()->all();
+            foreach ($assignments as $assignment) {
+                $assignedWorkers++;
+                if (($assignment['status'] ?? '') === JobAssignment::STATUS_COMPLETED
+                    && ($assignment['payment_status'] ?? '') === JobAssignment::PAYMENT_RELEASED) {
+                    $completedWorkers++;
+                }
+            }
+        } catch (\Throwable) {
+            // Older deployments may not have the additive assignment table.
+        }
+
+        if ($assignedWorkers === 0
+            && (int) ($job->assigned_worker_id ?? 0) > 0
+            && in_array($job->status, [Job::STATUS_ASSIGNED, Job::STATUS_SUBMITTED, Job::STATUS_REVISION], true)) {
+            $assignedWorkers = 1;
+        }
+
+        return [
+            max(0, $assignedWorkers - $completedWorkers),
+            max(0, $totalWorkers - $assignedWorkers),
+        ];
     }
 
     private function serializeBid(JobBid $b, bool $withJob = false): array
@@ -541,6 +587,12 @@ class JobController extends Controller
 
     private function bannedGuard(?User $user): ?Response
     {
+        if ($user === null) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Authentication required.',
+            ], 401);
+        }
         if ($user !== null && $user->isBanned()) {
             return Response::json([
                 'success' => false,

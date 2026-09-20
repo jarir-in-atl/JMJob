@@ -79,7 +79,7 @@ class VideoAdController extends Controller
         }
 
         $ad = VideoAd::find($adId);
-        if ($ad === null || !$ad->isActive()) {
+        if ($ad === null || !$ad->isStartable()) {
             return Response::json(['success' => false, 'message' => 'Video ad not found or inactive.'], 404);
         }
 
@@ -117,7 +117,7 @@ class VideoAdController extends Controller
             }
 
             $lockedAd = new VideoAd($row);
-            if (!$lockedAd->isActive($now)) {
+            if (!$lockedAd->isStartable($now)) {
                 Database::rollbackWriteTransaction($db);
                 return Response::json(['success' => false, 'message' => 'Video ad is no longer available.'], 409);
             }
@@ -372,6 +372,12 @@ class VideoAdController extends Controller
 
     private function bannedGuard(?User $user): ?Response
     {
+        if ($user === null) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Authentication required.',
+            ], 401);
+        }
         if ($user !== null && $user->isBanned()) {
             return Response::json([
                 'success' => false,

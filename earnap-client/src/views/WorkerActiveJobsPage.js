@@ -41,8 +41,11 @@ function render() {
     }
 
     list.innerHTML = _state.jobs.map(j => {
-       const mySub = _state.submissions.find(s => s.job_id === j.id);
+       const mySub = j.assignment_id
+           ? _state.submissions.find(s => Number(s.assignment_id) === Number(j.assignment_id))
+           : _state.submissions.find(s => s.job_id === j.id);
        const status = j.assignment_status || j.status; // assignment state when available
+       const needsResubmission = status === 'revision' || ['revision', 'rejected'].includes(mySub?.status);
         const summary = String(j.description || '').trim();
         const remainingSlots = Number(j.remaining_workers ?? j.remaining_tasks_count ?? 0);
        return `
@@ -59,7 +62,7 @@ function render() {
                 <div class="active-job-card__actions">
                     <a class="btn btn--ghost btn--sm" href="#/jobs/${encodeURIComponent(j.id)}">View job details</a>
                 </div>
-                ${mySub ? renderExistingSubmission(j, mySub) : renderSubmitForm(j)}
+                ${mySub && !needsResubmission ? renderExistingSubmission(j, mySub) : renderSubmitForm(j, mySub)}
                 ${!mySub && j.assignment_id ? `<div class="active-job-card__actions"><button type="button" class="btn btn--ghost btn--sm" data-cancel-assignment="${j.assignment_id}">Request cancellation</button><small class="muted">Available before submitting work.</small></div>` : ''}
             </div>
         `;
@@ -80,18 +83,19 @@ function renderExistingSubmission(job, sub) {
     `;
 }
 
-function renderSubmitForm(job) {
+function renderSubmitForm(job, existingSubmission = null) {
     const requiresScreenshot = Array.isArray(job.proof_requirements)
         && job.proof_requirements.some(requirement => requirement && requirement.type === 'screenshot');
     return `
         <form class="submit-form" data-job-id="${job.id}">
+            ${existingSubmission && ['revision', 'rejected'].includes(existingSubmission.status) ? `<p class="alert alert--warning"><strong>Revision requested:</strong> ${escapeHtml(existingSubmission.reviewer_note || existingSubmission.rejection_reason || 'Please update and resubmit your work.')}</p>` : ''}
             <label class="submit-form__label">
                 What did you deliver? (description)
-                <textarea name="description" rows="3" required placeholder="Summarize what you delivered…"></textarea>
+                <textarea name="description" rows="3" required placeholder="Summarize what you delivered…">${escapeHtml(existingSubmission?.description || '')}</textarea>
             </label>
             <label class="submit-form__label">
                 External link (optional — Google Drive, GitHub, Figma, etc.)
-                <input name="external_link" type="url" placeholder="https://…">
+                <input name="external_link" type="url" value="${escapeHtml(existingSubmission?.external_link || '')}" placeholder="https://…">
             </label>
             <label class="submit-form__label">
                 Screenshot proof ${requiresScreenshot ? '(required)' : '(optional)'}

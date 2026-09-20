@@ -25,11 +25,22 @@ class VideoAd extends Model
 
     public function isActive(?string $now = null): bool
     {
+        if (!$this->isStartable($now)) return false;
+        if ((int) ($this->total_limit ?? 0) > 0 && (int) ($this->total_views ?? 0) >= (int) $this->total_limit) return false;
+        return true;
+    }
+
+    /**
+     * Check status and schedule without consuming the lifetime capacity.
+     * Start requests use this before their atomic capacity reservation so an
+     * exhausted ad can return the correct limit response instead of a 404.
+     */
+    public function isStartable(?string $now = null): bool
+    {
         if ($this->status !== self::STATUS_ACTIVE) return false;
         $now = $now ?: date('Y-m-d H:i:s');
         if ($this->starts_at && (string) $this->starts_at > $now) return false;
         if ($this->ends_at && (string) $this->ends_at < $now) return false;
-        if ((int) ($this->total_limit ?? 0) > 0 && (int) ($this->total_views ?? 0) >= (int) $this->total_limit) return false;
         return true;
     }
 

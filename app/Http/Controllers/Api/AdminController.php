@@ -251,26 +251,45 @@ class AdminController extends Controller
             return Response::json(['success' => false, 'message' => 'You cannot ban your own account.'], 422);
         }
 
-        $target = User::find($userId);
-        if ($target === null) return Response::json(['success' => false, 'message' => 'User not found.'], 404);
-        if ($target->isBanned()) return Response::json(['success' => false, 'message' => 'User is already banned.'], 422);
-
         $body = (array) $this->readJson($request);
         $reason = trim((string) ($body['reason'] ?? ''));
         if ($reason === '') return Response::json(['success' => false, 'message' => 'Ban reason is required.'], 422);
 
         $now = date('Y-m-d H:i:s');
-        $snapshot = $this->userActivitySnapshot($target);
         $db = Database::connect();
         try {
             Database::beginWriteTransaction($db);
-            Fluent::table('users')->where('id', '=', $userId)->update([
-                'is_banned'  => 1,
-                'banned_at'  => $now,
-                'banned_by'  => (int) $admin->id,
+
+            $lockSql = 'SELECT * FROM users WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $lockSql .= ' FOR UPDATE';
+            $lock = $db->prepare($lockSql);
+            $lock->execute(['id' => $userId]);
+            $lockedRow = $lock->fetch(\PDO::FETCH_ASSOC);
+            if (!$lockedRow) {
+                Database::rollbackWriteTransaction($db);
+                return Response::json(['success' => false, 'message' => 'User not found.'], 404);
+            }
+            $target = new User($lockedRow);
+            if ($target->isBanned()) {
+                Database::rollbackWriteTransaction($db);
+                return Response::json(['success' => false, 'message' => 'User is already banned.'], 422);
+            }
+            $snapshot = $this->userActivitySnapshot($target);
+            $updated = $db->prepare(
+                'UPDATE users SET is_banned = 1, banned_at = :banned_at, banned_by = :banned_by,
+                 ban_reason = :ban_reason, updated_at = :updated_at
+                 WHERE id = :id AND is_banned = 0'
+            );
+            $updated->execute([
+                'banned_at' => $now,
+                'banned_by' => (int) $admin->id,
                 'ban_reason' => $reason,
                 'updated_at' => $now,
+                'id' => $userId,
             ]);
+            if ($updated->rowCount() !== 1) {
+                throw new \RuntimeException('User is already banned.');
+            }
             Fluent::table('user_ban_history')->insert([
                 'user_id'           => $userId,
                 'admin_id'          => (int) $admin->id,
@@ -316,23 +335,35 @@ class AdminController extends Controller
         if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
         $userId = (int) $id;
-        $target = User::find($userId);
-        if ($target === null) return Response::json(['success' => false, 'message' => 'User not found.'], 404);
-        if (!$target->isBanned()) return Response::json(['success' => false, 'message' => 'User is not banned.'], 422);
-
         $body = (array) $this->readJson($request);
         $reason = trim((string) ($body['reason'] ?? 'Unbanned by admin'));
         $now = date('Y-m-d H:i:s');
         $db = Database::connect();
         try {
             Database::beginWriteTransaction($db);
-            Fluent::table('users')->where('id', '=', $userId)->update([
-                'is_banned'  => 0,
-                'banned_at'  => null,
-                'banned_by'  => null,
-                'ban_reason' => null,
-                'updated_at' => $now,
-            ]);
+            $lockSql = 'SELECT * FROM users WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $lockSql .= ' FOR UPDATE';
+            $lock = $db->prepare($lockSql);
+            $lock->execute(['id' => $userId]);
+            $lockedRow = $lock->fetch(\PDO::FETCH_ASSOC);
+            if (!$lockedRow) {
+                Database::rollbackWriteTransaction($db);
+                return Response::json(['success' => false, 'message' => 'User not found.'], 404);
+            }
+            $target = new User($lockedRow);
+            if (!$target->isBanned()) {
+                Database::rollbackWriteTransaction($db);
+                return Response::json(['success' => false, 'message' => 'User is not banned.'], 422);
+            }
+            $updated = $db->prepare(
+                'UPDATE users SET is_banned = 0, banned_at = NULL, banned_by = NULL,
+                 ban_reason = NULL, updated_at = :updated_at
+                 WHERE id = :id AND is_banned = 1'
+            );
+            $updated->execute(['updated_at' => $now, 'id' => $userId]);
+            if ($updated->rowCount() !== 1) {
+                throw new \RuntimeException('User is not banned.');
+            }
             Fluent::table('user_ban_history')->insert([
                 'user_id'       => $userId,
                 'admin_id'      => (int) $admin->id,
@@ -409,14 +440,33 @@ class AdminController extends Controller
 
     private function banAccountForFraud(User $admin, User $target, string $note, int $submissionId): bool
     {
-        if ((int) $admin->id === (int) $target->id || $target->isBanned()) return $target->isBanned();
+        if ((int) $admin->id === (int) $target->id) return false;
         $reason = 'Confirmed fraudulent submission #' . $submissionId . ': ' . trim($note);
         $now = date('Y-m-d H:i:s');
-        $snapshot = $this->userActivitySnapshot($target);
         $db = Database::connect();
+        $newlyBanned = false;
         try {
             Database::beginWriteTransaction($db);
-            Fluent::table('users')->where('id', '=', (int) $target->id)->update([
+
+            $lockSql = 'SELECT * FROM users WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $lockSql .= ' FOR UPDATE';
+            $lock = $db->prepare($lockSql);
+            $lock->execute(['id' => (int) $target->id]);
+            $lockedRow = $lock->fetch(\PDO::FETCH_ASSOC);
+            if (!$lockedRow) {
+                Database::rollbackWriteTransaction($db);
+                return false;
+            }
+            $target = new User($lockedRow);
+            // A repeated escalation is idempotent and must not create a
+            // second ban-history/audit record.
+            if ($target->isBanned()) {
+                Database::commitWriteTransaction($db);
+                return true;
+            }
+            $snapshot = $this->userActivitySnapshot($target);
+
+            Fluent::table('users')->where('id', '=', (int) $target->id)->where('is_banned', '=', 0)->update([
                 'is_banned' => 1,
                 'banned_at' => $now,
                 'banned_by' => (int) $admin->id,
@@ -441,19 +491,22 @@ class AdminController extends Controller
                 'created_at' => $now,
             ]);
             Fluent::table('sessions')->where('user_id', '=', (int) $target->id)->delete();
+            $newlyBanned = true;
             Database::commitWriteTransaction($db);
         } catch (\Throwable) {
             Database::rollbackWriteTransaction($db);
             return false;
         }
-        NotificationService::send(
-            $target,
-            'Account banned',
-            'Your account was banned after a confirmed fraudulent submission. ' . $reason,
-            'danger',
-            'bi-slash-circle',
-            '/profile'
-        );
+        if ($newlyBanned) {
+            NotificationService::send(
+                $target,
+                'Account banned',
+                'Your account was banned after a confirmed fraudulent submission. ' . $reason,
+                'danger',
+                'bi-slash-circle',
+                '/profile'
+            );
+        }
         return true;
     }
 
@@ -801,8 +854,6 @@ class AdminController extends Controller
     {
         if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
-        $submission = JobSubmission::find((int) $id);
-        if ($submission === null) return Response::json(['success' => false, 'message' => 'Submission not found.'], 404);
         $body = (array) $this->readJson($request);
         $decision = strtolower(trim((string) ($body['decision'] ?? '')));
         $allowed = [JobSubmission::RISK_CLEARED, JobSubmission::RISK_DISMISSED, JobSubmission::RISK_CONFIRMED_FRAUD];
@@ -820,47 +871,103 @@ class AdminController extends Controller
         }
 
         $now = date('Y-m-d H:i:s');
+        $alreadyFinalized = false;
         try {
-            Fluent::table('job_submissions')->where('id', '=', $submission->id)->update([
-                'risk_status' => $decision,
-                'fraud_reviewed_at' => $now,
-                'fraud_reviewed_by' => (int) $admin->id,
-                'reviewer_note' => $note !== '' ? $note : $submission->reviewer_note,
-                'updated_at' => $now,
-            ]);
-            Fluent::table('admin_action_logs')->insert([
-                'admin_id' => (int) $admin->id,
-                'action' => 'submission.fraud_review',
-                'entity_type' => 'submission',
-                'entity_id' => (int) $submission->id,
-                'details' => json_encode([
-                    'decision' => $decision,
-                    'note' => $note,
-                    'ban_requested' => $banRequested,
-                    'policy' => 'signals_advisory_explicit_confirmation_required',
-                ], JSON_UNESCAPED_UNICODE),
-                'created_at' => $now,
-            ]);
+            $db = Database::connect();
+            Database::beginWriteTransaction($db);
+
+            $lockSql = 'SELECT * FROM job_submissions WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $lockSql .= ' FOR UPDATE';
+            $lock = $db->prepare($lockSql);
+            $lock->execute(['id' => (int) $id]);
+            $lockedRow = $lock->fetch(\PDO::FETCH_ASSOC);
+            if (!$lockedRow) {
+                Database::rollbackWriteTransaction($db);
+                return Response::json(['success' => false, 'message' => 'Submission not found.'], 404);
+            }
+            $submission = new JobSubmission($lockedRow);
+            $currentRiskStatus = (string) ($submission->risk_status ?? JobSubmission::RISK_CLEAR);
+            if ($currentRiskStatus !== JobSubmission::RISK_FLAGGED) {
+                if ($currentRiskStatus !== $decision) {
+                    Database::rollbackWriteTransaction($db);
+                    return Response::json([
+                        'success' => false,
+                        'message' => 'Fraud review has already been finalized with a different decision.',
+                    ], 422);
+                }
+                $alreadyFinalized = true;
+            } else {
+                $updated = $db->prepare(
+                    'UPDATE job_submissions
+                     SET risk_status = :risk_status,
+                         fraud_reviewed_at = :reviewed_at,
+                         fraud_reviewed_by = :reviewed_by,
+                         reviewer_note = :reviewer_note,
+                         updated_at = :updated_at
+                     WHERE id = :id AND risk_status = :flagged'
+                );
+                $updated->execute([
+                    'risk_status' => $decision,
+                    'reviewed_at' => $now,
+                    'reviewed_by' => (int) $admin->id,
+                    'reviewer_note' => $note !== '' ? $note : $submission->reviewer_note,
+                    'updated_at' => $now,
+                    'id' => (int) $id,
+                    'flagged' => JobSubmission::RISK_FLAGGED,
+                ]);
+                if ($updated->rowCount() !== 1) {
+                    throw new \RuntimeException('Fraud review has already been finalized.');
+                }
+                $submission->risk_status = $decision;
+                $submission->fraud_reviewed_at = $now;
+                $submission->fraud_reviewed_by = (int) $admin->id;
+                if ($note !== '') $submission->reviewer_note = $note;
+            }
+
+            if (!$alreadyFinalized) {
+                Fluent::table('admin_action_logs')->insert([
+                    'admin_id' => (int) $admin->id,
+                    'action' => 'submission.fraud_review',
+                    'entity_type' => 'submission',
+                    'entity_id' => (int) $submission->id,
+                    'details' => json_encode([
+                        'decision' => $decision,
+                        'note' => $note,
+                        'ban_requested' => $banRequested,
+                        'policy' => 'signals_advisory_explicit_confirmation_required',
+                    ], JSON_UNESCAPED_UNICODE),
+                    'created_at' => $now,
+                ]);
+            }
+            Database::commitWriteTransaction($db);
         } catch (\Throwable $e) {
-            return Response::json(['success' => false, 'message' => 'Fraud review failed.'], 500);
+            if (isset($db)) Database::rollbackWriteTransaction($db);
+            $message = $e->getMessage();
+            $status = str_contains($message, 'already been finalized') ? 422 : 500;
+            return Response::json([
+                'success' => false,
+                'message' => $status === 422 ? $message : 'Fraud review failed.',
+            ], $status);
         }
 
         $userBanned = false;
         if ($decision === JobSubmission::RISK_CONFIRMED_FRAUD) {
-            NotificationService::send(
-                $submission->worker(),
-                'Submission flagged as fraudulent',
-                'An administrator confirmed a fraud concern on your submission. ' . $note,
-                'danger',
-                'bi-shield-exclamation',
-                '/jobs/' . (int) $submission->job_id
-            );
+            if (!$alreadyFinalized) {
+                NotificationService::send(
+                    $submission->worker(),
+                    'Submission flagged as fraudulent',
+                    'An administrator confirmed a fraud concern on your submission. ' . $note,
+                    'danger',
+                    'bi-shield-exclamation',
+                    '/jobs/' . (int) $submission->job_id
+                );
+            }
             // Risk signals remain advisory by default. A confirmed-fraud
             // decision can explicitly escalate to a ban in the same action.
             if ($banRequested && $submission->worker() !== null) {
                 $userBanned = $this->banAccountForFraud($admin, $submission->worker(), $note, (int) $submission->id);
             }
-        } elseif ($decision === JobSubmission::RISK_CLEARED || $decision === JobSubmission::RISK_DISMISSED) {
+        } elseif (!$alreadyFinalized && ($decision === JobSubmission::RISK_CLEARED || $decision === JobSubmission::RISK_DISMISSED)) {
             NotificationService::send(
                 $submission->worker(),
                 $decision === JobSubmission::RISK_CLEARED ? 'Submission risk cleared' : 'Submission risk dismissed',
@@ -874,7 +981,7 @@ class AdminController extends Controller
         }
         return Response::json([
             'success' => true,
-            'message' => 'Fraud review recorded.',
+            'message' => $alreadyFinalized ? 'Fraud review was already recorded.' : 'Fraud review recorded.',
             'data' => ['id' => (int) $submission->id, 'risk_status' => $decision, 'user_banned' => $userBanned],
         ]);
     }
@@ -977,17 +1084,38 @@ class AdminController extends Controller
     {
         if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
-        $job = Job::find((int) $id);
-        if ($job === null) return Response::json(['success' => false, 'message' => 'Job not found.'], 404);
-        if (in_array($job->status, [Job::STATUS_COMPLETED, Job::STATUS_CANCELLED], true)) {
-            return Response::json(['success' => false, 'message' => 'Closed jobs cannot be disputed.'], 422);
-        }
-        $changed = $job->status !== Job::STATUS_DISPUTED;
-        if ($job->status !== Job::STATUS_DISPUTED) {
-            Fluent::table('jobs')->where('id', '=', $job->id)->update([
-                'status'     => Job::STATUS_DISPUTED,
-                'updated_at' => date('Y-m-d H:i:s'),
-            ]);
+        $db = Database::connect();
+        try {
+            Database::beginWriteTransaction($db);
+            $jobSql = 'SELECT * FROM jobs WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $jobSql .= ' FOR UPDATE';
+            $jobStmt = $db->prepare($jobSql);
+            $jobStmt->execute(['id' => (int) $id]);
+            $jobRow = $jobStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$jobRow) throw new \RuntimeException('Job not found.');
+            $job = new Job($jobRow);
+            if (in_array($job->status, [Job::STATUS_COMPLETED, Job::STATUS_CANCELLED], true)) {
+                throw new \RuntimeException('Closed jobs cannot be disputed.');
+            }
+            $changed = $job->status !== Job::STATUS_DISPUTED;
+            if ($changed) {
+                $updated = $db->prepare(
+                    'UPDATE jobs SET status = :disputed, updated_at = :updated_at WHERE id = :id AND status = :current_status'
+                );
+                $updated->execute([
+                    'disputed' => Job::STATUS_DISPUTED,
+                    'updated_at' => date('Y-m-d H:i:s'),
+                    'id' => (int) $id,
+                    'current_status' => $job->status,
+                ]);
+                if ($updated->rowCount() !== 1) throw new \RuntimeException('Job state changed before dispute review.');
+            }
+            Database::commitWriteTransaction($db);
+        } catch (\Throwable $e) {
+            Database::rollbackWriteTransaction($db);
+            $message = $e->getMessage();
+            $status = $message === 'Job not found.' ? 404 : 422;
+            return Response::json(['success' => false, 'message' => $message], $status);
         }
         if ($changed) {
             $message = 'Job “' . $job->title . '” was flagged for administrator dispute review.';
@@ -1238,6 +1366,13 @@ class AdminController extends Controller
                 'success' => false,
                 'message' => 'Authentication required.',
             ], 401);
+        }
+        if (method_exists($admin, 'isBanned') && $admin->isBanned()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'This account is banned.',
+                'error' => 'banned',
+            ], 403);
         }
         if (!$admin->isAdmin()) {
             return Response::json([

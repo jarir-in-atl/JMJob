@@ -107,6 +107,12 @@ class AdController extends Controller
 
     private function bannedGuard(?User $user): ?Response
     {
+        if ($user === null) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Authentication required.',
+            ], 401);
+        }
         if ($user !== null && $user->isBanned()) {
             return Response::json([
                 'success' => false,

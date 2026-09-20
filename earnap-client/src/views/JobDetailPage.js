@@ -52,7 +52,7 @@ function render(job, bids, bidCount, myBid, mySubmission, user) {
                     ${job.subtitle ? `<p class="muted">${escapeHtml(job.subtitle)}</p>` : ''}
                     <div class="job-detail__meta">
                         <span><i class="bi bi-cash"></i> Pay <strong>৳${parseFloat(job.cost_per_worker || job.budget || 0).toFixed(2)}</strong> / worker</span>
-                        <span><i class="bi bi-people"></i> ${Number(job.worker_count || 1)} available</span>
+                        <span><i class="bi bi-people"></i> ${Number(job.remaining_workers ?? job.worker_count ?? 1)} available</span>
                         <span><i class="bi bi-people"></i> ${bidCount} bid${bidCount === 1 ? '' : 's'}</span>
                         <span><i class="bi bi-eye"></i> ${job.view_count} view${job.view_count === 1 ? '' : 's'}</span>
                         <span><i class="bi bi-clock"></i> Bidding closes in <strong>${closesLabel}</strong></span>

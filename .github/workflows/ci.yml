@@ -1,4 +1,4 @@
-name: Build and Test (no hosting deployment)
+name: Build, Test, and Deploy
 
 on:
   push:
@@ -7,7 +7,9 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Do not cancel a run while its FTP mirror may be uploading files. Queue the
+  # next push so a deployment cannot be left in a partially mirrored state.
+  cancel-in-progress: false
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -160,6 +162,8 @@ jobs:
         run: |
           test -f public/js/app.js || (echo "❌ public/js/app.js missing"; exit 1)
           test -f public/css/app.css || (echo "❌ public/css/app.css missing"; exit 1)
+          test -f public/.user.ini || (echo "❌ public/.user.ini missing"; exit 1)
+          test -f scripts/live_smoke.sh || (echo "❌ scripts/live_smoke.sh missing"; exit 1)
           test -d vendor || (echo "❌ vendor/ missing"; exit 1)
           test -f vendor/autoload.php || (echo "❌ vendor/autoload.php missing"; exit 1)
           JS_SIZE=$(stat -c '%s' public/js/app.js)
@@ -173,6 +177,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: jmjob-build
+          include-hidden-files: true
           path: |
             public/
             app/
@@ -182,6 +187,7 @@ jobs:
             views/
             src/
             routes/
+            scripts/
             vendor/
             index.php
             composer.json
@@ -249,13 +255,28 @@ jobs:
           done
           echo "✅ All route files are syntactically valid."
 
+      - name: Run disposable marketplace regression suites
+        run: |
+          set -e
+          TEST_DB="$(mktemp /tmp/jmjob-ci-XXXXXX.sqlite)"
+          DB_DRIVER=sqlite DB_DATABASE="$TEST_DB" php migration_runner.php
+          DB_DRIVER=sqlite DB_DATABASE="$TEST_DB" php migration_runner.php
+          JOB_MARKETPLACE_TEST_DB="$TEST_DB" php tests/DatabaseDumperSQLiteTest.php
+          DB_DRIVER=sqlite DB_DATABASE="$TEST_DB" php nemesis schedule:run
+          JOB_MARKETPLACE_TEST_DB="$TEST_DB" php tests/JobMarketplaceIntegrationTest.php
+          JOB_MARKETPLACE_TEST_DB="$TEST_DB" php tests/JobMarketplaceConcurrencyTest.php
+          JOB_MARKETPLACE_TEST_DB="$TEST_DB" php tests/JobMarketplaceFinancialConcurrencyTest.php
+
   # ---------------------------------------------------------------------------
-  # 5) Deploy via FTP to the live server
+  # 5) Deploy via incremental FTP mirror to the live server
   # ---------------------------------------------------------------------------
   deploy:
     name: Deploy via FTP
     runs-on: ubuntu-latest
     needs: [build, test]
+    concurrency:
+      group: jmjob-production-deploy
+      cancel-in-progress: false
     environment:
       name: production
       url: https://jmjob.xyz
@@ -273,7 +294,7 @@ jobs:
       - name: Show top-level structure
         run: ls -la deploy
 
-      - name: Upload to FTP (full mirror — no partial state on server)
+      - name: Upload changed files to FTP (no delete mirroring)
         env:
           FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
           FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
@@ -303,7 +324,13 @@ jobs:
           # Note: lftp's --exclude patterns are interpreted as POSIX regex,
           # so we anchor with backslashes where needed (e.g. \.sqlite instead
           # of *.sqlite* — the trailing * in `*.sqlite*` is invalid regex).
-          lftp -u "$FTP_USERNAME","$FTP_PASSWORD" "$FTP_HOST" <<'EOF'
+          # Keep a stalled hosting connection from holding the serialized
+          # production deployment forever. The local deploy.sh uses the same
+          # five-minute ceiling and termination grace period.
+          timeout --signal=TERM --kill-after=15s 300s \
+            lftp -u "$FTP_USERNAME","$FTP_PASSWORD" "$FTP_HOST" <<'EOF'
+          set net:timeout 30
+          set net:max-retries 2
           set ssl:verify-certificate no
 
           # Backend/runtime files belong in the account directory, alongside
@@ -362,6 +389,7 @@ jobs:
                  --ignore-time \
                  --exclude-glob 'storage/' \
                  ./deploy/public/ ./
+          ls -l .user.ini
           # The migration runner lives beside the backend in the artifact, but
           # must be reachable from the document root for the post-deploy call.
           put ./deploy/migration_runner.php -o migration_runner.php
@@ -375,3 +403,9 @@ jobs:
           curl -fsS --retry 2 --retry-delay 2 --max-time 60 \
             -X POST \
             "$SITE_URL/migration_runner.php"
+
+      - name: Run post-deploy live smoke checks
+        env:
+          SITE_URL: https://jmjob.xyz
+        run: |
+          bash deploy/scripts/live_smoke.sh

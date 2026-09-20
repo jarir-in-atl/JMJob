@@ -19,6 +19,9 @@ class DatabaseRestorer {
         $this->ensureDatabaseExists();
 
         $sql = file_get_contents($filename);
+        if ($sql === false) {
+            throw new \Exception("Could not read SQL file: {$filename}");
+        }
 
         try {
             $pdo = Database::connect();
@@ -32,6 +35,20 @@ class DatabaseRestorer {
     }
 
     protected function ensureDatabaseExists() {
+        $driver = Database::getDriverName();
+
+        // SQLite creates its file when the configured connection is opened.
+        // Do not run the MySQL database-creation fallback for this driver.
+        if ($driver === 'sqlite') {
+            Database::connect();
+            return;
+        }
+
+        if ($driver !== 'mysql') {
+            Database::connect();
+            return;
+        }
+
         $host = getenv('DB_HOST') ?: '127.0.0.1';
         $user = getenv('DB_USER') ?: 'root';
         $pass = getenv('DB_PASS') ?: '';

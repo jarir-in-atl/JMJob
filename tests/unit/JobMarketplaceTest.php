@@ -389,6 +389,50 @@ class JobMarketplaceTest extends TestCase
         }
     }
 
+    public function testProofUploadTransportConfig(): void
+    {
+        $config = file_get_contents(base_path('public/.user.ini'));
+        $this->assertTrue(str_contains($config, 'upload_max_filesize = 12M'));
+        $this->assertTrue(str_contains($config, 'post_max_size = 14M'));
+        $this->assertTrue(str_contains($config, 'max_file_uploads = 5'));
+    }
+
+    public function testDeploymentUsesIncrementalTokenFreeMigrationContract(): void
+    {
+        $script = file_get_contents(base_path('deploy.sh'));
+        $this->assertTrue(str_contains($script, '--ignore-time'), 'FTP deployment must compare file sizes when timestamps are unreliable.');
+        $this->assertTrue(str_contains($script, '--dry-run'), 'Deployment must expose a read-only FTP preflight.');
+        $this->assertTrue(!preg_match('/^\s+--delete(?:\s|\\\\|$)/m', $script), 'Deployment must not delete unrelated hosting files.');
+        $this->assertTrue(!str_contains($script, 'MIGRATION_TOKEN'), 'Migration deployment must not require the removed token gate.');
+        $this->assertTrue(str_contains($script, 'SITE_URL="${SITE_URL:-https://jmjob.xyz}"'), 'Deployment must keep its production URL separate from APP_URL.');
+        $this->assertTrue(str_contains($script, '127.0.0.1') && str_contains($script, 'loopback address'), 'Deployment must reject a local migration target.');
+        $this->assertTrue(str_contains($script, 'jmjob-deploy.lock') && str_contains($script, 'flock -n 9'), 'Local deploys must not interleave FTP mirrors.');
+        $this->assertTrue(str_contains($script, 'FTP_TIMEOUT_SECONDS') && str_contains($script, 'kill-after=15s'), 'FTP deployment must not hold its process lock indefinitely on a stalled host.');
+        $this->assertTrue(str_contains($script, 'POST') && str_contains($script, 'migration_runner.php'), 'Deployment must invoke the idempotent migration runner.');
+        $smoke = file_get_contents(base_path('scripts/live_smoke.sh'));
+        $workflow = file_get_contents(base_path('.github/workflows/ci.yml'));
+        $this->assertTrue(str_contains($smoke, "'/api/jobs' '401' 'application/json'")
+            && str_contains($smoke, "'/api/admin/stats' '401' 'application/json'"), 'Live smoke must verify protected API boundaries, not only successful page loads.');
+        $this->assertTrue(str_contains($workflow, "scripts/\n") && str_contains($workflow, 'bash deploy/scripts/live_smoke.sh'), 'GitHub deploy must carry and invoke the shared live smoke contract from its artifact.');
+        $this->assertTrue(str_contains($workflow, 'test -f scripts/live_smoke.sh'), 'The build must fail if the shared live smoke script is absent from the artifact.');
+    }
+
+    public function testMigrationRunnerSerializesConcurrentCallers(): void
+    {
+        $runner = file_get_contents(base_path('migration_runner.php'));
+        $this->assertTrue(str_contains($runner, "storage/framework") && str_contains($runner, "migration_runner.lock"), 'Migration runner must use a project-local lock outside the public deployment mirror.');
+        $this->assertTrue(str_contains($runner, 'flock($lockHandle, LOCK_EX)'), 'Migration runner must serialize concurrent callers.');
+        $this->assertTrue(str_contains($runner, 'flock($lockHandle, LOCK_UN)'), 'Migration runner must release its lock after completion or failure.');
+        $this->assertTrue(str_contains($runner, "? 'status' : 'migrate'") && str_contains($runner, '$manager = $action === \'status\' ? null'), 'Web migration status checks must be read-only and must not construct the migration manager.');
+    }
+
+    public function testGitHubDeploymentDoesNotCancelLiveFtpMirrors(): void
+    {
+        $workflow = file_get_contents(base_path('.github/workflows/ci.yml'));
+        $this->assertTrue(str_contains($workflow, 'cancel-in-progress: false'), 'CI must queue runs instead of cancelling a live deployment.');
+        $this->assertTrue(str_contains($workflow, 'group: jmjob-production-deploy'), 'Production FTP deploys must share one concurrency group.');
+    }
+
     public function testRouteLoaderIncludesJobRoutes(): void
     {
         $content = file_get_contents(base_path('earnap-client/src/route-loader.js'));
@@ -398,6 +442,11 @@ class JobMarketplaceTest extends TestCase
        $this->assertTrue(str_contains(file_get_contents(base_path('earnap-client/src/views/WorkerActiveJobsPage.js')), 'View job details'));
         $workerActive = file_get_contents(base_path('earnap-client/src/views/WorkerActiveJobsPage.js'));
         $this->assertTrue(str_contains($workerActive, 'assignment_status'));
+        $this->assertTrue(str_contains($workerActive, 's.assignment_id') && str_contains($workerActive, 'j.assignment_id'), 'Active jobs must match submissions by assignment for multi-worker jobs.');
+        $this->assertTrue(str_contains($workerActive, 'needsResubmission') && str_contains($workerActive, "'rejected'") && str_contains($workerActive, 'renderSubmitForm(j, mySub)'), 'Active jobs must render a resubmission form after revision or rejection.');
+        $this->assertTrue(str_contains(file_get_contents(base_path('earnap-client/src/views/JobsAvailablePage.js')), 'job.remaining_workers'), 'Available jobs must render remaining worker capacity.');
+        $this->assertTrue(str_contains(file_get_contents(base_path('earnap-client/src/views/JobDetailPage.js')), 'job.remaining_workers'), 'Job details must render remaining worker capacity.');
+        $this->assertTrue(str_contains(file_get_contents(base_path('app/Http/Controllers/Api/PosterController.php')), 'workerSummary($job'), 'Poster job summaries must use assignment-backed worker counts.');
         $this->assertTrue(str_contains($workerActive, 'Available slots'));
         $this->assertTrue(str_contains($workerActive, 'summary.slice'));
         $jobDetail = file_get_contents(base_path('earnap-client/src/views/JobDetailPage.js'));
@@ -409,6 +458,16 @@ class JobMarketplaceTest extends TestCase
        $this->assertTrue(str_contains($content, '/admin/pending-jobs'));
         $this->assertTrue(str_contains($content, '/admin/active-jobs'));
         $this->assertTrue(str_contains($content, '/admin/advertisement'));
+        $posterDetail = file_get_contents(base_path('earnap-client/src/views/PosterJobDetailPage.js'));
+        $this->assertTrue(str_contains($posterDetail, "['submitted', 'revision'].includes(job.status)"), 'Poster detail must keep pending-submission actions visible for mixed revision-state jobs.');
+        foreach (['PosterDashboardPage.js', 'PosterJobsPage.js', 'PosterJobDetailPage.js'] as $posterPage) {
+            $posterContent = file_get_contents(base_path('earnap-client/src/views/' . $posterPage));
+            $this->assertTrue(
+                str_contains($posterContent, "!user || (!user.is_admin && user.role !== 'poster')")
+                    || str_contains($posterContent, "!!user && (user.is_admin || user.role === 'poster')"),
+                $posterPage . ' must enforce the poster/admin UI role boundary.'
+            );
+        }
         $horizontalNav = file_get_contents(base_path('earnap-client/src/components/HorizontalNav.js'));
         foreach (['/admin/pending-jobs', '/admin/admin-job-post', '/admin/active-jobs'] as $adminNavRoute) {
             $this->assertTrue(str_contains($horizontalNav, $adminNavRoute), "Horizontal admin navigation is missing {$adminNavRoute}.");
@@ -421,6 +480,7 @@ class JobMarketplaceTest extends TestCase
        foreach (['Total job amount', 'Completed amount', 'Pending amount', 'Remaining amount', 'Proof requirements', 'Start date'] as $label) {
            $this->assertTrue(str_contains($adminDetail, $label), "Admin job detail is missing {$label}.");
        }
+        $this->assertTrue(str_contains($adminDetail, 'data-ban-worker'), 'Admin job submissions must expose the worker ban control.');
         $earnPage = file_get_contents(base_path('earnap-client/src/views/EarnPage.js'));
         foreach (['Available ads', 'Remaining limit', 'Today’s ad earnings', 'Total ad earnings'] as $label) {
             $this->assertTrue(str_contains($earnPage, $label), "Earn page is missing {$label}.");

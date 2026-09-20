@@ -58,7 +58,7 @@ function renderBids(job, bids) {
 function renderSubmissions(job, submissions) {
     if (!submissions.length) return '<p class="muted">No work submitted yet.</p>';
     return submissions.map(submission => `
-        <div class="poster-submission-row poster-submission-row--${escapeHtml(submission.status)}"><div><strong>${escapeHtml(submission.worker?.name || 'Worker')}</strong><span class="muted">Submitted ${formatDate(submission.created_at)} · ${escapeHtml(String(submission.status || '').replace('_', ' '))}</span><p>${escapeHtml(submission.description || '')}</p>${submission.external_link ? `<a href="${escapeHtml(submission.external_link)}" target="_blank" rel="noopener noreferrer">Open delivery link</a>` : ''}${submission.reviewer_note ? `<p class="muted"><strong>Revision note:</strong> ${escapeHtml(submission.reviewer_note)}</p>` : ''}</div>${submission.status === 'pending_review' && job.status === 'submitted' ? `<div class="poster-submission-row__actions"><button class="btn btn--success btn--sm" data-release-submission="${Number(submission.id)}">Release payment</button><button class="btn btn--ghost btn--sm" data-revision-submission="${Number(submission.id)}">Request revision</button></div>` : ''}</div>
+        <div class="poster-submission-row poster-submission-row--${escapeHtml(submission.status)}"><div><strong>${escapeHtml(submission.worker?.name || 'Worker')}</strong><span class="muted">Submitted ${formatDate(submission.created_at)} · ${escapeHtml(String(submission.status || '').replace('_', ' '))}</span><p>${escapeHtml(submission.description || '')}</p>${submission.external_link ? `<a href="${escapeHtml(submission.external_link)}" target="_blank" rel="noopener noreferrer">Open delivery link</a>` : ''}${submission.reviewer_note ? `<p class="muted"><strong>Revision note:</strong> ${escapeHtml(submission.reviewer_note)}</p>` : ''}</div>${submission.status === 'pending_review' && ['submitted', 'revision'].includes(job.status) ? `<div class="poster-submission-row__actions"><button class="btn btn--success btn--sm" data-release-submission="${Number(submission.id)}">Release payment</button><button class="btn btn--ghost btn--sm" data-revision-submission="${Number(submission.id)}">Request revision</button></div>` : ''}</div>
     `).join('');
 }
 
@@ -86,7 +86,7 @@ async function cancelJob(jobId) {
 async function reload(jobId) { const content = document.getElementById('poster-job-detail-content'); if (content) { content.innerHTML = '<div class="spinner"></div>'; await load(jobId); } }
 function hasPosterAccess() {
     const user = currentUser.get();
-    return !!user;
+    return !!user && (user.is_admin || user.role === 'poster');
 }
 function label(value) { return String(value || '').replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()); }
 function formatDate(value) { if (!value) return 'unknown'; const date = new Date(String(value).replace(' ', 'T') + 'Z'); return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString(); }

@@ -134,6 +134,9 @@ class TgTaskController extends Controller
 
     private function bannedGuard(?User $user): ?Response
     {
+        if ($user === null) {
+            return Response::json(['success' => false, 'error' => 'unauthorized', 'message' => 'Authentication required.'], 401);
+        }
         if ($user !== null && $user->isBanned()) {
             return Response::json(['success' => false, 'error' => 'banned', 'message' => 'Banned accounts cannot access tasks.'], 403);
         }

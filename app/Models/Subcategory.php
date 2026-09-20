@@ -19,6 +19,11 @@ class Subcategory extends Model
 
     protected $fillable = ['category_id', 'name', 'slug', 'description', 'is_active', 'display_order', 'min_cost'];
 
+    public function isActive(): bool
+    {
+        return (bool) ($this->is_active ?? 0);
+    }
+
     public function category(): ?Category
     {
         return $this->category_id ? Category::find((int) $this->category_id) : null;
@@ -35,4 +40,3 @@ class Subcategory extends Model
         return array_map(fn($r) => new self((array) $r), $rows);
     }
 }
-

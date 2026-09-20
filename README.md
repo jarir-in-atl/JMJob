@@ -78,6 +78,27 @@ requires explicit confirmation. Decisions are recorded in the admin audit log.
 2. The deployment uploads the code and calls the idempotent `migration_runner.php`; it runs only pending migrations.
 3. Back up the production database before schema-changing releases and verify migrations, queue/scheduler processing, and marketplace reads/writes.
 
+Create a backup from the project root before a schema-changing release with
+`php nemesis db:dump /path/outside/the/webroot/jmjob-YYYYMMDD.sql`. The
+exporter keeps the MariaDB format used in production and also supports the
+SQLite driver used by the disposable validation gates. Keep the backup outside
+the deployed document root. The matching `php nemesis db:restore` command also
+supports SQLite disposable targets and retains the existing MariaDB restore
+path.
+
+The runner serializes concurrent deployment calls with a project-local lock so
+a local deploy and a GitHub deploy cannot apply the same pending migration at
+the same time.
+
+Set `SITE_URL` in the local `.env` when deploying. It is the production URL
+used for migration and smoke requests; it is intentionally separate from
+`APP_URL`, which may point to a local development server.
+Deploys refuse loopback `SITE_URL` values such as `127.0.0.1` or `localhost`.
+After migrations, both deployment paths run `scripts/live_smoke.sh`; it checks
+the public HTML/JSON/JavaScript contracts and confirms that unauthenticated job
+and admin APIs still return 401 JSON. The read-only
+`/migration_runner.php?action=status` endpoint must also report `Pending: 0`.
+
 The migration runner has no token gate. Remove it from the public server after
 the deployment if automatic migration calls are no longer needed.
 

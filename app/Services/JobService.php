@@ -10,6 +10,7 @@ use App\Models\JobAssignment;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Category;
+use App\Models\Subcategory;
 use Nemesis\Core\Fluent;
 use Nemesis\Core\Database;
 use Nemesis\Http\UploadedFile;
@@ -74,6 +75,14 @@ class JobService
         if ($category === null || !$category->isActive()) {
             return ['success' => false, 'message' => 'Invalid or inactive category.'];
         }
+        if ($subcategoryId !== null && $subcategoryId > 0) {
+            $subcategory = Subcategory::find($subcategoryId);
+            if ($subcategory === null || !$subcategory->isActive() || (int) $subcategory->category_id !== $categoryId) {
+                return ['success' => false, 'message' => 'Invalid or inactive subcategory for the selected category.'];
+            }
+        } else {
+            $subcategoryId = null;
+        }
 
         $feePercent = (float) SettingService::get('job_system_fee_percentage', 30.00);
         $netAmount = round($workerCount * $costPerWorker, 4);
@@ -136,16 +145,35 @@ class JobService
         if (!$this->isAdminId($adminId)) {
             return ['success' => false, 'message' => 'Administrator access is required.'];
         }
-        $job = Job::find($jobId);
-        if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
-        if ($job->status !== Job::STATUS_PENDING_APPROVAL) {
-            return ['success' => false, 'message' => 'Job is not pending approval.'];
-        }
+        $db = Database::connect();
+        try {
+            $this->beginWriteTransaction($db);
+            $jobSql = 'SELECT * FROM jobs WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $jobSql .= ' FOR UPDATE';
+            $jobStmt = $db->prepare($jobSql);
+            $jobStmt->execute(['id' => $jobId]);
+            $jobRow = $jobStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$jobRow) throw new \RuntimeException('Job not found.');
+            $job = new Job($jobRow);
+            if ($job->status !== Job::STATUS_PENDING_APPROVAL) {
+                throw new \RuntimeException('Job is not pending approval.');
+            }
 
-        Fluent::table('jobs')->where('id', '=', $jobId)->update([
-            'status'     => Job::STATUS_OPEN,
-            'updated_at' => date('Y-m-d H:i:s'),
-        ]);
+            $updated = $db->prepare(
+                'UPDATE jobs SET status = :open, updated_at = :updated_at WHERE id = :id AND status = :pending'
+            );
+            $updated->execute([
+                'open' => Job::STATUS_OPEN,
+                'updated_at' => date('Y-m-d H:i:s'),
+                'id' => $jobId,
+                'pending' => Job::STATUS_PENDING_APPROVAL,
+            ]);
+            if ($updated->rowCount() !== 1) throw new \RuntimeException('Job is not pending approval.');
+            $this->commitWriteTransaction($db);
+        } catch (\Throwable $e) {
+            $this->rollbackWriteTransaction($db);
+            return ['success' => false, 'message' => 'Job approval failed: ' . $e->getMessage()];
+        }
 
         $this->notifyUser(
             $job->poster(),
@@ -168,15 +196,38 @@ class JobService
         if (!$this->isAdminId($adminId)) {
             return ['success' => false, 'message' => 'Administrator access is required.'];
         }
-        $job = Job::find($jobId);
-        if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
         if (trim($reason) === '') return ['success' => false, 'message' => 'Decline reason is required.'];
 
-        Fluent::table('jobs')->where('id', '=', $jobId)->update([
-            'status'         => Job::STATUS_DECLINED,
-            'decline_reason' => $reason,
-            'updated_at'     => date('Y-m-d H:i:s'),
-        ]);
+        $db = Database::connect();
+        try {
+            $this->beginWriteTransaction($db);
+            $jobSql = 'SELECT * FROM jobs WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $jobSql .= ' FOR UPDATE';
+            $jobStmt = $db->prepare($jobSql);
+            $jobStmt->execute(['id' => $jobId]);
+            $jobRow = $jobStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$jobRow) throw new \RuntimeException('Job not found.');
+            $job = new Job($jobRow);
+            if ($job->status !== Job::STATUS_PENDING_APPROVAL) {
+                throw new \RuntimeException('Job is not pending approval.');
+            }
+
+            $updated = $db->prepare(
+                'UPDATE jobs SET status = :declined, decline_reason = :reason, updated_at = :updated_at WHERE id = :id AND status = :pending'
+            );
+            $updated->execute([
+                'declined' => Job::STATUS_DECLINED,
+                'reason' => trim($reason),
+                'updated_at' => date('Y-m-d H:i:s'),
+                'id' => $jobId,
+                'pending' => Job::STATUS_PENDING_APPROVAL,
+            ]);
+            if ($updated->rowCount() !== 1) throw new \RuntimeException('Job is not pending approval.');
+            $this->commitWriteTransaction($db);
+        } catch (\Throwable $e) {
+            $this->rollbackWriteTransaction($db);
+            return ['success' => false, 'message' => 'Job decline failed: ' . $e->getMessage()];
+        }
 
         $this->notifyUser(
             $job->poster(),
@@ -201,39 +252,58 @@ class JobService
         if ($worker->isBanned()) {
             return ['success' => false, 'message' => 'Banned accounts cannot apply for jobs.'];
         }
-        $job = Job::find($jobId);
-        if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
-        if ((int) $job->poster_id === (int) $worker->id) {
-            return ['success' => false, 'message' => 'You cannot apply to your own job posting.'];
-        }
-        if (!$job->isOpen()) {
-            return ['success' => false, 'message' => 'Job is not open for applications.'];
-        }
-        if ($job->deadline_at && strtotime($job->deadline_at) < time()) {
-            return ['success' => false, 'message' => 'Job deadline has passed.'];
-        }
+        $db = Database::connect();
+        try {
+            $this->beginWriteTransaction($db);
 
-        // Anti-Spam Check: One application per worker per job posting cycle
-        $existing = JobBid::findForWorker($jobId, (int) $worker->id);
-        if ($existing !== null) {
-            return ['success' => false, 'message' => 'You have already applied for this job posting cycle.'];
+            // Re-read the job and the worker's bid inside the same serialized
+            // write boundary. The unique index remains the final safeguard,
+            // while this turns a concurrent duplicate into the normal API
+            // response instead of a database exception.
+            $jobSql = 'SELECT * FROM jobs WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $jobSql .= ' FOR UPDATE';
+            $jobStmt = $db->prepare($jobSql);
+            $jobStmt->execute(['id' => $jobId]);
+            $jobRow = $jobStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$jobRow) throw new \RuntimeException('Job not found.');
+            $job = new Job($jobRow);
+            if ((int) $job->poster_id === (int) $worker->id) {
+                throw new \RuntimeException('You cannot apply to your own job posting.');
+            }
+            if (!$job->isOpen()) throw new \RuntimeException('Job is not open for applications.');
+            if ($job->deadline_at && strtotime($job->deadline_at) < time()) {
+                throw new \RuntimeException('Job deadline has passed.');
+            }
+
+            $existingStmt = $db->prepare(
+                'SELECT id FROM job_bids WHERE job_id = :job_id AND worker_id = :worker_id LIMIT 1'
+            );
+            $existingStmt->execute(['job_id' => $jobId, 'worker_id' => $worker->id]);
+            if ($existingStmt->fetchColumn()) {
+                throw new \RuntimeException('You have already applied for this job posting cycle.');
+            }
+
+            $bidAmount = $job->cost_per_worker > 0 ? $job->cost_per_worker : $job->budget;
+            $id = (int) Fluent::table('job_bids')->insert([
+                'job_id'        => $jobId,
+                'worker_id'     => $worker->id,
+                'amount'        => $bidAmount,
+                'currency'      => $job->currency,
+                'delivery_days' => 1,
+                'proposal'      => $proposal ?? 'Application submitted',
+                'bkash_number'  => $bkashNumber,
+                'status'        => JobBid::STATUS_PENDING,
+                'created_at'    => date('Y-m-d H:i:s'),
+            ]);
+
+            $db->prepare(
+                'UPDATE jobs SET bid_count = COALESCE(bid_count, 0) + 1, updated_at = :updated_at WHERE id = :id'
+            )->execute(['updated_at' => date('Y-m-d H:i:s'), 'id' => $jobId]);
+            $this->commitWriteTransaction($db);
+        } catch (\Throwable $e) {
+            $this->rollbackWriteTransaction($db);
+            return ['success' => false, 'message' => 'Application failed: ' . $e->getMessage()];
         }
-
-        $id = (int) Fluent::table('job_bids')->insert([
-            'job_id'        => $jobId,
-            'worker_id'     => $worker->id,
-            'amount'        => $job->cost_per_worker > 0 ? $job->cost_per_worker : $job->budget,
-            'currency'      => $job->currency,
-            'delivery_days' => 1,
-            'proposal'      => $proposal ?? 'Application submitted',
-            'bkash_number'  => $bkashNumber,
-            'status'        => JobBid::STATUS_PENDING,
-            'created_at'    => date('Y-m-d H:i:s'),
-        ]);
-
-        Fluent::table('jobs')
-            ->where('id', '=', $jobId)
-            ->update(['bid_count' => (int) $job->bid_count + 1, 'updated_at' => date('Y-m-d H:i:s')]);
 
         $this->notifyUser(
             $job->poster(),
@@ -271,7 +341,14 @@ class JobService
         if ($worker === null) return ['success' => false, 'message' => 'Worker not found.'];
         if (!$worker->isWorker()) return ['success' => false, 'message' => 'Only worker accounts can be assigned to jobs.'];
         if ($worker->isBanned()) return ['success' => false, 'message' => 'Banned workers cannot be assigned to jobs.'];
-        if (in_array((string) $job->status, [Job::STATUS_PENDING_APPROVAL, Job::STATUS_DECLINED, Job::STATUS_CANCELLED, Job::STATUS_COMPLETED], true)) {
+        if (in_array((string) $job->status, [
+            Job::STATUS_PENDING_APPROVAL,
+            Job::STATUS_DECLINED,
+            Job::STATUS_CANCELLED,
+            Job::STATUS_COMPLETED,
+            Job::STATUS_DISPUTED,
+            Job::STATUS_EXPIRED,
+        ], true)) {
             return ['success' => false, 'message' => 'This job is not accepting worker assignments.'];
         }
 
@@ -310,19 +387,33 @@ class JobService
             // Lock the job and bid before rechecking capacity. This closes
             // the race where two admins approve the last available worker at
             // the same time on transactional databases.
+            $jobLockSql = 'SELECT * FROM jobs WHERE id = :id LIMIT 1';
+            $bidLockSql = 'SELECT * FROM job_bids WHERE id = :id LIMIT 1';
             if (Database::getDriverName() !== 'sqlite') {
-                $jobLock = $db->prepare('SELECT * FROM jobs WHERE id = :id LIMIT 1 FOR UPDATE');
-                $jobLock->execute(['id' => $job->id]);
-                $jobRow = $jobLock->fetch(\PDO::FETCH_ASSOC);
-                if (!$jobRow) throw new \RuntimeException('Job not found.');
-                $job = new Job($jobRow);
-
-                $bidLock = $db->prepare('SELECT * FROM job_bids WHERE id = :id LIMIT 1 FOR UPDATE');
-                $bidLock->execute(['id' => $bid->id]);
-                $bidRow = $bidLock->fetch(\PDO::FETCH_ASSOC);
-                if (!$bidRow) throw new \RuntimeException('Application bid not found.');
-                $bid = new JobBid($bidRow);
+                $jobLockSql .= ' FOR UPDATE';
+                $bidLockSql .= ' FOR UPDATE';
             }
+            $jobLock = $db->prepare($jobLockSql);
+            $jobLock->execute(['id' => $job->id]);
+            $jobRow = $jobLock->fetch(\PDO::FETCH_ASSOC);
+            if (!$jobRow) throw new \RuntimeException('Job not found.');
+            $job = new Job($jobRow);
+            if (in_array((string) $job->status, [
+                Job::STATUS_PENDING_APPROVAL,
+                Job::STATUS_DECLINED,
+                Job::STATUS_CANCELLED,
+                Job::STATUS_COMPLETED,
+                Job::STATUS_DISPUTED,
+                Job::STATUS_EXPIRED,
+            ], true)) {
+                throw new \RuntimeException('This job is not accepting worker assignments.');
+            }
+
+            $bidLock = $db->prepare($bidLockSql);
+            $bidLock->execute(['id' => $bid->id]);
+            $bidRow = $bidLock->fetch(\PDO::FETCH_ASSOC);
+            if (!$bidRow) throw new \RuntimeException('Application bid not found.');
+            $bid = new JobBid($bidRow);
             if (!$bid->isPending()) throw new \RuntimeException('Application has already been reviewed.');
             $bidAmount = (float) ($bid->amount ?: ($job->cost_per_worker ?: $job->budget));
             $escrowAmount = SettingService::escrowAmount($bidAmount);
@@ -337,13 +428,30 @@ class JobService
                 throw new \RuntimeException('Job worker capacity has already been filled.');
             }
             if ($assignmentTableAvailable) {
-                $poster = User::find((int) $job->poster_id);
+                $posterSql = 'SELECT * FROM users WHERE id = :id LIMIT 1';
+                if (Database::getDriverName() !== 'sqlite') $posterSql .= ' FOR UPDATE';
+                $posterLock = $db->prepare($posterSql);
+                $posterLock->execute(['id' => (int) $job->poster_id]);
+                $posterRow = $posterLock->fetch(\PDO::FETCH_ASSOC);
+                $poster = $posterRow ? new User($posterRow) : null;
                 if ($poster === null) throw new \RuntimeException('Job poster not found.');
-                $worker = User::find((int) $bid->worker_id);
-                if ($worker === null || $worker->isBanned()) throw new \RuntimeException('Banned workers cannot be assigned to jobs.');
                 if ((float) ($poster->wallet_balance ?? 0) < $escrowAmount) {
                     throw new \RuntimeException('The poster does not have enough wallet balance to reserve this worker payment.');
                 }
+            }
+            // Lock the worker after the poster so approval follows the same
+            // job -> bid -> poster -> worker order as the escrow paths.
+            $workerSql = 'SELECT * FROM users WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $workerSql .= ' FOR UPDATE';
+            $workerLock = $db->prepare($workerSql);
+            $workerLock->execute(['id' => (int) $bid->worker_id]);
+            $workerRow = $workerLock->fetch(\PDO::FETCH_ASSOC);
+            $worker = $workerRow ? new User($workerRow) : null;
+            if ($worker === null || !$worker->isWorker()) {
+                throw new \RuntimeException('Only worker accounts can be assigned to jobs.');
+            }
+            if ($worker->isBanned()) {
+                throw new \RuntimeException('Banned workers cannot be assigned to jobs.');
             }
 
             Fluent::table('job_bids')->where('id', '=', $bid->id)->update([
@@ -461,6 +569,30 @@ class JobService
         try {
             $this->beginWriteTransaction($db);
 
+            // Match the other escrow paths: job -> poster -> assignment.
+            $identityStmt = $db->prepare('SELECT job_id FROM job_assignments WHERE id = :id LIMIT 1');
+            $identityStmt->execute(['id' => $assignmentId]);
+            $identityRow = $identityStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$identityRow) throw new \RuntimeException('Assignment not found.');
+
+            $jobSql = 'SELECT * FROM jobs WHERE id = :id LIMIT 1';
+            $posterSql = 'SELECT * FROM users WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') {
+                $jobSql .= ' FOR UPDATE';
+                $posterSql .= ' FOR UPDATE';
+            }
+            $jobStmt = $db->prepare($jobSql);
+            $jobStmt->execute(['id' => (int) $identityRow['job_id']]);
+            $jobRow = $jobStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$jobRow) throw new \RuntimeException('Job not found.');
+            $job = new Job($jobRow);
+
+            $posterStmt = $db->prepare($posterSql);
+            $posterStmt->execute(['id' => (int) $job->poster_id]);
+            $posterRow = $posterStmt->fetch(\PDO::FETCH_ASSOC);
+            $poster = $posterRow ? new User($posterRow) : null;
+            if ($poster === null) throw new \RuntimeException('Job poster not found.');
+
             $lockSql = 'SELECT * FROM job_assignments WHERE id = :id LIMIT 1';
             if (Database::getDriverName() !== 'sqlite') $lockSql .= ' FOR UPDATE';
             $assignmentStmt = $db->prepare($lockSql);
@@ -469,8 +601,6 @@ class JobService
             if (!$assignmentRow) throw new \RuntimeException('Assignment not found.');
 
             $assignment = new JobAssignment($assignmentRow);
-            $job = Job::find((int) $assignment->job_id);
-            if ($job === null) throw new \RuntimeException('Job not found.');
             if ($actorType === 'worker' && (int) $assignment->worker_id !== $actorId) {
                 throw new \RuntimeException('Only the assigned worker can request this cancellation.');
             }
@@ -495,8 +625,6 @@ class JobService
                 throw new \RuntimeException('Workers may cancel only before submitting work.');
             }
 
-            $poster = User::find((int) $job->poster_id);
-            if ($poster === null) throw new \RuntimeException('Job poster not found.');
             $escrowAmount = SettingService::escrowAmount((float) $assignment->payment_amount);
             $frozenBefore = (float) ($poster->frozen_balance ?? 0);
             if ($frozenBefore + 0.00005 < $escrowAmount) {
@@ -548,16 +676,13 @@ class JobService
                 'refunded' => JobAssignment::PAYMENT_REFUNDED,
             ]);
             $replacementRow = $replacement->fetch(\PDO::FETCH_ASSOC) ?: null;
-            $capacity = $this->assignmentCapacityCount((int) $job->id);
             $jobUpdate = [
                 'assigned_bid_id' => $replacementRow ? (int) $replacementRow['bid_id'] : null,
                 'assigned_worker_id' => $replacementRow ? (int) $replacementRow['worker_id'] : null,
-                'status' => $capacity >= max(1, (int) ($job->worker_count ?? 1))
-                    ? Job::STATUS_ENGAGED
-                    : Job::STATUS_OPEN,
                 'updated_at' => $now,
             ];
             Fluent::table('jobs')->where('id', '=', $job->id)->update($jobUpdate);
+            $this->refreshJobProgress((int) $job->id, $now);
 
             $this->commitWriteTransaction($db);
             $assignment = JobAssignment::find((int) $assignmentId);
@@ -609,12 +734,34 @@ class JobService
         try {
             $this->beginWriteTransaction($db);
 
+            $identityStmt = $db->prepare('SELECT job_id FROM job_assignments WHERE id = :id LIMIT 1');
+            $identityStmt->execute(['id' => $assignmentId]);
+            $identityRow = $identityStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$identityRow) throw new \RuntimeException('Assignment not found.');
+
+            $jobSql = 'SELECT * FROM jobs WHERE id = :id LIMIT 1';
+            $posterSql = 'SELECT * FROM users WHERE id = :id LIMIT 1';
             $assignmentSql = 'SELECT * FROM job_assignments WHERE id = :id LIMIT 1';
             $bidSql = 'SELECT * FROM job_bids WHERE id = :id LIMIT 1';
             if (Database::getDriverName() !== 'sqlite') {
+                $jobSql .= ' FOR UPDATE';
+                $posterSql .= ' FOR UPDATE';
                 $assignmentSql .= ' FOR UPDATE';
                 $bidSql .= ' FOR UPDATE';
             }
+
+            $jobStmt = $db->prepare($jobSql);
+            $jobStmt->execute(['id' => (int) $identityRow['job_id']]);
+            $jobRow = $jobStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$jobRow) throw new \RuntimeException('Job not found.');
+            $job = new Job($jobRow);
+
+            $posterStmt = $db->prepare($posterSql);
+            $posterStmt->execute(['id' => (int) $job->poster_id]);
+            $posterRow = $posterStmt->fetch(\PDO::FETCH_ASSOC);
+            $poster = $posterRow ? new User($posterRow) : null;
+            if ($poster === null) throw new \RuntimeException('Job poster not found.');
+
             $assignmentStmt = $db->prepare($assignmentSql);
             $assignmentStmt->execute(['id' => $assignmentId]);
             $assignmentRow = $assignmentStmt->fetch(\PDO::FETCH_ASSOC);
@@ -627,8 +774,7 @@ class JobService
 
             $assignment = new JobAssignment($assignmentRow);
             $replacementBid = new JobBid($replacementRow);
-            $job = Job::find((int) $assignment->job_id);
-            if ($job === null || (int) $replacementBid->job_id !== (int) $job->id) {
+            if ((int) $replacementBid->job_id !== (int) $job->id) {
                 throw new \RuntimeException('Replacement bid must belong to the same job.');
             }
             if (!$replacementBid->isPending()) throw new \RuntimeException('Replacement bid has already been reviewed.');
@@ -655,8 +801,7 @@ class JobService
 
             $oldWorker = User::find((int) $assignment->worker_id);
             $newWorker = User::find((int) $replacementBid->worker_id);
-            $poster = User::find((int) $job->poster_id);
-            if ($oldWorker === null || $newWorker === null || $poster === null) {
+            if ($oldWorker === null || $newWorker === null) {
                 throw new \RuntimeException('Assignment participants could not be found.');
             }
             if (!$newWorker->isWorker()) throw new \RuntimeException('Only worker accounts can be assigned to jobs.');
@@ -711,11 +856,11 @@ class JobService
                 'created_at' => $now,
             ]);
             Fluent::table('jobs')->where('id', '=', $job->id)->update([
-                'status' => Job::STATUS_ENGAGED,
                 'assigned_bid_id' => $replacementBidId,
                 'assigned_worker_id' => $replacementBid->worker_id,
                 'updated_at' => $now,
             ]);
+            $this->refreshJobProgress((int) $job->id, $now);
 
             self::logTransaction(
                 $poster->id,
@@ -815,16 +960,62 @@ class JobService
             return ['success' => false, 'message' => 'Days must be between 1 and 90.'];
         }
 
-        $baseTime = strtotime($job->deadline_at ?? 'now');
-        if ($baseTime < time()) $baseTime = time();
-        $newDeadline = date('Y-m-d H:i:s', $baseTime + ($days * 86400));
+        $db = Database::connect();
+        try {
+            $this->beginWriteTransaction($db);
+            $jobSql = 'SELECT * FROM jobs WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $jobSql .= ' FOR UPDATE';
+            $jobStmt = $db->prepare($jobSql);
+            $jobStmt->execute(['id' => $jobId]);
+            $jobRow = $jobStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$jobRow) throw new \RuntimeException('Job not found.');
+            $job = new Job($jobRow);
+            if ((int) $job->poster_id !== (int) $poster->id) {
+                throw new \RuntimeException('Only the job poster can extend the deadline.');
+            }
 
-        Fluent::table('jobs')->where('id', '=', $jobId)->update([
-            'deadline_at'       => $newDeadline,
-            'bidding_closes_at' => $newDeadline,
-            'status'            => Job::STATUS_OPEN, // Re-open job listing
-            'updated_at'        => date('Y-m-d H:i:s'),
-        ]);
+            $extendableStatuses = [
+                Job::STATUS_OPEN,
+                Job::STATUS_IN_REVIEW,
+                Job::STATUS_ENGAGED,
+                Job::STATUS_ASSIGNED,
+                Job::STATUS_SUBMITTED,
+                Job::STATUS_REVISION,
+                Job::STATUS_EXPIRED,
+            ];
+            if (!in_array((string) $job->status, $extendableStatuses, true)) {
+                throw new \RuntimeException('This job cannot be extended in its current state.');
+            }
+
+            $baseTime = strtotime($job->deadline_at ?? 'now');
+            if ($baseTime < time()) $baseTime = time();
+            $newDeadline = date('Y-m-d H:i:s', $baseTime + ($days * 86400));
+            $nextStatus = $job->status === Job::STATUS_EXPIRED ? Job::STATUS_OPEN : $job->status;
+            $updated = $db->prepare(
+                'UPDATE jobs
+                 SET deadline_at = :deadline_at,
+                     bidding_closes_at = :bidding_closes_at,
+                     status = :status,
+                     updated_at = :updated_at
+                 WHERE id = :id AND status = :current_status'
+            );
+            $updated->execute([
+                'deadline_at' => $newDeadline,
+                'bidding_closes_at' => $newDeadline,
+                'status' => $nextStatus,
+                'updated_at' => date('Y-m-d H:i:s'),
+                'id' => $jobId,
+                'current_status' => $job->status,
+            ]);
+            if ($updated->rowCount() !== 1) throw new \RuntimeException('Job status changed before the deadline could be extended.');
+            $job->deadline_at = $newDeadline;
+            $job->bidding_closes_at = $newDeadline;
+            $job->status = $nextStatus;
+            $this->commitWriteTransaction($db);
+        } catch (\Throwable $e) {
+            $this->rollbackWriteTransaction($db);
+            return ['success' => false, 'message' => 'Deadline extension failed: ' . $e->getMessage()];
+        }
 
         $message = 'The deadline for “' . $job->title . '” was extended to ' . $newDeadline . '.';
         $this->notifyUser($poster, 'Job deadline extended', $message, 'info', 'bi-calendar-plus', '/poster/jobs/' . $job->id);
@@ -907,35 +1098,57 @@ class JobService
         if ($worker->isBanned()) {
             return ['success' => false, 'message' => 'Banned accounts cannot place bids.'];
         }
-        $job = Job::find($jobId);
-        if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
-        if (!$job->isOpen()) return ['success' => false, 'message' => 'Job is not open for bids.'];
-        if ($job->bidding_closes_at && strtotime($job->bidding_closes_at) < time()) {
-            return ['success' => false, 'message' => 'Bidding window has closed.'];
-        }
-        if (JobBid::findForWorker($jobId, (int) $worker->id) !== null) {
-            return ['success' => false, 'message' => 'You have already bid on this job.'];
-        }
         if ($amount <= 0) return ['success' => false, 'message' => 'Bid amount must be positive.'];
         if (trim($proposal) === '') return ['success' => false, 'message' => 'Proposal is required.'];
         if ($deliveryDays < 1 || $deliveryDays > 365) {
             return ['success' => false, 'message' => 'Delivery days must be 1-365.'];
         }
 
-        $id = (int) Fluent::table('job_bids')->insert([
-            'job_id'        => $jobId,
-            'worker_id'     => $worker->id,
-            'amount'        => round($amount, 4),
-            'currency'      => $job->currency,
-            'delivery_days' => $deliveryDays,
-            'proposal'      => $proposal,
-            'status'        => JobBid::STATUS_PENDING,
-            'created_at'    => date('Y-m-d H:i:s'),
-        ]);
-        // Increment bid_count on the job
-        Fluent::table('jobs')
-            ->where('id', '=', $jobId)
-            ->update(['bid_count' => (int) $job->bid_count + 1, 'updated_at' => date('Y-m-d H:i:s')]);
+        $db = Database::connect();
+        try {
+            $this->beginWriteTransaction($db);
+
+            // Serialize the duplicate check with the insert. This protects
+            // the current bid endpoint as well as the legacy application
+            // endpoint above when two requests arrive together.
+            $jobSql = 'SELECT * FROM jobs WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $jobSql .= ' FOR UPDATE';
+            $jobStmt = $db->prepare($jobSql);
+            $jobStmt->execute(['id' => $jobId]);
+            $jobRow = $jobStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$jobRow) throw new \RuntimeException('Job not found.');
+            $job = new Job($jobRow);
+            if (!$job->isOpen()) throw new \RuntimeException('Job is not open for bids.');
+            if ($job->bidding_closes_at && strtotime($job->bidding_closes_at) < time()) {
+                throw new \RuntimeException('Bidding window has closed.');
+            }
+
+            $existingStmt = $db->prepare(
+                'SELECT id FROM job_bids WHERE job_id = :job_id AND worker_id = :worker_id LIMIT 1'
+            );
+            $existingStmt->execute(['job_id' => $jobId, 'worker_id' => $worker->id]);
+            if ($existingStmt->fetchColumn()) {
+                throw new \RuntimeException('You have already bid on this job.');
+            }
+
+            $id = (int) Fluent::table('job_bids')->insert([
+                'job_id'        => $jobId,
+                'worker_id'     => $worker->id,
+                'amount'        => round($amount, 4),
+                'currency'      => $job->currency,
+                'delivery_days' => $deliveryDays,
+                'proposal'      => $proposal,
+                'status'        => JobBid::STATUS_PENDING,
+                'created_at'    => date('Y-m-d H:i:s'),
+            ]);
+            $db->prepare(
+                'UPDATE jobs SET bid_count = COALESCE(bid_count, 0) + 1, updated_at = :updated_at WHERE id = :id'
+            )->execute(['updated_at' => date('Y-m-d H:i:s'), 'id' => $jobId]);
+            $this->commitWriteTransaction($db);
+        } catch (\Throwable $e) {
+            $this->rollbackWriteTransaction($db);
+            return ['success' => false, 'message' => 'Bid failed: ' . $e->getMessage()];
+        }
         $this->notifyUser(
             $job->poster(),
             'New worker bid',
@@ -965,14 +1178,36 @@ class JobService
         if ($worker->isBanned()) {
             return ['success' => false, 'message' => 'Banned accounts cannot modify bids.'];
         }
-        $bid = JobBid::find($bidId);
-        if ($bid === null) return ['success' => false, 'message' => 'Bid not found.'];
-        if ((int) $bid->worker_id !== (int) $worker->id) return ['success' => false, 'message' => 'Not your bid.'];
-        if (!$bid->isPending()) return ['success' => false, 'message' => 'Bid is no longer pending.'];
 
-        Fluent::table('job_bids')
-            ->where('id', '=', $bidId)
-            ->update(['status' => JobBid::STATUS_WITHDRAWN, 'updated_at' => date('Y-m-d H:i:s')]);
+        $db = Database::connect();
+        try {
+            $this->beginWriteTransaction($db);
+
+            $bidSql = 'SELECT * FROM job_bids WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $bidSql .= ' FOR UPDATE';
+            $bidStmt = $db->prepare($bidSql);
+            $bidStmt->execute(['id' => $bidId]);
+            $bidRow = $bidStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$bidRow) throw new \RuntimeException('Bid not found.');
+            $bid = new JobBid($bidRow);
+            if ((int) $bid->worker_id !== (int) $worker->id) throw new \RuntimeException('Not your bid.');
+
+            $updated = $db->prepare(
+                'UPDATE job_bids SET status = :withdrawn, updated_at = :updated_at WHERE id = :id AND worker_id = :worker_id AND status = :pending'
+            );
+            $updated->execute([
+                'withdrawn' => JobBid::STATUS_WITHDRAWN,
+                'updated_at' => date('Y-m-d H:i:s'),
+                'id' => $bidId,
+                'worker_id' => $worker->id,
+                'pending' => JobBid::STATUS_PENDING,
+            ]);
+            if ($updated->rowCount() !== 1) throw new \RuntimeException('Bid is no longer pending.');
+            $this->commitWriteTransaction($db);
+        } catch (\Throwable $e) {
+            $this->rollbackWriteTransaction($db);
+            return ['success' => false, 'message' => 'Bid withdrawal failed: ' . $e->getMessage()];
+        }
         return ['success' => true, 'message' => 'Bid withdrawn.'];
     }
 
@@ -1180,14 +1415,23 @@ class JobService
             $proofRequirements = json_decode($proofRequirements, true) ?: [];
         }
         $requiresScreenshot = false;
+        $requiresWrittenReport = false;
         foreach ((array) $proofRequirements as $requirement) {
-            if (is_array($requirement) && ($requirement['type'] ?? '') === 'screenshot') {
+            $type = is_array($requirement)
+                ? strtolower(trim((string) ($requirement['type'] ?? 'text')))
+                : strtolower(trim((string) $requirement));
+            if ($type === 'screenshot') {
                 $requiresScreenshot = true;
-                break;
+            }
+            if (in_array($type, ['text', 'written', 'written_report', 'report', 'description'], true)) {
+                $requiresWrittenReport = true;
             }
         }
         if ($requiresScreenshot && $proofFile === null) {
             return ['success' => false, 'message' => 'A screenshot proof is required for this job.'];
+        }
+        if ($requiresWrittenReport && trim((string) $description) === '') {
+            return ['success' => false, 'message' => 'A written report is required for this job.'];
         }
 
         $attachmentPath = null;
@@ -1337,6 +1581,30 @@ class JobService
         try {
             $this->beginWriteTransaction($db);
 
+            // Claim the aggregate job before the assignment transition. This
+            // keeps submission aligned with cancellation/payment lock order
+            // and prevents an active-looking assignment from submitting after
+            // its job has already reached a terminal state.
+            $jobSql = 'SELECT * FROM jobs WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $jobSql .= ' FOR UPDATE';
+            $jobStmt = $db->prepare($jobSql);
+            $jobStmt->execute(['id' => $job->id]);
+            $jobRow = $jobStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$jobRow) throw new \RuntimeException('Job not found.');
+            $job = new Job($jobRow);
+            if ($assignment !== null) {
+                if (!in_array($job->status, [
+                    Job::STATUS_IN_REVIEW,
+                    Job::STATUS_ENGAGED,
+                    Job::STATUS_ASSIGNED,
+                    Job::STATUS_SUBMITTED,
+                    Job::STATUS_REVISION,
+                ], true)) {
+                    throw new \RuntimeException('Job is not in a submittable state.');
+                }
+            }
+            unset($jobStmt);
+
             // Re-check duplicate content after acquiring the write boundary.
             // The advisory preflight above can run before another worker's
             // concurrent submission commits; this second check makes the
@@ -1467,6 +1735,9 @@ class JobService
                 $note
             );
         }
+        if ($decision === 'reject' && (int) ($submission->assignment_id ?? 0) > 0 && JobAssignment::isAvailable()) {
+            return $this->rejectAssignmentSubmission($submissionId, $adminId, trim((string) $note));
+        }
 
         $now = date('Y-m-d H:i:s');
         $newStatus = $decision === 'approve'
@@ -1534,6 +1805,120 @@ class JobService
     }
 
     /**
+     * Reject an assignment-backed submission while claiming the job and
+     * assignment state first. This keeps a stale moderation request from
+     * reopening an assignment or aggregate job after cancellation/payment.
+     */
+    private function rejectAssignmentSubmission(int $submissionId, int $adminId, string $note): array
+    {
+        $db = Database::connect();
+        try {
+            $this->beginWriteTransaction($db);
+
+            $identityStmt = $db->prepare('SELECT job_id, assignment_id FROM job_submissions WHERE id = :id LIMIT 1');
+            $identityStmt->execute(['id' => $submissionId]);
+            $identity = $identityStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$identity || (int) ($identity['assignment_id'] ?? 0) <= 0) {
+                throw new \RuntimeException('Submission or assignment not found.');
+            }
+
+            $jobSql = 'SELECT * FROM jobs WHERE id = :id LIMIT 1';
+            $assignmentSql = 'SELECT * FROM job_assignments WHERE id = :id LIMIT 1';
+            $submissionSql = 'SELECT * FROM job_submissions WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') {
+                $jobSql .= ' FOR UPDATE';
+                $assignmentSql .= ' FOR UPDATE';
+                $submissionSql .= ' FOR UPDATE';
+            }
+            $jobStmt = $db->prepare($jobSql);
+            $jobStmt->execute(['id' => (int) $identity['job_id']]);
+            $jobRow = $jobStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$jobRow) throw new \RuntimeException('Job not found.');
+            $job = new Job($jobRow);
+
+            $assignmentStmt = $db->prepare($assignmentSql);
+            $assignmentStmt->execute(['id' => (int) $identity['assignment_id']]);
+            $assignmentRow = $assignmentStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$assignmentRow || (int) $assignmentRow['job_id'] !== (int) $job->id) {
+                throw new \RuntimeException('Submission or assignment no longer belongs to this job.');
+            }
+            $assignment = new JobAssignment($assignmentRow);
+            if ($assignment->status !== JobAssignment::STATUS_SUBMITTED
+                || $assignment->payment_status !== JobAssignment::PAYMENT_HELD) {
+                throw new \RuntimeException('Submission or assignment has already left the review state.');
+            }
+
+            $submissionStmt = $db->prepare($submissionSql);
+            $submissionStmt->execute(['id' => $submissionId]);
+            $submissionRow = $submissionStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$submissionRow || (string) $submissionRow['status'] !== JobSubmission::STATUS_PENDING_REVIEW) {
+                throw new \RuntimeException('Submission has already been reviewed.');
+            }
+            $submission = new JobSubmission($submissionRow);
+
+            $now = date('Y-m-d H:i:s');
+            $updated = $db->prepare(
+                'UPDATE job_submissions
+                 SET status = :status,
+                     reviewed_at = :reviewed_at,
+                     reviewed_by = :reviewed_by,
+                     reviewer_note = :reviewer_note,
+                     rejection_reason = :rejection_reason,
+                     updated_at = :updated_at
+                 WHERE id = :id AND status = :pending'
+            );
+            $updated->execute([
+                'status' => JobSubmission::STATUS_REJECTED,
+                'reviewed_at' => $now,
+                'reviewed_by' => $adminId,
+                'reviewer_note' => $note,
+                'rejection_reason' => $note,
+                'updated_at' => $now,
+                'id' => $submissionId,
+                'pending' => JobSubmission::STATUS_PENDING_REVIEW,
+            ]);
+            if ($updated->rowCount() !== 1) throw new \RuntimeException('Submission has already been reviewed.');
+
+            $assignmentUpdated = $db->prepare(
+                'UPDATE job_assignments
+                 SET status = :revision, submitted_at = NULL, updated_at = :updated_at
+                 WHERE id = :id AND status = :submitted AND payment_status = :held'
+            );
+            $assignmentUpdated->execute([
+                'revision' => JobAssignment::STATUS_REVISION,
+                'updated_at' => $now,
+                'id' => (int) $assignment->id,
+                'submitted' => JobAssignment::STATUS_SUBMITTED,
+                'held' => JobAssignment::PAYMENT_HELD,
+            ]);
+            if ($assignmentUpdated->rowCount() !== 1) {
+                throw new \RuntimeException('Submission or assignment has already left the review state.');
+            }
+
+            $this->refreshJobProgress((int) $job->id, $now);
+            $this->commitWriteTransaction($db);
+        } catch (\Throwable $e) {
+            $this->rollbackWriteTransaction($db);
+            return ['success' => false, 'message' => 'Submission review failed: ' . $e->getMessage()];
+        }
+
+        $this->notifyUser(
+            $submission->worker(),
+            'Work rejected',
+            'Your submission was rejected. Reason: ' . $note,
+            'warning',
+            'bi-exclamation-circle',
+            '/jobs/' . (int) $submission->job_id
+        );
+
+        return [
+            'success' => true,
+            'message' => 'Submission rejected with a reason.',
+            'submission' => JobSubmission::find($submissionId),
+        ];
+    }
+
+    /**
      * Release one assignment's held escrow exactly once.
      *
      * The assignment row is locked inside the transaction and payment_status
@@ -1555,18 +1940,40 @@ class JobService
         try {
             $this->beginWriteTransaction($db);
 
+            // Keep financial lock order consistent with job cancellation:
+            // job -> poster -> assignment -> worker. This prevents two
+            // assignments for the same poster from losing balance updates.
+            $identityStmt = $db->prepare('SELECT job_id FROM job_assignments WHERE id = :id LIMIT 1');
+            $identityStmt->execute(['id' => $assignmentId]);
+            $identityRow = $identityStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$identityRow) {
+                throw new \RuntimeException('Assignment not found.');
+            }
+
+            $jobSql = 'SELECT * FROM jobs WHERE id = :id LIMIT 1';
+            $posterSql = 'SELECT * FROM users WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') {
+                $jobSql .= ' FOR UPDATE';
+                $posterSql .= ' FOR UPDATE';
+            }
+            $jobStmt = $db->prepare($jobSql);
+            $jobStmt->execute(['id' => (int) $identityRow['job_id']]);
+            $jobRow = $jobStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$jobRow) throw new \RuntimeException('Job not found.');
+            $job = new Job($jobRow);
+
+            $posterStmt = $db->prepare($posterSql);
+            $posterStmt->execute(['id' => (int) $job->poster_id]);
+            $posterRow = $posterStmt->fetch(\PDO::FETCH_ASSOC);
+            $poster = $posterRow ? new User($posterRow) : null;
+
             $lockSql = 'SELECT * FROM job_assignments WHERE id = :id LIMIT 1';
             if (Database::getDriverName() !== 'sqlite') $lockSql .= ' FOR UPDATE';
             $lockStmt = $db->prepare($lockSql);
             $lockStmt->execute(['id' => $assignmentId]);
             $assignmentRow = $lockStmt->fetch(\PDO::FETCH_ASSOC);
-            if (!$assignmentRow) {
-                throw new \RuntimeException('Assignment not found.');
-            }
-
+            if (!$assignmentRow) throw new \RuntimeException('Assignment not found.');
             $assignment = new JobAssignment($assignmentRow);
-            $job = Job::find((int) $assignment->job_id);
-            $poster = $job ? User::find((int) $job->poster_id) : null;
             $actor = User::find($actorId);
             if (!$job || !$poster) {
                 throw new \RuntimeException('Assignment payment participants could not be found.');
@@ -1589,9 +1996,20 @@ class JobService
             if ($assignment->payment_status !== JobAssignment::PAYMENT_HELD) {
                 throw new \RuntimeException('Assignment has no held payment to release.');
             }
+            if (!in_array($assignment->status, [
+                JobAssignment::STATUS_SUBMITTED,
+                JobAssignment::STATUS_APPROVED,
+            ], true)) {
+                throw new \RuntimeException('Assignment is not in a payment-review state.');
+            }
 
             $bid = JobBid::find((int) $assignment->bid_id);
-            $worker = User::find((int) $assignment->worker_id);
+            $workerSql = 'SELECT * FROM users WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $workerSql .= ' FOR UPDATE';
+            $workerStmt = $db->prepare($workerSql);
+            $workerStmt->execute(['id' => (int) $assignment->worker_id]);
+            $workerRow = $workerStmt->fetch(\PDO::FETCH_ASSOC);
+            $worker = $workerRow ? new User($workerRow) : null;
             if (!$bid || !$worker) {
                 throw new \RuntimeException('Assignment payment participants could not be found.');
             }
@@ -1786,8 +2204,24 @@ class JobService
             $status = Job::STATUS_REVISION;
         } elseif ((int) ($progress['review_assignments'] ?? 0) > 0) {
             $status = Job::STATUS_SUBMITTED;
-        } elseif ($total > 0) {
+        } elseif (in_array($job->status, [
+            Job::STATUS_PENDING_APPROVAL,
+            Job::STATUS_DECLINED,
+            Job::STATUS_COMPLETED,
+            Job::STATUS_CANCELLED,
+            Job::STATUS_DISPUTED,
+            Job::STATUS_EXPIRED,
+        ], true)) {
+            // A terminal, pending, expired, or disputed aggregate must not
+            // be reopened by assignment cleanup that happens afterward.
+            $status = $job->status;
+        } elseif ($total >= $required) {
             $status = Job::STATUS_ENGAGED;
+        } else {
+            // A cancelled/reassigned slot is available again when the job
+            // still needs workers. Preserve the existing single-worker
+            // reopen behavior while keeping mixed review states above.
+            $status = Job::STATUS_OPEN;
         }
 
         Fluent::table('jobs')->where('id', '=', $jobId)->update([
@@ -1825,6 +2259,14 @@ class JobService
             return ['success' => false, 'message' => 'Submission is no longer awaiting review.'];
         }
         if (trim($note) === '') return ['success' => false, 'message' => 'Revision note is required.'];
+        if ((int) ($submission->assignment_id ?? 0) > 0 && JobAssignment::isAvailable()) {
+            return $this->requestAssignmentRevision(
+                $jobId,
+                $submissionId,
+                (int) $poster->id,
+                trim($note)
+            );
+        }
 
         $now = date('Y-m-d H:i:s');
         $db = Database::connect();
@@ -1866,6 +2308,122 @@ class JobService
             'warning',
             'bi-pencil-square',
             '/jobs/' . $job->id
+        );
+        return ['success' => true, 'message' => 'Revision requested.'];
+    }
+
+    /**
+     * Request a revision for an assignment-backed submission while claiming
+     * the job, assignment, and submission state in one transaction.
+     */
+    private function requestAssignmentRevision(int $jobId, int $submissionId, int $posterId, string $note): array
+    {
+        $db = Database::connect();
+        try {
+            $this->beginWriteTransaction($db);
+
+            $identityStmt = $db->prepare('SELECT job_id, assignment_id FROM job_submissions WHERE id = :id LIMIT 1');
+            $identityStmt->execute(['id' => $submissionId]);
+            $identity = $identityStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$identity || (int) ($identity['assignment_id'] ?? 0) <= 0 || (int) $identity['job_id'] !== $jobId) {
+                throw new \RuntimeException('Submission or assignment not found.');
+            }
+
+            $jobSql = 'SELECT * FROM jobs WHERE id = :id LIMIT 1';
+            $assignmentSql = 'SELECT * FROM job_assignments WHERE id = :id LIMIT 1';
+            $submissionSql = 'SELECT * FROM job_submissions WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') {
+                $jobSql .= ' FOR UPDATE';
+                $assignmentSql .= ' FOR UPDATE';
+                $submissionSql .= ' FOR UPDATE';
+            }
+            $jobStmt = $db->prepare($jobSql);
+            $jobStmt->execute(['id' => $jobId]);
+            $jobRow = $jobStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$jobRow || (int) $jobRow['poster_id'] !== $posterId) {
+                throw new \RuntimeException('Only the job poster can request a revision.');
+            }
+            $job = new Job($jobRow);
+            if (!in_array($job->status, [Job::STATUS_SUBMITTED, Job::STATUS_REVISION], true)) {
+                throw new \RuntimeException('Job has no submission awaiting review.');
+            }
+
+            $assignmentStmt = $db->prepare($assignmentSql);
+            $assignmentStmt->execute(['id' => (int) $identity['assignment_id']]);
+            $assignmentRow = $assignmentStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$assignmentRow || (int) $assignmentRow['job_id'] !== $jobId) {
+                throw new \RuntimeException('Submission or assignment no longer belongs to this job.');
+            }
+            $assignment = new JobAssignment($assignmentRow);
+            if ($assignment->status !== JobAssignment::STATUS_SUBMITTED
+                || $assignment->payment_status !== JobAssignment::PAYMENT_HELD) {
+                throw new \RuntimeException('Submission or assignment has already left the review state.');
+            }
+
+            $submissionStmt = $db->prepare($submissionSql);
+            $submissionStmt->execute(['id' => $submissionId]);
+            $submissionRow = $submissionStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$submissionRow
+                || (int) $submissionRow['job_id'] !== $jobId
+                || (int) ($submissionRow['assignment_id'] ?? 0) !== (int) $assignment->id
+                || (string) $submissionRow['status'] !== JobSubmission::STATUS_PENDING_REVIEW) {
+                throw new \RuntimeException('Submission is no longer awaiting review.');
+            }
+            $submission = new JobSubmission($submissionRow);
+
+            $now = date('Y-m-d H:i:s');
+            $submissionUpdated = $db->prepare(
+                'UPDATE job_submissions
+                 SET status = :revision,
+                     reviewer_note = :reviewer_note,
+                     reviewed_at = :reviewed_at,
+                     reviewed_by = :reviewed_by,
+                     updated_at = :updated_at
+                 WHERE id = :id AND status = :pending'
+            );
+            $submissionUpdated->execute([
+                'revision' => JobSubmission::STATUS_REVISION,
+                'reviewer_note' => $note,
+                'reviewed_at' => $now,
+                'reviewed_by' => $posterId,
+                'updated_at' => $now,
+                'id' => $submissionId,
+                'pending' => JobSubmission::STATUS_PENDING_REVIEW,
+            ]);
+            if ($submissionUpdated->rowCount() !== 1) {
+                throw new \RuntimeException('Submission is no longer awaiting review.');
+            }
+
+            $assignmentUpdated = $db->prepare(
+                'UPDATE job_assignments
+                 SET status = :revision, submitted_at = NULL, updated_at = :updated_at
+                 WHERE id = :id AND status = :submitted AND payment_status = :held'
+            );
+            $assignmentUpdated->execute([
+                'revision' => JobAssignment::STATUS_REVISION,
+                'updated_at' => $now,
+                'id' => (int) $assignment->id,
+                'submitted' => JobAssignment::STATUS_SUBMITTED,
+                'held' => JobAssignment::PAYMENT_HELD,
+            ]);
+            if ($assignmentUpdated->rowCount() !== 1) {
+                throw new \RuntimeException('Submission or assignment has already left the review state.');
+            }
+
+            $this->refreshJobProgress($jobId, $now);
+            $this->commitWriteTransaction($db);
+        } catch (\Throwable $e) {
+            $this->rollbackWriteTransaction($db);
+            return ['success' => false, 'message' => 'Revision request failed: ' . $e->getMessage()];
+        }
+
+        $this->notifyUser(
+            $submission->worker(),
+            'Revision requested',
+            'A revision was requested for your submission on “' . $job->title . '”. Note: ' . $note,
+            'warning',
+            'bi-pencil-square',
+            '/jobs/' . $jobId
         );
         return ['success' => true, 'message' => 'Revision requested.'];
     }
@@ -2022,18 +2580,38 @@ class JobService
         if (!$this->canManagePosterJobs($poster) && !($adminOverride?->isAdmin() ?? false)) {
             return ['success' => false, 'message' => 'Poster access is required to cancel jobs.'];
         }
-        $job = Job::find($jobId);
-        if ($job === null) return ['success' => false, 'message' => 'Job not found.'];
-        if ((int) $job->poster_id !== (int) $poster->id) {
-            return ['success' => false, 'message' => 'Only the poster can cancel.'];
-        }
-        if (in_array($job->status, [Job::STATUS_COMPLETED, Job::STATUS_CANCELLED], true)) {
-            return ['success' => false, 'message' => 'Job is already closed.'];
-        }
-
         $db = Database::connect();
         try {
             $this->beginWriteTransaction($db);
+
+            // Re-read both mutable participants after acquiring the write
+            // boundary. This prevents a stale poster/job snapshot from
+            // refunding escrow after a concurrent payment release or second
+            // cancellation has already claimed the job.
+            $jobSql = 'SELECT * FROM jobs WHERE id = :id LIMIT 1';
+            $posterSql = 'SELECT * FROM users WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') {
+                $jobSql .= ' FOR UPDATE';
+                $posterSql .= ' FOR UPDATE';
+            }
+            $jobStmt = $db->prepare($jobSql);
+            $jobStmt->execute(['id' => $jobId]);
+            $jobRow = $jobStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$jobRow) throw new \RuntimeException('Job not found.');
+            $job = new Job($jobRow);
+            if ((int) $job->poster_id !== (int) $poster->id) {
+                throw new \RuntimeException('Only the poster can cancel.');
+            }
+            if (in_array($job->status, [Job::STATUS_COMPLETED, Job::STATUS_CANCELLED], true)) {
+                throw new \RuntimeException('Job is already closed.');
+            }
+
+            $posterStmt = $db->prepare($posterSql);
+            $posterStmt->execute(['id' => $poster->id]);
+            $posterRow = $posterStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$posterRow) throw new \RuntimeException('Job poster not found.');
+            $poster = new User($posterRow);
+            unset($jobStmt, $posterStmt);
 
             $now = date('Y-m-d H:i:s');
             $assignmentTableAvailable = JobAssignment::isAvailable();
@@ -2102,9 +2680,16 @@ class JobService
                 }
             }
 
-            Fluent::table('jobs')
-                ->where('id', '=', $job->id)
-                ->update(['status' => Job::STATUS_CANCELLED, 'updated_at' => $now]);
+            $jobUpdated = $db->prepare(
+                'UPDATE jobs SET status = :cancelled, updated_at = :updated_at WHERE id = :id AND status = :current_status'
+            );
+            $jobUpdated->execute([
+                'cancelled' => Job::STATUS_CANCELLED,
+                'updated_at' => $now,
+                'id' => $job->id,
+                'current_status' => $job->status,
+            ]);
+            if ($jobUpdated->rowCount() !== 1) throw new \RuntimeException('Job is already closed.');
             // Mark any pending bids as rejected
             Fluent::table('job_bids')
                 ->where('job_id', '=', $job->id)
@@ -2267,7 +2852,14 @@ class JobService
         NotificationService::sendToAdmins($title, $message, $tone, $icon, $actionUrl);
     }
 
-    private function notifyWorkersAboutNewJob(Job $job): void
+    /**
+     * Notify eligible workers when any admin flow publishes a job.
+     *
+     * This is intentionally public so AdminJobController can use the same
+     * notification behavior for immediate admin publication and later draft
+     * activation as the normal approval workflow.
+     */
+    public function notifyWorkersAboutNewJob(Job $job): void
     {
         try {
             foreach (Fluent::table('users')->where('is_banned', '=', 0)->get() as $row) {

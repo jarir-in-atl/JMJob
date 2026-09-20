@@ -57,6 +57,25 @@ function render(root, data, id) {
         try { await api.adminReviewSubmission(button.dataset.reviewId, { decision, note }); showFlash('Submission reviewed.', 'success'); await load(root, id); }
         catch (error) { showFlash(error.message || 'Could not review submission.', 'error'); }
     }));
+    root.querySelectorAll('[data-ban-worker]').forEach(button => button.addEventListener('click', async () => {
+        const workerId = button.dataset.banWorker;
+        const isBanned = button.dataset.banState === '1';
+        const reason = prompt(isBanned ? 'Reason for unbanning this worker:' : 'Reason for banning this worker:', isBanned ? 'Restored by administrator' : '');
+        if (reason === null || (!isBanned && !reason.trim())) return;
+        button.disabled = true;
+        try {
+            if (isBanned) {
+                await api.adminUnbanUser(workerId, { reason: reason.trim() });
+            } else {
+                await api.adminBanUser(workerId, { reason: reason.trim() });
+            }
+            showFlash(isBanned ? 'Worker unbanned.' : 'Worker banned and active sessions revoked.', 'success');
+            await load(root, id);
+        } catch (error) {
+            button.disabled = false;
+            showFlash(error.message || 'Could not update worker ban state.', 'error');
+        }
+    }));
     root.querySelectorAll('[data-cancel-assignment]').forEach(button => button.addEventListener('click', async () => {
         const reason = prompt('Reason for cancelling this assignment:');
         if (!reason || !reason.trim()) return;
@@ -85,8 +104,10 @@ function renderBid(bid) {
 }
 
 function renderSubmission(submission) {
-    const actions = submission.status === 'pending_review' ? `<div class="admin-row__actions"><button class="btn btn--success btn--sm" data-review-id="${submission.id}" data-review-decision="approve">Approve</button><button class="btn btn--danger btn--sm" data-review-id="${submission.id}" data-review-decision="reject">Reject</button></div>` : '';
     const worker = submission.worker || {};
+    const reviewActions = submission.status === 'pending_review' ? `<button class="btn btn--success btn--sm" data-review-id="${submission.id}" data-review-decision="approve">Approve</button><button class="btn btn--danger btn--sm" data-review-id="${submission.id}" data-review-decision="reject">Reject</button>` : '';
+    const banAction = worker.id ? `<button class="btn ${worker.is_banned ? 'btn--success' : 'btn--danger'} btn--sm" data-ban-worker="${worker.id}" data-ban-state="${worker.is_banned ? '1' : '0'}">${worker.is_banned ? 'Unban worker' : 'Ban worker'}</button>` : '';
+    const actions = reviewActions || banAction ? `<div class="admin-row__actions">${reviewActions}${banAction}</div>` : '';
     const workerContact = `User ID #${escapeHtml(submission.worker_id)} · ${escapeHtml(worker.phone || 'Phone unavailable')} · ${escapeHtml(worker.email || 'Email unavailable')}`;
     const reviewNote = submission.reviewer_note || submission.rejection_reason;
     const risk = submission.risk_status && submission.risk_status !== 'clear'

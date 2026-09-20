@@ -7,6 +7,8 @@ use App\Models\Job;
 use App\Models\JobAssignment;
 use App\Models\JobBid;
 use App\Models\JobSubmission;
+use App\Models\Category;
+use App\Models\Subcategory;
 use App\Models\User;
 use App\Services\JobService;
 use App\Services\SettingService;
@@ -62,6 +64,12 @@ class AdminJobController extends Controller
             'updated_at' => date('Y-m-d H:i:s'),
         ];
         Fluent::table('jobs')->where('id', '=', $jobId)->update($metadata);
+        if ($publish) {
+            $publishedJob = Job::find($jobId);
+            if ($publishedJob !== null) {
+                $this->jobService->notifyWorkersAboutNewJob($publishedJob);
+            }
+        }
         $this->audit($admin, 'job.create', $jobId, ['publish' => $publish]);
 
         return Response::json([
@@ -87,6 +95,21 @@ class AdminJobController extends Controller
         $body = $this->readJson($request);
         $error = $this->validateJobInput($body, false);
         if ($error !== null) return Response::json(['success' => false, 'message' => $error], 422);
+
+        if (array_key_exists('category_id', $body) || array_key_exists('subcategory_id', $body)) {
+            $categoryId = array_key_exists('category_id', $body)
+                ? (int) $body['category_id']
+                : (int) ($job->category_id ?? 0);
+            $subcategoryId = array_key_exists('subcategory_id', $body)
+                ? ((int) $body['subcategory_id'] > 0 ? (int) $body['subcategory_id'] : null)
+                : (array_key_exists('category_id', $body)
+                    ? null
+                    : ((int) ($job->subcategory_id ?? 0) > 0 ? (int) $job->subcategory_id : null));
+            $classificationError = $this->validateClassification($categoryId, $subcategoryId);
+            if ($classificationError !== null) {
+                return Response::json(['success' => false, 'message' => $classificationError], 422);
+            }
+        }
 
         $assignedCount = $this->activeAssignmentCount($id);
         $workerCount = array_key_exists('worker_count', $body) ? (int) $body['worker_count'] : (int) ($job->worker_count ?: 1);
@@ -126,6 +149,12 @@ class AdminJobController extends Controller
                 'total_payable_amount' => round($budget + $fee, 4),
             ];
         }
+        if (array_key_exists('category_id', $body) && !array_key_exists('subcategory_id', $body)) {
+            $currentSubcategory = (int) ($job->subcategory_id ?? 0);
+            if ($currentSubcategory > 0 && $this->validateClassification((int) $body['category_id'], $currentSubcategory) !== null) {
+                $update['subcategory_id'] = null;
+            }
+        }
         if (array_key_exists('publish', $body)) {
             $update['status'] = $this->truthy($body['publish']) ? Job::STATUS_OPEN : Job::STATUS_PENDING_APPROVAL;
         } elseif (isset($body['status']) && in_array((string) $body['status'], [Job::STATUS_PENDING_APPROVAL, Job::STATUS_OPEN, Job::STATUS_DECLINED], true)) {
@@ -134,12 +163,84 @@ class AdminJobController extends Controller
         if (!$update) return Response::json(['success' => true, 'message' => 'No changes supplied.', 'data' => $this->detailPayload($id)]);
 
         $update['updated_at'] = date('Y-m-d H:i:s');
+        $db = Database::connect();
         try {
+            Database::beginWriteTransaction($db);
+            $jobSql = 'SELECT * FROM jobs WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $jobSql .= ' FOR UPDATE';
+            $jobStmt = $db->prepare($jobSql);
+            $jobStmt->execute(['id' => $id]);
+            $jobRow = $jobStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$jobRow) throw new \RuntimeException('Job not found.');
+            $lockedJob = new Job($jobRow);
+            $assignmentStorageAvailable = JobAssignment::isAvailable();
+            $lockedAssignedCount = $assignmentStorageAvailable
+                ? $this->lockedActiveAssignmentCount($db, $id)
+                : (((int) ($lockedJob->assigned_worker_id ?? 0) > 0 || (int) ($lockedJob->assigned_bid_id ?? 0) > 0) ? 1 : 0);
+            $lockedWorkerCount = array_key_exists('worker_count', $body)
+                ? (int) $body['worker_count']
+                : (int) ($lockedJob->worker_count ?: 1);
+            $lockedCostPerWorker = array_key_exists('cost_per_worker', $body)
+                ? (float) $body['cost_per_worker']
+                : (float) ($lockedJob->cost_per_worker ?: $lockedJob->budget);
+            if ($lockedAssignedCount > 0
+                && ($lockedWorkerCount !== (int) ($lockedJob->worker_count ?: 1)
+                    || abs($lockedCostPerWorker - (float) ($lockedJob->cost_per_worker ?: $lockedJob->budget)) > 0.00001)) {
+                throw new \RuntimeException('Worker count and payment cannot change after assignments exist.');
+            }
+            if ($lockedWorkerCount < $lockedAssignedCount) {
+                throw new \RuntimeException('Worker count cannot be lower than current assignments.');
+            }
+            if (array_key_exists('status', $update)
+                && (string) $update['status'] !== (string) $lockedJob->status) {
+                if (in_array((string) $lockedJob->status, [Job::STATUS_COMPLETED, Job::STATUS_CANCELLED, Job::STATUS_DISPUTED], true)) {
+                    throw new \RuntimeException('Closed jobs cannot be republished or reopened.');
+                }
+                if ($lockedAssignedCount > 0) {
+                    throw new \RuntimeException('Job status cannot change after assignments exist.');
+                }
+            }
+            if (array_key_exists('category_id', $body) || array_key_exists('subcategory_id', $body)) {
+                $lockedCategoryId = array_key_exists('category_id', $body)
+                    ? (int) $body['category_id']
+                    : (int) ($lockedJob->category_id ?? 0);
+                $lockedSubcategoryId = array_key_exists('subcategory_id', $body)
+                    ? ((int) $body['subcategory_id'] > 0 ? (int) $body['subcategory_id'] : null)
+                    : (array_key_exists('category_id', $body)
+                        ? null
+                        : ((int) ($lockedJob->subcategory_id ?? 0) > 0 ? (int) $lockedJob->subcategory_id : null));
+                $lockedClassificationError = $this->validateClassification($lockedCategoryId, $lockedSubcategoryId);
+                if ($lockedClassificationError !== null) {
+                    throw new \RuntimeException($lockedClassificationError);
+                }
+            }
             Fluent::table('jobs')->where('id', '=', $id)->update($update);
+            Database::commitWriteTransaction($db);
         } catch (\Throwable $e) {
-            return Response::json(['success' => false, 'message' => 'Job update failed.'], 500);
+            Database::rollbackWriteTransaction($db);
+            $message = $e->getMessage();
+            $knownMessages = [
+                'Job not found.',
+                'Worker count and payment cannot change after assignments exist.',
+                'Worker count cannot be lower than current assignments.',
+                'Closed jobs cannot be republished or reopened.',
+                'Job status cannot change after assignments exist.',
+            ];
+            $status = in_array($message, $knownMessages, true) || str_contains($message, 'category') || str_contains($message, 'subcategory')
+                ? ($message === 'Job not found.' ? 404 : 422)
+                : 500;
+            return Response::json([
+                'success' => false,
+                'message' => $status === 500 ? 'Job update failed.' : $message,
+            ], $status);
         }
         $this->audit($admin, 'job.update', $id, ['fields' => array_keys($update)]);
+        if (($update['status'] ?? null) === Job::STATUS_OPEN && $job->status !== Job::STATUS_OPEN) {
+            $publishedJob = Job::find($id);
+            if ($publishedJob !== null) {
+                $this->jobService->notifyWorkersAboutNewJob($publishedJob);
+            }
+        }
         return Response::json(['success' => true, 'message' => 'Job updated.', 'data' => $this->detailPayload($id)]);
     }
 
@@ -147,17 +248,41 @@ class AdminJobController extends Controller
     {
         if ($guard = $this->adminGuard($request)) return $guard;
         $admin = $request->getMeta('auth.user');
-        $job = Job::find($id);
-        if ($job === null) return Response::json(['success' => false, 'message' => 'Job not found.'], 404);
-        if ($this->activeAssignmentCount($id) > 0 || in_array((string) $job->status, [Job::STATUS_COMPLETED, Job::STATUS_DISPUTED], true)) {
-            return Response::json(['success' => false, 'message' => 'Assigned or closed jobs cannot be deleted; cancel or resolve them first.'], 422);
-        }
-
         $db = Database::connect();
         try {
             Database::beginWriteTransaction($db);
+
+            $jobSql = 'SELECT * FROM jobs WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $jobSql .= ' FOR UPDATE';
+            $jobStmt = $db->prepare($jobSql);
+            $jobStmt->execute(['id' => $id]);
+            $jobRow = $jobStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$jobRow) throw new \RuntimeException('Job not found.');
+            $job = new Job($jobRow);
+            if (in_array((string) $job->status, [Job::STATUS_COMPLETED, Job::STATUS_DISPUTED], true)) {
+                throw new \RuntimeException('Assigned or closed jobs cannot be deleted; cancel or resolve them first.');
+            }
+
+            $assignmentStorageAvailable = JobAssignment::isAvailable();
+            if (!$assignmentStorageAvailable
+                && ((int) ($job->assigned_worker_id ?? 0) > 0 || (int) ($job->assigned_bid_id ?? 0) > 0)) {
+                throw new \RuntimeException('Assigned or closed jobs cannot be deleted; cancel or resolve them first.');
+            }
+            if ($assignmentStorageAvailable) {
+                $assignmentSql = 'SELECT status, payment_status FROM job_assignments WHERE job_id = :job_id';
+                if (Database::getDriverName() !== 'sqlite') $assignmentSql .= ' FOR UPDATE';
+                $assignmentStmt = $db->prepare($assignmentSql);
+                $assignmentStmt->execute(['job_id' => $id]);
+                foreach ($assignmentStmt->fetchAll(\PDO::FETCH_ASSOC) as $assignmentRow) {
+                    if ($assignmentRow['status'] !== JobAssignment::STATUS_CANCELLED
+                        && $assignmentRow['payment_status'] !== JobAssignment::PAYMENT_REFUNDED) {
+                        throw new \RuntimeException('Assigned or closed jobs cannot be deleted; cancel or resolve them first.');
+                    }
+                }
+            }
+
             Fluent::table('job_submissions')->where('job_id', '=', $id)->delete();
-            if (JobAssignment::isAvailable()) {
+            if ($assignmentStorageAvailable) {
                 Fluent::table('job_assignments')->where('job_id', '=', $id)->delete();
             }
             Fluent::table('job_bids')->where('job_id', '=', $id)->delete();
@@ -166,7 +291,12 @@ class AdminJobController extends Controller
             Database::commitWriteTransaction($db);
         } catch (\Throwable $e) {
             Database::rollbackWriteTransaction($db);
-            return Response::json(['success' => false, 'message' => 'Job deletion failed.'], 500);
+            $message = $e->getMessage();
+            $status = $message === 'Job not found.' ? 404 : ($message === 'Assigned or closed jobs cannot be deleted; cancel or resolve them first.' ? 422 : 500);
+            return Response::json([
+                'success' => false,
+                'message' => $status === 500 ? 'Job deletion failed.' : $message,
+            ], $status);
         }
         return Response::json(['success' => true, 'message' => 'Job deleted.', 'data' => ['id' => $id]]);
     }
@@ -280,6 +410,7 @@ class AdminJobController extends Controller
                     'name' => $worker->name,
                     'phone' => $worker->phone ?? null,
                     'email' => $worker->email,
+                    'is_banned' => $worker->isBanned(),
                 ] : null,
             ];
         }
@@ -345,6 +476,13 @@ class AdminJobController extends Controller
                 'message' => 'Authentication required.',
             ], 401);
         }
+        if (method_exists($admin, 'isBanned') && $admin->isBanned()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'This account is banned.',
+                'error' => 'banned',
+            ], 403);
+        }
         if (!$admin->isAdmin()) {
             return Response::json([
                 'success' => false,
@@ -397,6 +535,22 @@ class AdminJobController extends Controller
         return $count;
     }
 
+    private function lockedActiveAssignmentCount(\PDO $db, int $jobId): int
+    {
+        $sql = 'SELECT status, payment_status FROM job_assignments WHERE job_id = :job_id';
+        if (Database::getDriverName() !== 'sqlite') $sql .= ' FOR UPDATE';
+        $stmt = $db->prepare($sql);
+        $stmt->execute(['job_id' => $jobId]);
+        $count = 0;
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            if ($row['status'] !== JobAssignment::STATUS_CANCELLED
+                && $row['payment_status'] !== JobAssignment::PAYMENT_REFUNDED) {
+                $count++;
+            }
+        }
+        return $count;
+    }
+
     private function validateJobInput(array $body, bool $required): ?string
     {
         foreach (['category_id', 'title', 'description', 'worker_count', 'cost_per_worker'] as $field) {
@@ -408,6 +562,21 @@ class AdminJobController extends Controller
         if (isset($body['cost_per_worker']) && (float) $body['cost_per_worker'] <= 0) return 'cost_per_worker must be positive.';
         if (isset($body['customer_email']) && trim((string) $body['customer_email']) !== '' && filter_var($body['customer_email'], FILTER_VALIDATE_EMAIL) === false) return 'customer_email is invalid.';
         if (isset($body['deadline_at']) && trim((string) $body['deadline_at']) !== '' && strtotime((string) $body['deadline_at']) === false) return 'deadline_at is invalid.';
+        return null;
+    }
+
+    private function validateClassification(int $categoryId, ?int $subcategoryId): ?string
+    {
+        $category = Category::find($categoryId);
+        if ($category === null || !$category->isActive()) {
+            return 'category_id must refer to an active category.';
+        }
+        if ($subcategoryId === null) return null;
+
+        $subcategory = Subcategory::find($subcategoryId);
+        if ($subcategory === null || !$subcategory->isActive() || (int) $subcategory->category_id !== $categoryId) {
+            return 'subcategory_id must refer to an active subcategory of the selected category.';
+        }
         return null;
     }
 

@@ -2,9 +2,25 @@
 # ============================================================
 #  JMJob — Local Deployment Script
 #  Deploys directly to server via FTP (no GitHub needed)
+#  Use ./deploy.sh --check for a read-only FTP comparison.
 # ============================================================
 
 set -e
+
+# Prevent two local deploys from interleaving FTP mirrors. GitHub deployments
+# use the workflow concurrency group for the equivalent protection.
+DEPLOY_LOCK_PATH="/tmp/jmjob-deploy.lock"
+exec 9>"$DEPLOY_LOCK_PATH"
+if ! flock -n 9; then
+    echo "❌ Another JMJob deployment is already running."
+    exit 1
+fi
+
+CHECK_ONLY=false
+if [ "${1:-}" = "--check" ]; then
+    CHECK_ONLY=true
+    shift
+fi
 
 # Colors
 RED='\033[0;31m'
@@ -31,11 +47,24 @@ if [ -z "$FTP_HOST" ] || [ -z "$FTP_USER" ] || [ -z "$FTP_PASS" ]; then
 fi
 
 FTP_PORT=${FTP_PORT:-21}
+FTP_TIMEOUT_SECONDS=${FTP_TIMEOUT_SECONDS:-300}
 SERVER_ROOT="/public_html"
 LOCAL_ROOT="$SCRIPT_DIR"
 # APP_URL is commonly a local development URL; never use it as the production
 # migration target unless the deploy caller explicitly supplies SITE_URL.
 SITE_URL="${SITE_URL:-https://jmjob.xyz}"
+SITE_URL="${SITE_URL%/}"
+case "$SITE_URL" in
+    http://localhost*|https://localhost*|http://127.0.0.1*|https://127.0.0.1*)
+        echo -e "${RED}❌ SITE_URL points to a local loopback address; refusing a production deployment${NC}"
+        echo "Set SITE_URL to the deployed HTTPS hostname in .env."
+        exit 1
+        ;;
+esac
+MIRROR_MODE=""
+if [ "$CHECK_ONLY" = true ]; then
+    MIRROR_MODE="--dry-run"
+fi
 
 echo -e "${BLUE}============================================================${NC}"
 echo -e "${BLUE}  JMJob — Deployment${NC}"
@@ -44,6 +73,9 @@ echo ""
 echo -e "Time:      $(date '+%Y-%m-%d %H:%M:%S %Z')"
 echo -e "Server:    $FTP_HOST"
 echo -e "Local:     $LOCAL_ROOT"
+if [ "$CHECK_ONLY" = true ]; then
+    echo -e "Mode:      read-only FTP preflight"
+fi
 echo ""
 
 # ============================================================
@@ -51,7 +83,9 @@ echo ""
 # ============================================================
 echo -e "${YELLOW}▶ Step 1: Building frontend assets...${NC}"
 
-if [ -d "$LOCAL_ROOT/earnap-client/node_modules" ]; then
+if [ "$CHECK_ONLY" = true ]; then
+    echo -e "  ${YELLOW}⚠ Skipping build in read-only preflight${NC}"
+elif [ -d "$LOCAL_ROOT/earnap-client/node_modules" ]; then
     cd "$LOCAL_ROOT/earnap-client"
     npm run build 2>&1 | tail -3
     cd "$LOCAL_ROOT"
@@ -84,10 +118,13 @@ open ftp://$FTP_USER:$FTP_PASS@$FTP_HOST:$FTP_PORT
 # Ignore unreliable FTP timestamps and compare file sizes instead. Do not use
 # --only-newer here: this host can report every local file as newer on each run.
 mirror --reverse --verbose --no-perms --ignore-time --parallel=1 \
+  $MIRROR_MODE \
   --exclude-glob '.env' \
   --exclude-glob '.env.*' \
   --exclude-glob '.git/' \
   --exclude-glob '.git/**' \
+  --exclude-glob '.github/' \
+  --exclude-glob '.github/**' \
   --exclude-glob '.kilo/' \
   --exclude-glob '.kilo/**' \
   --exclude-glob '.codex/' \
@@ -123,6 +160,7 @@ mirror --reverse --verbose --no-perms --ignore-time --parallel=1 \
   --exclude-glob '*.sql' \
   --exclude-glob '*.dump' \
   --exclude-glob '*.log' \
+  --exclude-glob '8' \
   --exclude-glob '*.md' \
   --exclude-glob 'test_*.php' \
   --exclude-glob 'verify_*.php' \
@@ -132,6 +170,7 @@ mirror --reverse --verbose --no-perms --ignore-time --parallel=1 \
 # private because it is not part of the public application entry point.
 cd $SERVER_ROOT
 mirror --reverse --verbose --no-perms --ignore-time --parallel=1 \
+  $MIRROR_MODE \
   --exclude-glob 'create_missing_tables.php' \
   --exclude-glob 'index.php' \
   --exclude-glob 'index.html' \
@@ -144,6 +183,7 @@ mirror --reverse --verbose --no-perms --ignore-time --parallel=1 \
 ls -l $SERVER_ROOT/css/app-v2.css
 ls -l $SERVER_ROOT/js/app.js
 ls -l $SERVER_ROOT/index.php
+ls -l $SERVER_ROOT/.user.ini
 ls -l views/app.blade.php
 ls -l src/Router/Router.php
 ls -l routes/api.php
@@ -151,13 +191,25 @@ ls -l routes/api.php
 quit
 LFTP_EOF
 
-# Run lftp
-lftp -f "$LFTP_SCRIPT" 2>&1
+# Run lftp with a bounded wall-clock timeout so a stalled hosting connection
+# cannot hold the deployment lock indefinitely. Override FTP_TIMEOUT_SECONDS
+# for a demonstrably slower host when needed.
+timeout --signal=TERM --kill-after=15s "${FTP_TIMEOUT_SECONDS}s" \
+  lftp -f "$LFTP_SCRIPT" 2>&1
 rm -f "$LFTP_SCRIPT"
 
 echo ""
-echo -e "${GREEN}  ✅ Files uploaded${NC}"
+if [ "$CHECK_ONLY" = true ]; then
+    echo -e "${GREEN}  ✅ FTP comparison complete (no files changed)${NC}"
+else
+    echo -e "${GREEN}  ✅ Files uploaded${NC}"
+fi
 echo ""
+
+if [ "$CHECK_ONLY" = true ]; then
+    echo -e "${GREEN}  ✅ Read-only FTP preflight complete; migrations and Git operations were skipped${NC}"
+    exit 0
+fi
 
 # ============================================================
 # Step 3: Verify
@@ -180,6 +232,11 @@ curl -fsS --retry 2 --retry-delay 2 --max-time 60 \
   "$SITE_URL/migration_runner.php"
 echo ""
 echo -e "${GREEN}  ✅ Migrations complete${NC}"
+echo ""
+
+echo -e "${YELLOW}▶ Step 4b: Running post-migration live smoke checks...${NC}"
+SITE_URL="$SITE_URL" bash "$SCRIPT_DIR/scripts/live_smoke.sh"
+echo -e "${GREEN}  ✅ Live response and authentication-boundary smoke checks passed${NC}"
 echo ""
 
 # ============================================================

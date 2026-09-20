@@ -8,6 +8,7 @@ use Nemesis\Http\Request;
 use Nemesis\Http\Response;
 use App\Models\Job;
 use App\Models\JobBid;
+use App\Models\JobAssignment;
 use App\Models\JobSubmission;
 use App\Models\User;
 use App\Services\JobService;
@@ -218,7 +219,7 @@ class PosterController extends Controller
         $now = time();
         $workerCount = (int) ($job->worker_count ?: 1);
         $bidCount    = (int) ($job->bid_count ?: 0);
-        $remainingTasks = max(0, $workerCount - $bidCount);
+        [$assignedWorkers, $activeWorkers, $completedWorkers, $remainingTasks] = $this->workerSummary($job, $workerCount);
 
         $deadlineStr = $job->deadline_at ?: $job->bidding_closes_at;
         $daysRemaining = 'No deadline';
@@ -256,11 +257,57 @@ class PosterController extends Controller
             'proof_requirements'   => $job->proof_requirements ? json_decode((string) $job->proof_requirements, true) : [],
             'decline_reason'       => $job->decline_reason,
             'days_remaining'       => $daysRemaining,
-            'active_workers_count' => $bidCount,
+            'active_workers_count' => $activeWorkers,
+            'assigned_workers_count' => $assignedWorkers,
+            'completed_workers_count' => $completedWorkers,
             'remaining_tasks_count'=> $remainingTasks,
             'assigned_worker_id'   => $job->assigned_worker_id ? (int) $job->assigned_worker_id : null,
             'created_at'           => $job->created_at,
             'updated_at'           => $job->updated_at,
+        ];
+    }
+
+    /**
+     * Count worker capacity from assignment rows instead of total bids.
+     * Legacy jobs fall back to accepted bids and the old assigned-worker
+     * pointer while additive assignment storage is being rolled out.
+     *
+     * @return array{0:int,1:int,2:int,3:int}
+     */
+    private function workerSummary(Job $job, int $workerCount): array
+    {
+        $assignedWorkers = 0;
+        $completedWorkers = 0;
+        $assignments = JobAssignment::forJob((int) $job->id);
+        foreach ($assignments as $assignment) {
+            if ($assignment->status === JobAssignment::STATUS_CANCELLED
+                || $assignment->payment_status === JobAssignment::PAYMENT_REFUNDED) {
+                continue;
+            }
+            $assignedWorkers++;
+            if ($assignment->status === JobAssignment::STATUS_COMPLETED
+                && $assignment->payment_status === JobAssignment::PAYMENT_RELEASED) {
+                $completedWorkers++;
+            }
+        }
+
+        if ($assignedWorkers === 0) {
+            foreach (JobBid::forJob((int) $job->id) as $bid) {
+                if ($bid->status === JobBid::STATUS_ACCEPTED) $assignedWorkers++;
+            }
+            if ($assignedWorkers === 0
+                && (int) ($job->assigned_worker_id ?? 0) > 0
+                && in_array($job->status, [Job::STATUS_ASSIGNED, Job::STATUS_SUBMITTED, Job::STATUS_REVISION], true)) {
+                $assignedWorkers = 1;
+            }
+        }
+
+        $activeWorkers = max(0, $assignedWorkers - $completedWorkers);
+        return [
+            $assignedWorkers,
+            $activeWorkers,
+            $completedWorkers,
+            max(0, $workerCount - $assignedWorkers),
         ];
     }
 

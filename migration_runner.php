@@ -79,24 +79,45 @@ echo "Project root:  $projectRoot\n";
 echo "DB driver:     " . Database::getDriverName() . "\n";
 echo "Timestamp:     " . date('Y-m-d H:i:s T') . "\n\n";
 
-// Web calls remain a simple idempotent migration call. CLI callers may use
-// the maintenance actions explicitly.
+// Web calls remain a simple idempotent migration call. A read-only status
+// action is also available for deployment control-plane checks; CLI callers
+// may use the maintenance actions explicitly.
 $action = PHP_SAPI === 'cli'
     ? ($_GET['action'] ?? $_POST['action'] ?? 'migrate')
-    : 'migrate';
+    : (($_GET['action'] ?? '') === 'status' ? 'status' : 'migrate');
 
 if (PHP_SAPI === 'cli' && isset($_GET['rollback']) && $_GET['rollback'] === '1') {
     $action = 'rollback';
 }
 
 $migrationsDir = $projectRoot . '/database/migrations';
-$manager = new MigrationManager($migrationsDir);
+
+// GitHub and local FTP deployments can finish close together. Serialize the
+// runner on the same filesystem so two callers cannot inspect the same pending
+// list and apply a migration concurrently. The lock lives under storage,
+// which is already excluded from deployment mirrors and is writable by the
+// application on the supported hosting layout.
+$lockDirectory = $projectRoot . '/storage/framework';
+if (!is_dir($lockDirectory) && !@mkdir($lockDirectory, 0755, true) && !is_dir($lockDirectory)) {
+    http_response_code(500);
+    die("❌ Could not create the migration lock directory.\n");
+}
+$lockPath = $lockDirectory . '/migration_runner.lock';
+$lockHandle = @fopen($lockPath, 'c');
+if ($lockHandle === false || !flock($lockHandle, LOCK_EX)) {
+    if (is_resource($lockHandle)) fclose($lockHandle);
+    http_response_code(500);
+    die("❌ Could not acquire the migration lock.\n");
+}
 
 try {
+    // Status must not instantiate MigrationManager because its constructor
+    // creates the migrations table. It remains a genuinely read-only check.
+    $manager = $action === 'status' ? null : new MigrationManager($migrationsDir);
     switch ($action) {
         case 'migrate':
             echo "▶ Running migrations...\n\n";
-            $manager->migrate();
+            $manager?->migrate();
 
             if (PHP_SAPI === 'cli' && isset($_GET['seed_categories']) && $_GET['seed_categories'] === '1') {
                 echo "\n▶ Running SeedCategoriesFromDataCommand...\n\n";
@@ -124,7 +145,7 @@ try {
             break;
         case 'rollback':
             echo "◀ Rolling back last batch...\n\n";
-            $manager->rollback();
+            $manager?->rollback();
             break;
         case 'status':
             echo "ℹ Migration status:\n\n";
@@ -148,9 +169,11 @@ try {
             echo "\nPending: $pending\n";
             break;
         default:
-            die("❌ Unknown action: " . htmlspecialchars($action));
+            throw new \RuntimeException('Unknown action: ' . htmlspecialchars($action));
     }
 } catch (\Throwable $e) {
+    flock($lockHandle, LOCK_UN);
+    fclose($lockHandle);
     if (PHP_SAPI !== 'cli') {
         http_response_code(500);
     }
@@ -159,5 +182,8 @@ try {
     exit(1);
 }
 
+flock($lockHandle, LOCK_UN);
+fclose($lockHandle);
+
 echo "\n✅ Done.\n";
-echo "\nThe migration runner is idempotent and may be called again after future deployments.\n";
+echo "\nThe migration runner is idempotent and serialized against concurrent deployment calls.\n";

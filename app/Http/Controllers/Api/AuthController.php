@@ -285,6 +285,10 @@ class AuthController extends Controller
      */
     public function logout(Request $request): Response
     {
+        if ($guard = $this->authGuard($request, false)) {
+            return $guard;
+        }
+
         $session = $request->getMeta('auth.session');
         if ($session !== null) {
             $session->delete();
@@ -300,6 +304,10 @@ class AuthController extends Controller
      */
     public function me(Request $request): Response
     {
+        if ($guard = $this->authGuard($request)) {
+            return $guard;
+        }
+
         $user = $request->getMeta('auth.user');
         return Response::json([
             'success' => true,
@@ -321,6 +329,27 @@ class AuthController extends Controller
         $array['avatar_url']     = $user->getAvatarUrlAttribute();
         $array['is_admin']       = $user->isAdmin();
         return $array;
+    }
+
+    private function authGuard(Request $request, bool $rejectBanned = true): ?Response
+    {
+        $user = $request->getMeta('auth.user');
+        if ($user === null) {
+            return Response::json([
+                'success' => false,
+                'message' => 'Authentication required.',
+                'error'   => 'unauthorized',
+            ], 401);
+        }
+        if ($rejectBanned && method_exists($user, 'isBanned') && $user->isBanned()) {
+            return Response::json([
+                'success' => false,
+                'message' => 'This account is banned.',
+                'error'   => 'banned',
+            ], 403);
+        }
+
+        return null;
     }
 
     private function readJson(Request $request): array
@@ -469,13 +498,11 @@ class AuthController extends Controller
      */
     public function changePassword(Request $request): Response
     {
-        $user = $request->getMeta('auth.user');
-        if (!$user) {
-            return Response::json([
-                'success' => false,
-                'message' => 'Unauthorized.',
-            ], 401);
+        if ($guard = $this->authGuard($request)) {
+            return $guard;
         }
+
+        $user = $request->getMeta('auth.user');
 
         $data = $this->readJson($request);
 
