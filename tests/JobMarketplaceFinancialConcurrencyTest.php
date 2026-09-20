@@ -76,6 +76,7 @@ $assert = static function (bool $condition, string $message): void {
 };
 
 $env = array_merge($_ENV, [
+    'JOB_MARKETPLACE_TEST_DB' => $databasePath,
     'DB_DRIVER' => 'sqlite',
     'DB_DATABASE' => $databasePath,
     'NOTIFICATIONS_EMAIL_ENABLED' => '0',
