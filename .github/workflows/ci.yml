@@ -397,6 +397,8 @@ jobs:
                  --verbose \
                  --no-perms \
                  --ignore-time \
+                 --exclude-glob 'index.php' \
+                 --exclude-glob 'index.html' \
                  --exclude-glob 'storage/' \
                  ./deploy/public/ ./
           ls -l .user.ini
