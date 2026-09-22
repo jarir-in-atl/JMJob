@@ -33,8 +33,8 @@ export function DepositPage() {
             <div class="card card--deposit-balance">
                 <div class="deposit-balance__row">
                     <div>
-                        <div class="muted">${u?.role === 'poster' ? 'Available Poster Wallet' : 'Your Balance'}</div>
-                        <div class="deposit-balance__amount" id="deposit-balance">৳${u ? parseFloat(u.role === 'poster' ? (u.wallet_balance || 0) : (u.balance || 0)).toFixed(2) : '0.00'}</div>
+                        <div class="muted">${'Deposit Wallet (Poster Wallet)'}</div>
+                        <div class="deposit-balance__amount" id="deposit-balance">৳${u ? parseFloat(u.wallet_balance || 0).toFixed(2) : '0.00'}</div>
                     </div>
                     <div class="deposit-balance__hint">
                         <i class="bi bi-info-circle"></i>
@@ -132,7 +132,7 @@ export function DepositPage() {
                     await refreshUser();
                     const u2 = currentUser.get();
                     const balEl = document.getElementById('deposit-balance');
-                    if (balEl && u2) balEl.textContent = '৳' + parseFloat(u2.role === 'poster' ? (u2.wallet_balance || 0) : (u2.balance || 0)).toFixed(2);
+                    if (balEl && u2) balEl.textContent = '৳' + parseFloat(u2.wallet_balance || 0).toFixed(2);
                 } catch (err) {
                     showFlash(err.message || 'Failed to submit payment.', 'error');
                 } finally {

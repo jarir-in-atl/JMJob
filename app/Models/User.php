@@ -59,7 +59,7 @@ class User extends Model
 
     public function isPoster(): bool
     {
-        return !$this->isAdmin() && strtolower((string) ($this->role ?? '')) === 'poster';
+        return !$this->isAdmin();
     }
 
     /**

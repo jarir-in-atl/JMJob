@@ -146,7 +146,7 @@ class PaymentService
 
             // Deposits fund the role-specific available wallet. Workers use
             // `balance`; posters use `wallet_balance` for job escrow.
-            $isPoster = ($user->role ?? null) === 'poster';
+            $isPoster = true; // All deposits now go to wallet_balance for posting jobs
             $newBalance = round(((float) $user->balance) + ($isPoster ? 0 : $amount), 4);
             $newWallet = round(((float) ($user->wallet_balance ?? 0)) + ($isPoster ? $amount : 0), 4);
             Fluent::table('users')

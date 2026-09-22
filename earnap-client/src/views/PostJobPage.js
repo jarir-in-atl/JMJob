@@ -524,7 +524,7 @@ function toSqlDate(value) {
 
 function hasPosterAccess() {
     const user = currentUser.get();
-    return !!user && (user.is_admin || user.role === 'poster');
+    return !!user && (user.is_admin || true);
 }
 
 function escapeHtml(value) {
