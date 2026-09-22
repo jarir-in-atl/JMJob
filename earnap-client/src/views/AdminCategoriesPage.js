@@ -25,8 +25,8 @@ export function AdminCategoriesPage() {
             <p class="muted">Manage main categories, subcategories, and minimum cost limits.</p>
             
             <div class="tabs" style="display: flex; gap: 1rem; margin-bottom: 1rem;">
-                <button class="btn ${state.activeTab === 'categories' ? 'btn--primary' : 'btn--ghost'}" id="tab-cats-btn">Main Categories</button>
-                <button class="btn ${state.activeTab === 'subcategories' ? 'btn--primary' : 'btn--ghost'}" id="tab-subcats-btn">Subcategories</button>
+                <button class="btn ${_state.activeTab === 'categories' ? 'btn--primary' : 'btn--ghost'}" id="tab-cats-btn">Main Categories</button>
+                <button class="btn ${_state.activeTab === 'subcategories' ? 'btn--primary' : 'btn--ghost'}" id="tab-subcats-btn">Subcategories</button>
             </div>
 
             <div id="tab-content">

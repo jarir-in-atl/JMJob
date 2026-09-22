@@ -189,14 +189,14 @@ button { font-family: inherit; cursor: pointer; }
 .auth-card__referral { background: #ecfdf5; color: #065f46; padding: 8px 12px; border-radius: 8px; text-align: center; font-size: 13px; }
 .auth-card__alt { text-align: center; font-size: 13px; color: var(--muted); }
 .auth-card__demo { background: #f3f4f6; border-radius: 8px; padding: 12px; font-size: 11px; color: var(--muted); line-height: 1.7; }
-.auth-card__demo code { background: #fff; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+.auth-card__demo code { background: transparent; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
 .auth-form { display: flex; flex-direction: column; gap: 12px; }
 .auth-form__label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
 .auth-form__label input,
 .withdraw-form__label input,
 .withdraw-form__label select {
     padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
-    font-size: 14px; font-family: inherit; color: var(--text); background: #fff;
+    font-size: 14px; font-family: inherit; color: var(--text); background: transparent;
 }
 .auth-form__label input:focus,
 .withdraw-form__label input:focus,
