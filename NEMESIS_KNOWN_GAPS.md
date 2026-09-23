@@ -7,6 +7,8 @@
 > **Local clone:** `/tmp/nemesis-framework/`
 > **Last updated:** 2026-08-30
 
+
+
 ---
 
 ## 🔴 Critical (will cause runtime failures)
@@ -24,6 +26,8 @@
   - `src/Auth/Gate.php` (caller)
   - `src/Helpers/Helpers.php` (caller — `flash()`, `old()`, `getOldInput()`)
 - **Fix direction:** Add `all(): array`, `flash(string $key, $value): void`, `getOldInput(string $key, $default = null): mixed` to `Session`. Also add `pull($key, $default = null)`, `reflash()`, `keep($keys)`.
+
+
 
 ---
 
@@ -50,6 +54,8 @@
 - **Issue:** `$query->with(['comments', 'author'])` stores the relation names in an `$eagerLoad` array, but the array is **never read** during query execution. Each relation is still lazy-loaded via `__get`, triggering N+1 queries.
 - **Impact:** Developers expecting Eloquent-style eager loading will silently get N+1.
 - **Fix direction:** After fetching hydrated models, iterate `$eagerLoad` and call `$model->getRelationValue($name)` for each one. Cache the loaded relation in `$relations` as today. For `BelongsToMany`, do an IN-batch query keyed on the parent IDs.
+
+
 
 ---
 
@@ -97,6 +103,8 @@
 - **Issue:** The scaffolder emits `Fluent`-extending models and basic controllers. The shipped example code in `app/Models/Post.php` shows the *intended* AR style, but a `php nemesis make:model Post` doesn't produce that.
 - **Fix direction:** Rewrite the model stub to extend `Nemesis\Core\Model` with `$table` and `$fillable` properties. Update controller stub to extend `Nemesis\Core\Controller`.
 
+
+
 ---
 
 ## 🟢 Low (cosmetic / minor)
@@ -120,11 +128,15 @@
 - **Issue:** All ~75 commands live in a single `switch($argv[1])` block. Hard to maintain, no plugin command discovery, no help system beyond `--help` switch.
 - **Fix direction:** Refactor to a `Symfony\Console`-style command registry. `CommandInterface` already exists in `src/Contracts/`. Auto-discover commands in `app/Console/Commands/` and `plugins/*/commands/`.
 
+
+
 ---
 
 ## 📋 Summary table
 
 | # | Severity | Subsystem | One-line fix |
+
+
 |---|---|---|---|
 | 1 | 🔴 Critical | Session | Add `all()`, `flash()`, `getOldInput()` to `Session` |
 | 2 | 🟠 High | Security/Crypt | Switch to AEAD (AES-GCM or `sodium_crypto_secretbox`) |
@@ -138,6 +150,8 @@
 | 10 | 🟢 Low | Repo hygiene | Remove or document empty placeholder dirs |
 | 11 | 🟢 Low | Middleware | Don't double-register CSRF/Session globally + in `web` group |
 | 12 | 🟢 Low | CLI | Refactor `bin/nemesis` to command registry |
+
+
 
 ---
 

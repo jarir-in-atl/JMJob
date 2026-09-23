@@ -12,7 +12,7 @@ class VideoAd extends Model
     public const STATUS_PAUSED = 'paused';
 
     protected $fillable = [
-        'title', 'video_path', 'duration_seconds', 'status', 'reward_amount',
+        'title', 'video_path', 'video_url', 'duration_seconds', 'status', 'reward_amount',
         'starts_at', 'ends_at', 'daily_limit', 'total_limit', 'total_views',
         'completed_views', 'created_by',
     ];

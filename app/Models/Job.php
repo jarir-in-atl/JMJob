@@ -189,6 +189,38 @@ class Job extends Model
         return array_slice(array_values($jobs), 0, max(1, $limit));
     }
 
+    public static function activeForWorker(int $userId, int $limit = 100): array
+    {
+        $jobs = [];
+
+        foreach (static::assignedTo($userId, $limit) as $job) {
+            $job->worker_listing_state = "assigned";
+            $jobs[(int) $job->id] = $job;
+        }
+
+        try {
+            $rows = Fluent::table("jobs")
+                ->whereIn("status", self::OPEN_STATUSES)
+                ->orderBy("is_featured", "desc")
+                ->orderBy("updated_at", "desc")
+                ->limit(max(1, $limit * 2))
+                ->get()->all();
+            foreach ($rows as $row) {
+                if ((int) ($row["poster_id"] ?? 0) === $userId) continue;
+                $id = (int) $row["id"];
+                if (isset($jobs[$id])) continue;
+                $job = new self((array) $row);
+                $job->worker_listing_state = "available";
+                $jobs[$id] = $job;
+                if (count($jobs) >= max(1, $limit)) break;
+            }
+        } catch (\Throwable $e) {
+            // Assigned jobs remain available even while an older host is upgraded.
+        }
+
+        return array_slice(array_values($jobs), 0, max(1, $limit));
+    }
+
     public static function findBySlug(string $slug): ?self
     {
         $row = Fluent::table('jobs')->where('slug', '=', $slug)->first();

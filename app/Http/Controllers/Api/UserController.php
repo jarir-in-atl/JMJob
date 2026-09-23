@@ -289,6 +289,7 @@ class UserController extends Controller
         $array['can_withdraw']   = $user->canWithdraw();
         $array['avatar_url']     = $user->getAvatarUrlAttribute();
         $array['is_admin']       = $user->isAdmin();
+        $array["role"]           = $user->isAdmin() ? "admin" : (strtolower(trim((string) ($user->role ?? "worker"))) ?: "worker");
         return $array;
     }
 

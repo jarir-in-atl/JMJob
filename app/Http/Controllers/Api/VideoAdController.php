@@ -160,7 +160,7 @@ class VideoAdController extends Controller
                 'data' => [
                     'view_id' => $viewId,
                     'video_ad_id' => (int) $lockedAd->id,
-                    'stream_url' => '/api/ads/videos/' . (int) $lockedAd->id . '/stream',
+                    'stream_url' => (string) ($lockedAd->video_url ?: ('/api/ads/videos/' . (int) $lockedAd->id . '/stream')),
                     'started_at' => $now,
                     'started_at_unix' => time(),
                     'duration_seconds' => (int) $lockedAd->duration_seconds,
@@ -312,6 +312,7 @@ class VideoAdController extends Controller
             return Response::json(['success' => false, 'message' => 'Video ad not found or inactive.'], 404);
         }
 
+        if (!empty($ad->video_url)) return Response::redirect((string) $ad->video_url);
         $relative = (string) ($ad->video_path ?? '');
         if (!str_starts_with($relative, 'video-ads/') || str_contains($relative, '..')) {
             return Response::json(['success' => false, 'message' => 'Invalid video path.'], 404);

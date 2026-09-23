@@ -64,7 +64,7 @@ function renderJob(job) {
         metricsHtml = `
             <div class="poster-job-row__metrics" style="display: flex; gap: 16px; margin: 10px 0; background: rgba(0,0,0,0.03); padding: 10px 14px; border-radius: 6px; font-size: 13px;">
                 <div><i class="bi bi-clock-history"></i> <strong>Days Remaining:</strong> <span style="color:#d97706;">${escapeHtml(job.days_remaining || 'N/A')}</span></div>
-                <div><i class="bi bi-people"></i> <strong>Active Workers:</strong> ${Number(job.active_workers_count || 0)} / ${Number(job.worker_count || 1)} working</div>
+                <div><i class="bi bi-people"></i> <strong>Workers:</strong> ${Number(job.in_progress_workers || 0)} working / ${Number(job.pending_review_workers || 0)} review / ${Number(job.revision_workers || 0)} revision / ${Number(job.rejected_workers || 0)} rejected / ${Number(job.completed_workers_count || 0)} completed</div>
                 <div><i class="bi bi-check2-square"></i> <strong>Tasks Remaining:</strong> ${Number(job.remaining_tasks_count || 0)} slots left</div>
             </div>
         `;
@@ -115,7 +115,7 @@ async function cancelJob(id) {
 
 function hasPosterAccess() {
     const user = currentUser.get();
-    return !!user && (user.is_admin || true);
+    return !!user && (user.is_admin || user.role === 'poster');
 }
 function label(value) { return String(value || '').replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()); }
 function formatDate(value) { if (!value) return 'unknown'; const date = new Date(String(value).replace(' ', 'T') + 'Z'); return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString(); }

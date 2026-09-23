@@ -123,7 +123,7 @@ function renderJob(job) {
         metricsHtml = `
             <div class="admin-job-row__metrics" style="display: flex; gap: 16px; margin: 10px 0; background: rgba(0,0,0,0.03); padding: 10px 14px; border-radius: 6px; font-size: 13px;">
                 <div><i class="bi bi-clock-history"></i> <strong>Days Remaining:</strong> <span style="color:#d97706;">${escapeHtml(job.days_remaining || 'N/A')}</span></div>
-                <div><i class="bi bi-people"></i> <strong>Workers:</strong> ${Number(job.completed_workers || 0)} completed / ${Number(job.pending_workers || 0)} pending / ${Number(job.rejected_workers || 0)} rejected</div>
+                <div><i class="bi bi-people"></i> <strong>Workers:</strong> ${Number(job.in_progress_workers || 0)} working / ${Number(job.pending_review_workers || 0)} review / ${Number(job.revision_workers || 0)} revision / ${Number(job.rejected_workers || 0)} rejected / ${Number(job.completed_workers || 0)} completed</div>
                 <div><i class="bi bi-hourglass-split"></i> <strong>Unassigned:</strong> ${Number(job.remaining_workers ?? job.remaining_tasks_count ?? 0)} slots</div>
                 <div><i class="bi bi-cash-stack"></i> <strong>Paid:</strong> ${escapeHtml(job.currency || 'BDT')} ${Number(job.completed_amount || 0).toFixed(2)} / <strong>Remaining:</strong> ${Number(job.remaining_amount || 0).toFixed(2)}</div>
             </div>

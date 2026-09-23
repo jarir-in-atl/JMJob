@@ -17,6 +17,8 @@ the framework audit. Recommended update for everyone on 7.1.0.
 > data using the new `Crypt::encrypt()` output before upgrading.
 
 ### Bug Fixes
+- **Routing:** Fixed an issue in `src/Router/Router.php` where duplicate routes were appended instead of replacing existing ones. Previously, the stale cached route would win because dispatch used the first matching route. This has been resolved.
+
 
 | # | Subsystem | Fix |
 |---|---|---|
@@ -133,6 +135,8 @@ The `php nemesis env:doctor` health check tests the actual configured driver (SQ
 ---
 
 ### Bug Fixes
+- **Routing:** Fixed an issue in `src/Router/Router.php` where duplicate routes were appended instead of replacing existing ones. Previously, the stale cached route would win because dispatch used the first matching route. This has been resolved.
+
 
 | Location | Fix |
 |---|---|

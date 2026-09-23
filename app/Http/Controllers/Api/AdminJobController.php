@@ -495,17 +495,38 @@ class AdminJobController extends Controller
 
     private function progress(Job $job, array $assignments): array
     {
-        $completed = 0; $pending = 0; $rejected = 0; $completedAmount = 0.0; $pendingAmount = 0.0;
+        $assigned = 0; $active = 0; $inProgress = 0; $pendingReview = 0;
+        $revision = 0; $cancelled = 0; $completed = 0; $rejected = 0;
+        $completedAmount = 0.0; $pendingAmount = 0.0;
+
         foreach ($assignments as $assignment) {
-            if ($assignment['payment_status'] === JobAssignment::PAYMENT_RELEASED && $assignment['status'] === JobAssignment::STATUS_COMPLETED) {
-                $completed++;
-                $completedAmount += $assignment['payment_amount'];
-            } elseif ($assignment['status'] !== JobAssignment::STATUS_CANCELLED && $assignment['payment_status'] !== JobAssignment::PAYMENT_REFUNDED) {
-                $pending++;
-                $pendingAmount += $assignment['payment_amount'];
+            $status = (string) ($assignment["status"] ?? "");
+            $paymentStatus = (string) ($assignment["payment_status"] ?? "");
+            $submissionStatus = (string) ($assignment["latest_submission_status"] ?? "");
+            $amount = (float) ($assignment["payment_amount"] ?? 0);
+            if ($status === JobAssignment::STATUS_CANCELLED || $paymentStatus === JobAssignment::PAYMENT_REFUNDED) {
+                $cancelled++;
+                continue;
             }
-            if ($assignment['latest_submission_status'] === JobSubmission::STATUS_REJECTED) $rejected++;
+            $assigned++;
+            if ($paymentStatus === JobAssignment::PAYMENT_RELEASED && $status === JobAssignment::STATUS_COMPLETED) {
+                $completed++;
+                $completedAmount += $amount;
+                continue;
+            }
+            $active++;
+            $pendingAmount += $amount;
+            if ($submissionStatus === JobSubmission::STATUS_PENDING_REVIEW || $status === JobAssignment::STATUS_SUBMITTED) {
+                $pendingReview++;
+            } elseif ($submissionStatus === JobSubmission::STATUS_REVISION || $status === JobAssignment::STATUS_REVISION) {
+                $revision++;
+            } elseif ($submissionStatus === JobSubmission::STATUS_REJECTED) {
+                $rejected++;
+            } else {
+                $inProgress++;
+            }
         }
+
         $total = (int) ($job->worker_count ?: 1);
         // Assignment amounts represent worker compensation. Keep the
         // platform fee visible separately so a completed job does not appear
@@ -513,16 +534,22 @@ class AdminJobController extends Controller
         $workerBudget = (float) ($job->budget ?: $job->total_payable_amount);
         $totalPayable = (float) ($job->total_payable_amount ?: $job->budget);
         return [
-            'total_workers' => $total,
-            'completed_workers' => $completed,
-            'pending_workers' => $pending,
-            'rejected_workers' => $rejected,
-            'remaining_workers' => max(0, $total - $completed - $pending),
-            'total_amount' => $workerBudget,
-            'total_payable_amount' => $totalPayable,
-            'completed_amount' => round($completedAmount, 4),
-            'pending_amount' => round($pendingAmount, 4),
-            'remaining_amount' => max(0, round($workerBudget - $completedAmount - $pendingAmount, 4)),
+            "total_workers" => $total,
+            "assigned_workers" => $assigned,
+            "in_progress_workers" => $inProgress,
+            "active_workers_count" => $active,
+            "pending_review_workers" => $pendingReview,
+            "revision_workers" => $revision,
+            "cancelled_workers" => $cancelled,
+            "completed_workers" => $completed,
+            "pending_workers" => $pendingReview,
+            "rejected_workers" => $rejected,
+            "remaining_workers" => max(0, $total - $assigned),
+            "total_amount" => $workerBudget,
+            "total_payable_amount" => $totalPayable,
+            "completed_amount" => round($completedAmount, 4),
+            "pending_amount" => round($pendingAmount, 4),
+            "remaining_amount" => max(0, round($workerBudget - $completedAmount - $pendingAmount, 4)),
         ];
     }
 

@@ -219,7 +219,7 @@ class PosterController extends Controller
         $now = time();
         $workerCount = (int) ($job->worker_count ?: 1);
         $bidCount    = (int) ($job->bid_count ?: 0);
-        [$assignedWorkers, $activeWorkers, $completedWorkers, $remainingTasks] = $this->workerSummary($job, $workerCount);
+        [$assignedWorkers, $activeWorkers, $completedWorkers, $remainingTasks, $inProgressWorkers, $pendingReviewWorkers, $revisionWorkers, $rejectedWorkers, $cancelledWorkers] = $this->workerSummary($job, $workerCount);
 
         $deadlineStr = $job->deadline_at ?: $job->bidding_closes_at;
         $daysRemaining = 'No deadline';
@@ -259,7 +259,12 @@ class PosterController extends Controller
             'days_remaining'       => $daysRemaining,
             'active_workers_count' => $activeWorkers,
             'assigned_workers_count' => $assignedWorkers,
+            'in_progress_workers' => $inProgressWorkers,
             'completed_workers_count' => $completedWorkers,
+            'pending_review_workers' => $pendingReviewWorkers,
+            'revision_workers' => $revisionWorkers,
+            'rejected_workers' => $rejectedWorkers,
+            'cancelled_workers' => $cancelledWorkers,
             'remaining_tasks_count'=> $remainingTasks,
             'assigned_worker_id'   => $job->assigned_worker_id ? (int) $job->assigned_worker_id : null,
             'created_at'           => $job->created_at,
@@ -276,18 +281,34 @@ class PosterController extends Controller
      */
     private function workerSummary(Job $job, int $workerCount): array
     {
-        $assignedWorkers = 0;
-        $completedWorkers = 0;
+        $assignedWorkers = 0; $completedWorkers = 0; $activeWorkers = 0;
+        $inProgressWorkers = 0; $pendingReviewWorkers = 0; $revisionWorkers = 0;
+        $rejectedWorkers = 0; $cancelledWorkers = 0;
         $assignments = JobAssignment::forJob((int) $job->id);
+
         foreach ($assignments as $assignment) {
-            if ($assignment->status === JobAssignment::STATUS_CANCELLED
-                || $assignment->payment_status === JobAssignment::PAYMENT_REFUNDED) {
+            $status = (string) ($assignment->status ?? "");
+            $paymentStatus = (string) ($assignment->payment_status ?? "");
+            $submission = JobSubmission::latestForAssignment((int) $assignment->id);
+            $submissionStatus = (string) ($submission?->status ?? "");
+            if ($status === JobAssignment::STATUS_CANCELLED || $paymentStatus === JobAssignment::PAYMENT_REFUNDED) {
+                $cancelledWorkers++;
                 continue;
             }
             $assignedWorkers++;
-            if ($assignment->status === JobAssignment::STATUS_COMPLETED
-                && $assignment->payment_status === JobAssignment::PAYMENT_RELEASED) {
+            if ($status === JobAssignment::STATUS_COMPLETED && $paymentStatus === JobAssignment::PAYMENT_RELEASED) {
                 $completedWorkers++;
+                continue;
+            }
+            $activeWorkers++;
+            if ($submissionStatus === JobSubmission::STATUS_PENDING_REVIEW || $status === JobAssignment::STATUS_SUBMITTED) {
+                $pendingReviewWorkers++;
+            } elseif ($submissionStatus === JobSubmission::STATUS_REVISION || $status === JobAssignment::STATUS_REVISION) {
+                $revisionWorkers++;
+            } elseif ($submissionStatus === JobSubmission::STATUS_REJECTED) {
+                $rejectedWorkers++;
+            } else {
+                $inProgressWorkers++;
             }
         }
 
@@ -300,14 +321,20 @@ class PosterController extends Controller
                 && in_array($job->status, [Job::STATUS_ASSIGNED, Job::STATUS_SUBMITTED, Job::STATUS_REVISION], true)) {
                 $assignedWorkers = 1;
             }
+            $activeWorkers = max(0, $assignedWorkers - $completedWorkers);
+            $inProgressWorkers = $activeWorkers;
         }
 
-        $activeWorkers = max(0, $assignedWorkers - $completedWorkers);
         return [
             $assignedWorkers,
             $activeWorkers,
             $completedWorkers,
             max(0, $workerCount - $assignedWorkers),
+            $inProgressWorkers,
+            $pendingReviewWorkers,
+            $revisionWorkers,
+            $rejectedWorkers,
+            $cancelledWorkers,
         ];
     }
 

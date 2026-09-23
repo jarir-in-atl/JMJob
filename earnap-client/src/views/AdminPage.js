@@ -397,7 +397,7 @@ async function renderVideoAds(content) {
             <h3 class="card__title">Add sponsored video</h3>
             <div class="admin-row__form">
                 <label>Title <input name="title" required maxlength="160"></label>
-                <label>Video <input name="video" type="file" accept="video/*" required></label>
+                <label>Video file (optional if URL is provided) <input name="video" type="file" accept="video/*"></label><label>HTTPS video URL (optional if file is provided) <input name="video_url" type="url" placeholder="https://cdn.example.com/ad.mp4"></label>
                 <label>Duration (seconds) <input name="duration_seconds" type="number" min="1" value="10" required></label>
                 <label>Reward <input name="reward_amount" type="number" min="0" step="0.0001" value="0.005" required></label>
                 <label>Daily limit (0 = unlimited) <input name="daily_limit" type="number" min="0" value="0"></label>

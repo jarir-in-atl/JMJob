@@ -31,17 +31,20 @@ class AdminVideoAdController extends Controller
         $error = $this->validateFields($body, true, $file);
         if ($error !== null) return Response::json(['success' => false, 'message' => $error], 422);
 
-        $upload = FileValidator::video($file, base_path('storage/video-ads'), (int) $admin->id, 500, 'video');
-        if ($upload->failed()) return Response::json(['success' => false, 'message' => $upload->error ?: 'Video upload failed.'], 422);
-        $path = 'video-ads/' . basename((string) $upload->path);
+        $path = null;
+        if ($file !== null) {
+            $upload = FileValidator::video($file, base_path("storage/video-ads"), (int) $admin->id, 500, "video");
+            if ($upload->failed()) return Response::json(["success" => false, "message" => $upload->error ?: "Video upload failed."], 422);
+            $path = "video-ads/" . basename((string) $upload->path);
+        }
 
         try {
-            $id = (int) Fluent::table('video_ads')->insert($this->fields($body, $path, (int) $admin->id));
+            $id = (int) Fluent::table("video_ads")->insert($this->fields($body, $path, (int) $admin->id));
         } catch (\Throwable $e) {
-            $this->deleteStoredFile($path);
-            return Response::json(['success' => false, 'message' => 'Video ad could not be created.'], 500);
+            if ($path !== null) $this->deleteStoredFile($path);
+            return Response::json(["success" => false, "message" => "Video ad could not be created."], 500);
         }
-        $this->audit($admin, 'video_ad.create', $id, ['title' => (string) ($body['title'] ?? '')]);
+        $this->audit($admin, "video_ad.create", $id, ["title" => (string) ($body["title"] ?? "")]);
 
         return Response::json(['success' => true, 'message' => 'Video ad created.', 'data' => $this->findSerialized($id)], 201);
     }
@@ -72,9 +75,9 @@ class AdminVideoAdController extends Controller
             Fluent::table('video_ads')->where('id', '=', $id)->update($fields + ['updated_at' => date('Y-m-d H:i:s')]);
         } catch (\Throwable $e) {
             if ($newPath !== null) $this->deleteStoredFile($newPath);
-            return Response::json(['success' => false, 'message' => 'Video ad could not be updated.'], 500);
+            return Response::json(["success" => false, "message" => "Video ad could not be updated."], 500);
         }
-        if ($newPath !== null && !empty($ad->video_path)) $this->deleteStoredFile((string) $ad->video_path);
+        if (($newPath !== null || (array_key_exists("video_url", $body) && trim((string) ($body["video_url"] ?? "")) !== "")) && !empty($ad->video_path)) $this->deleteStoredFile((string) $ad->video_path);
         $this->audit($request->getMeta('auth.user'), 'video_ad.update', $id, ['fields' => array_keys($fields)]);
         return Response::json(['success' => true, 'message' => 'Video ad updated.', 'data' => $this->findSerialized($id)]);
     }
@@ -92,19 +95,27 @@ class AdminVideoAdController extends Controller
 
     private function validateFields(array $body, bool $requiresFile, mixed $file): ?string
     {
-        $title = trim((string) ($body['title'] ?? ''));
-        if ($requiresFile && $file === null) return 'A video file is required.';
-        if (($requiresFile || array_key_exists('title', $body)) && ($title === '' || strlen($title) > 160)) {
-            return 'title is required and must be 160 characters or fewer.';
+        $title = trim((string) ($body["title"] ?? ""));
+        $videoUrl = trim((string) ($body["video_url"] ?? ""));
+        if ($requiresFile && $file === null && $videoUrl === "") return "A video file or HTTPS video URL is required.";
+        if ($file !== null && $videoUrl !== "") return "Provide either a video file or a video URL, not both.";
+        if (($requiresFile || array_key_exists("title", $body)) && ($title === "" || strlen($title) > 160)) {
+            return "title is required and must be 160 characters or fewer.";
         }
-        if (isset($body['duration_seconds']) && ((int) $body['duration_seconds'] < 1 || (int) $body['duration_seconds'] > 86400)) return 'duration_seconds must be between 1 and 86400.';
-        if (isset($body['reward_amount']) && ((float) $body['reward_amount'] < 0 || (float) $body['reward_amount'] > 1000000)) return 'reward_amount is invalid.';
-        foreach (['daily_limit', 'total_limit'] as $key) {
-            if (isset($body[$key]) && (int) $body[$key] < 0) return $key . ' cannot be negative.';
+        if ($videoUrl !== "") {
+            $parts = parse_url($videoUrl);
+            if (!is_array($parts) || strtolower((string) ($parts["scheme"] ?? "")) !== "https" || empty($parts["host"]) || isset($parts["user"]) || isset($parts["pass"]) || strlen($videoUrl) > 1000) {
+                return "video_url must be a valid HTTPS URL without embedded credentials and be 1000 characters or fewer.";
+            }
         }
-        if (isset($body['status']) && !in_array((string) $body['status'], [VideoAd::STATUS_ACTIVE, VideoAd::STATUS_PAUSED], true)) return 'status must be active or paused.';
-        foreach (['starts_at', 'ends_at'] as $key) {
-            if (isset($body[$key]) && trim((string) $body[$key]) !== '' && strtotime((string) $body[$key]) === false) return $key . ' is invalid.';
+        if (isset($body["duration_seconds"]) && ((int) $body["duration_seconds"] < 1 || (int) $body["duration_seconds"] > 86400)) return "duration_seconds must be between 1 and 86400.";
+        if (isset($body["reward_amount"]) && ((float) $body["reward_amount"] < 0 || (float) $body["reward_amount"] > 1000000)) return "reward_amount is invalid.";
+        foreach (["daily_limit", "total_limit"] as $key) {
+            if (isset($body[$key]) && (int) $body[$key] < 0) return $key . " cannot be negative.";
+        }
+        if (isset($body["status"]) && !in_array((string) $body["status"], [VideoAd::STATUS_ACTIVE, VideoAd::STATUS_PAUSED], true)) return "status must be active or paused.";
+        foreach (["starts_at", "ends_at"] as $key) {
+            if (isset($body[$key]) && trim((string) $body[$key]) !== "" && strtotime((string) $body[$key]) === false) return $key . " is invalid.";
         }
         return null;
     }
@@ -112,19 +123,29 @@ class AdminVideoAdController extends Controller
     private function fields(array $body, ?string $path, ?int $adminId, bool $create = true): array
     {
         $fields = [];
-        foreach (['title', 'status'] as $key) {
-            if ($create || array_key_exists($key, $body)) $fields[$key] = trim((string) ($body[$key] ?? ($key === 'status' ? VideoAd::STATUS_ACTIVE : '')));
+        foreach (["title", "status"] as $key) {
+            if ($create || array_key_exists($key, $body)) $fields[$key] = trim((string) ($body[$key] ?? ($key === "status" ? VideoAd::STATUS_ACTIVE : "")));
         }
-        foreach (['duration_seconds', 'daily_limit', 'total_limit'] as $key) {
-            if ($create || array_key_exists($key, $body)) $fields[$key] = (int) ($body[$key] ?? ($key === 'duration_seconds' ? 10 : 0));
+        foreach (["duration_seconds", "daily_limit", "total_limit"] as $key) {
+            if ($create || array_key_exists($key, $body)) $fields[$key] = (int) ($body[$key] ?? ($key === "duration_seconds" ? 10 : 0));
         }
-        if ($create || array_key_exists('reward_amount', $body)) $fields['reward_amount'] = (float) ($body['reward_amount'] ?? 0);
-        foreach (['starts_at', 'ends_at'] as $key) {
+        if ($create || array_key_exists("reward_amount", $body)) $fields["reward_amount"] = (float) ($body["reward_amount"] ?? 0);
+        foreach (["starts_at", "ends_at"] as $key) {
             if ($create || array_key_exists($key, $body)) $fields[$key] = $this->dateValue($body[$key] ?? null);
         }
-        if ($path !== null) $fields['video_path'] = $path;
-        if ($create && $adminId !== null) $fields['created_by'] = $adminId;
-        if ($create) $fields['created_at'] = date('Y-m-d H:i:s');
+        $videoUrl = trim((string) ($body["video_url"] ?? ""));
+        if ($create) {
+            $fields["video_path"] = $path ?? "external";
+            $fields["video_url"] = $videoUrl !== "" ? $videoUrl : null;
+        } elseif ($path !== null) {
+            $fields["video_path"] = $path;
+            $fields["video_url"] = null;
+        } elseif (array_key_exists("video_url", $body)) {
+            $fields["video_url"] = $videoUrl !== "" ? $videoUrl : null;
+            if ($videoUrl !== "") $fields["video_path"] = "external";
+        }
+        if ($create && $adminId !== null) $fields["created_by"] = $adminId;
+        if ($create) $fields["created_at"] = date("Y-m-d H:i:s");
         return $fields;
     }
 
@@ -147,6 +168,7 @@ class AdminVideoAdController extends Controller
             'id' => (int) $get('id', 0),
             'title' => (string) $get('title', ''),
             'video_path' => (string) $get('video_path', ''),
+            'video_url' => (string) $get("video_url", ""),
             'stream_url' => '/api/ads/videos/' . (int) $get('id', 0) . '/stream',
             'duration_seconds' => (int) $get('duration_seconds', 0),
             'status' => (string) $get('status', VideoAd::STATUS_PAUSED),

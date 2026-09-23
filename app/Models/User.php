@@ -59,28 +59,28 @@ class User extends Model
 
     public function isPoster(): bool
     {
-        return !$this->isAdmin();
+        if ($this->isAdmin()) return false;
+        $role = strtolower(trim((string) ($this->role ?? "worker")));
+        return $role === "poster";
     }
 
     /**
-     * Worker accounts are the only accounts allowed to bid, apply, submit,
-     * and manage their own marketplace assignments. An empty role is treated
-     * as the historical worker default for older records.
+     * Worker-capable accounts are allowed to bid, apply, submit, and manage
+     * their own marketplace assignments. An empty role is treated as the
+     * historical worker default for older records.
      */
     public function isWorker(): bool
     {
-        if ($this->isAdmin() || $this->isPoster()) {
-            return false;
-        }
-
-        $role = strtolower(trim((string) ($this->role ?? '')));
-        return $role === '' || $role === 'worker';
+        if ($this->isAdmin()) return false;
+        $role = strtolower(trim((string) ($this->role ?? "worker")));
+        return in_array($role, ["", "worker"], true);
     }
 
     public function isBanned(): bool
     {
         return (bool) ($this->is_banned ?? 0);
     }
+
 
     public function adsRemainingToday(): int
     {

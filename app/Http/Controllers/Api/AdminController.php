@@ -641,8 +641,13 @@ class AdminController extends Controller
                 'decline_reason'       => $row['decline_reason'],
                 'days_remaining'       => $daysRemaining,
                 'active_workers_count' => $progress['active_workers_count'],
+                'assigned_workers_count' => $progress['assigned_workers_count'],
                 'completed_workers'    => $progress['completed_workers'],
+                'in_progress_workers'   => $progress['in_progress_workers'],
                 'pending_workers'      => $progress['pending_workers'],
+                'pending_review_workers' => $progress['pending_review_workers'],
+                'revision_workers'      => $progress['revision_workers'],
+                'cancelled_workers'    => $progress['cancelled_workers'],
                 'rejected_workers'     => $progress['rejected_workers'],
                 'remaining_workers'    => $progress['remaining_workers'],
                 'remaining_tasks_count'=> $progress['remaining_workers'],
@@ -672,59 +677,74 @@ class AdminController extends Controller
     {
         if (!$assignmentsAvailable) {
             return [
-                'active_workers_count' => $bidCount,
-                'completed_workers'    => 0,
-                'pending_workers'      => $bidCount,
-                'rejected_workers'     => 0,
-                'remaining_workers'    => max(0, $workerCount - $bidCount),
-                'completed_amount'     => 0.0,
-                'pending_amount'       => 0.0,
-                'remaining_amount'     => 0.0,
+                "active_workers_count" => $bidCount,
+                "assigned_workers_count" => $bidCount,
+                "in_progress_workers" => $bidCount,
+                "pending_review_workers" => 0,
+                "revision_workers" => 0,
+                "cancelled_workers" => 0,
+                "completed_workers" => 0,
+                "pending_workers" => 0,
+                "rejected_workers" => 0,
+                "remaining_workers" => max(0, $workerCount - $bidCount),
+                "completed_amount" => 0.0,
+                "pending_amount" => 0.0,
+                "remaining_amount" => 0.0,
             ];
         }
 
         $assignments = JobAssignment::forJob($jobId);
-        $active = 0;
-        $completed = 0;
-        $pending = 0;
-        $rejected = 0;
-        $completedAmount = 0.0;
-        $pendingAmount = 0.0;
-        $remainingAmount = 0.0;
+        $assigned = 0; $active = 0; $inProgress = 0; $pendingReview = 0;
+        $revision = 0; $cancelled = 0; $completed = 0; $rejected = 0;
+        $completedAmount = 0.0; $pendingAmount = 0.0; $remainingAmount = 0.0;
 
         foreach ($assignments as $assignment) {
+            $status = (string) ($assignment->status ?? "");
+            $paymentStatus = (string) ($assignment->payment_status ?? "");
             $latestSubmission = JobSubmission::latestForAssignment((int) $assignment->id);
-            if ($latestSubmission?->isRejected()) $rejected++;
+            $submissionStatus = (string) ($latestSubmission?->status ?? "");
 
-            if ($assignment->status === JobAssignment::STATUS_COMPLETED
-                && $assignment->payment_status === JobAssignment::PAYMENT_RELEASED) {
-                $completed++;
-                $completedAmount += (float) ($assignment->payment_amount ?? 0);
+            if ($status === JobAssignment::STATUS_CANCELLED || $paymentStatus === JobAssignment::PAYMENT_REFUNDED) {
+                $cancelled++;
                 continue;
             }
-            if ($assignment->status === JobAssignment::STATUS_CANCELLED
-                || $assignment->payment_status === JobAssignment::PAYMENT_REFUNDED) {
+
+            $assigned++;
+            $amount = (float) ($assignment->payment_amount ?? 0);
+            if ($status === JobAssignment::STATUS_COMPLETED && $paymentStatus === JobAssignment::PAYMENT_RELEASED) {
+                $completed++;
+                $completedAmount += $amount;
                 continue;
             }
 
             $active++;
-            $pending++;
-            $amount = (float) ($assignment->payment_amount ?? 0);
             $pendingAmount += $amount;
-            if ($assignment->payment_status === JobAssignment::PAYMENT_HELD) {
-                $remainingAmount += $amount;
+            if ($paymentStatus === JobAssignment::PAYMENT_HELD) $remainingAmount += $amount;
+            if ($submissionStatus === JobSubmission::STATUS_PENDING_REVIEW || $status === JobAssignment::STATUS_SUBMITTED) {
+                $pendingReview++;
+            } elseif ($submissionStatus === JobSubmission::STATUS_REVISION || $status === JobAssignment::STATUS_REVISION) {
+                $revision++;
+            } elseif ($submissionStatus === JobSubmission::STATUS_REJECTED) {
+                $rejected++;
+            } else {
+                $inProgress++;
             }
         }
 
         return [
-            'active_workers_count' => $active,
-            'completed_workers'    => $completed,
-            'pending_workers'      => $pending,
-            'rejected_workers'     => $rejected,
-            'remaining_workers'    => max(0, $workerCount - $completed - $active),
-            'completed_amount'     => round($completedAmount, 4),
-            'pending_amount'       => round($pendingAmount, 4),
-            'remaining_amount'     => round($remainingAmount, 4),
+            "active_workers_count" => $active,
+            "assigned_workers_count" => $assigned,
+            "in_progress_workers" => $inProgress,
+            "pending_review_workers" => $pendingReview,
+            "revision_workers" => $revision,
+            "cancelled_workers" => $cancelled,
+            "completed_workers" => $completed,
+            "pending_workers" => $pendingReview,
+            "rejected_workers" => $rejected,
+            "remaining_workers" => max(0, $workerCount - $assigned),
+            "completed_amount" => round($completedAmount, 4),
+            "pending_amount" => round($pendingAmount, 4),
+            "remaining_amount" => round($remainingAmount, 4),
         ];
     }
 

@@ -182,7 +182,7 @@ class JobController extends Controller
     {
         if ($guard = $this->workerGuard($request)) return $guard;
         $user = $request->getMeta('auth.user');
-        $jobs = Job::assignedTo((int) $user->id, 100);
+        $jobs = Job::activeForWorker((int) $user->id, 100);
         return Response::json(['success' => true, 'data' => array_map(fn($j) => $this->serializeJob($j, true), $jobs)]);
     }
 
@@ -417,6 +417,7 @@ class JobController extends Controller
             'category_id'     => (int) $j->category_id,
             'category'        => $category ? ['id' => (int) $category->id, 'name' => $category->name, 'icon_class' => $category->icon_class] : null,
             'status'          => $j->status,
+            'worker_state'    => $j->worker_listing_state ?? null,
             'bid_count'       => (int) $j->bid_count,
             'view_count'      => (int) $j->view_count,
             'is_featured'     => (bool) $j->is_featured,

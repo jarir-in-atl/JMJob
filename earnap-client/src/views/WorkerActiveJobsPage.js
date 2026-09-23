@@ -13,7 +13,7 @@ export function WorkerActiveJobsPage() {
 
         root.innerHTML = `
             <h1 class="page-title">Active Jobs</h1>
-            <p class="muted">Jobs you've been assigned. Submit your work when done.</p>
+            <p class="muted">Activated jobs available to apply for; assigned jobs include the Submit Work form.</p>
             <div class="card" id="active-jobs-list"><div class="spinner"></div></div>
         `;
 
@@ -36,7 +36,7 @@ function render() {
     const list = document.getElementById('active-jobs-list');
     if (!list) return;
     if (_state.jobs.length === 0) {
-        list.innerHTML = `<p class="muted">No active jobs. Once a poster accepts your bid, it'll appear here.</p>`;
+        list.innerHTML = '<p class="muted">No activated or assigned jobs are available right now. New jobs appear here after admin activation.</p>';
         return;
     }
 
@@ -44,7 +44,7 @@ function render() {
        const mySub = j.assignment_id
            ? _state.submissions.find(s => Number(s.assignment_id) === Number(j.assignment_id))
            : _state.submissions.find(s => s.job_id === j.id);
-       const status = j.assignment_status || j.status; // assignment state when available
+       const status = j.worker_state === 'available' ? 'available' : (j.assignment_status || j.status);
        const needsResubmission = status === 'revision' || ['revision', 'rejected'].includes(mySub?.status);
         const summary = String(j.description || '').trim();
         const remainingSlots = Number(j.remaining_workers ?? j.remaining_tasks_count ?? 0);
@@ -84,6 +84,7 @@ function renderExistingSubmission(job, sub) {
 }
 
 function renderSubmitForm(job, existingSubmission = null) {
+    if (!job.assignment_id && !job.assigned_worker_id) return '<div class="active-job-card__available"><strong>AVAILABLE TO APPLY</strong><p>Open job details to place your bid. Submit Work appears after assignment.</p></div>';
     const requiresScreenshot = Array.isArray(job.proof_requirements)
         && job.proof_requirements.some(requirement => requirement && requirement.type === 'screenshot');
     return `

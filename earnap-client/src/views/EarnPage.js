@@ -87,10 +87,15 @@ async function openVideoAdModal(ad) {
     const countdown = modal.querySelector('#video-ad-countdown');
     let claimed = false;
     try {
-        const res = await fetch(session.stream_url, { headers: { Authorization: `Bearer ${getAuthToken()}` } });
-        if (!res.ok) throw new Error('Video could not be loaded.');
-        player.src = URL.createObjectURL(await res.blob());
-        await player.play().catch(() => {});
+        if (String(session.stream_url || "").startsWith("https://")) {
+            player.src = session.stream_url;
+            await player.play().catch(() => {});
+        } else {
+            const res = await fetch(session.stream_url, { headers: { Authorization: "Bearer " + getAuthToken() } });
+            if (!res.ok) throw new Error("Video could not be loaded.");
+            player.src = URL.createObjectURL(await res.blob());
+            await player.play().catch(() => {});
+        }
     } catch (e) {
         countdown.textContent = e.message || 'Video could not be loaded.';
         return;
