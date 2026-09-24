@@ -13,7 +13,7 @@ export function WorkerActiveJobsPage() {
 
         root.innerHTML = `
             <h1 class="page-title">Active Jobs</h1>
-            <p class="muted">Activated jobs available to apply for; assigned jobs include the Submit Work form.</p>
+            <p class="muted active-jobs__intro"><strong>AVAILABLE TO APPLY</strong> Open job details to place your bid. Submit Work appears after assignment.</p>
             <div class="card" id="active-jobs-list"><div class="spinner"></div></div>
         `;
 
@@ -60,7 +60,7 @@ function render() {
                     <span class="badge badge--status badge--${status}">${status.toUpperCase()}</span>
                 </div>
                 <div class="active-job-card__actions">
-                    <a class="btn btn--ghost btn--sm" href="#/jobs/${encodeURIComponent(j.id)}">View job details</a>
+                    <a class="btn btn--primary btn--details" href="#/jobs/${encodeURIComponent(j.id)}">View job details</a>
                 </div>
                 ${mySub && !needsResubmission ? renderExistingSubmission(j, mySub) : renderSubmitForm(j, mySub)}
                 ${!mySub && j.assignment_id ? `<div class="active-job-card__actions"><button type="button" class="btn btn--ghost btn--sm" data-cancel-assignment="${j.assignment_id}">Request cancellation</button><small class="muted">Available before submitting work.</small></div>` : ''}
@@ -84,7 +84,6 @@ function renderExistingSubmission(job, sub) {
 }
 
 function renderSubmitForm(job, existingSubmission = null) {
-    if (!job.assignment_id && !job.assigned_worker_id) return '<div class="active-job-card__available"><strong>AVAILABLE TO APPLY</strong><p>Open job details to place your bid. Submit Work appears after assignment.</p></div>';
     const requiresScreenshot = Array.isArray(job.proof_requirements)
         && job.proof_requirements.some(requirement => requirement && requirement.type === 'screenshot');
     return `

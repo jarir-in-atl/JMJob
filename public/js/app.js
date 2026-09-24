@@ -1620,7 +1620,7 @@ var qn=Object.defineProperty;var _=(e,t)=>()=>(e&&(t=e(e=0)),t);var T=(e,t)=>{fo
         </a>
     `).join(""),e.querySelectorAll("a.bid-row-card").forEach(t=>{t.addEventListener("click",a=>{a.preventDefault(),f(`/jobs/${t.getAttribute("data-id")}`)})})}}function Ri(e){if(!e)return"";try{return new Date(e.replace(" ","T")+"Z").toLocaleString()}catch{return e}}function mn(e){return e==null?"":String(e).replace(/[&<>"']/g,t=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[t])}S();w();var fe={jobs:[],submissions:[],loading:!1};function pt(){return async()=>{let e=document.querySelector("[data-view]");if(e){e.innerHTML="",e.className="view view--worker-active",e.innerHTML=`
             <h1 class="page-title">Active Jobs</h1>
-            <p class="muted">Activated jobs available to apply for; assigned jobs include the Submit Work form.</p>
+            <p class="muted active-jobs__intro"><strong>AVAILABLE TO APPLY</strong> Open job details to place your bid. Submit Work appears after assignment.</p>
             <div class="card" id="active-jobs-list"><div class="spinner"></div></div>
         `;try{let[t,a]=await Promise.all([c.workerActiveJobs(),c.workerSubmissions()]);fe.jobs=t.data||[],fe.submissions=a.data||[],Hi()}catch(t){document.getElementById("active-jobs-list").innerHTML=`<p class="muted">Failed to load: ${ae(t.message||"unknown")}</p>`}}}}function Hi(){let e=document.getElementById("active-jobs-list");if(e){if(fe.jobs.length===0){e.innerHTML='<p class="muted">No activated or assigned jobs are available right now. New jobs appear here after admin activation.</p>';return}e.innerHTML=fe.jobs.map(t=>{let a=t.assignment_id?fe.submissions.find(o=>Number(o.assignment_id)===Number(t.assignment_id)):fe.submissions.find(o=>o.job_id===t.id),s=t.worker_state==="available"?"available":t.assignment_status||t.status,n=s==="revision"||["revision","rejected"].includes(a?.status),r=String(t.description||"").trim(),i=Number(t.remaining_workers??t.remaining_tasks_count??0);return`
             <div class="active-job-card" data-id="${t.id}">
@@ -1634,7 +1634,7 @@ var qn=Object.defineProperty;var _=(e,t)=>()=>(e&&(t=e(e=0)),t);var T=(e,t)=>{fo
                     <span class="badge badge--status badge--${s}">${s.toUpperCase()}</span>
                 </div>
                 <div class="active-job-card__actions">
-                    <a class="btn btn--ghost btn--sm" href="#/jobs/${encodeURIComponent(t.id)}">View job details</a>
+                    <a class="btn btn--primary btn--details" href="#/jobs/${encodeURIComponent(t.id)}">View job details</a>
                 </div>
                 ${a&&!n?Fi(t,a):Bi(t,a)}
                 ${!a&&t.assignment_id?`<div class="active-job-card__actions"><button type="button" class="btn btn--ghost btn--sm" data-cancel-assignment="${t.assignment_id}">Request cancellation</button><small class="muted">Available before submitting work.</small></div>`:""}
@@ -1647,7 +1647,7 @@ var qn=Object.defineProperty;var _=(e,t)=>()=>(e&&(t=e(e=0)),t);var T=(e,t)=>{fo
             ${t.status==="revision"?'<p class="muted">\u{1F504} Poster requested changes. Please re-submit below.</p>':""}
             ${t.status==="approved"?'<p class="muted">\u2705 Approved! Payment has been released.</p>':""}
         </div>
-    `}function Bi(e,t=null){if(!e.assignment_id&&!e.assigned_worker_id)return'<div class="active-job-card__available"><strong>AVAILABLE TO APPLY</strong><p>Open job details to place your bid. Submit Work appears after assignment.</p></div>';let a=Array.isArray(e.proof_requirements)&&e.proof_requirements.some(s=>s&&s.type==="screenshot");return`
+    `}function Bi(e,t=null){let a=Array.isArray(e.proof_requirements)&&e.proof_requirements.some(s=>s&&s.type==="screenshot");return`
         <form class="submit-form" data-job-id="${e.id}">
             ${t&&["revision","rejected"].includes(t.status)?`<p class="alert alert--warning"><strong>Revision requested:</strong> ${ae(t.reviewer_note||t.rejection_reason||"Please update and resubmit your work.")}</p>`:""}
             <label class="submit-form__label">

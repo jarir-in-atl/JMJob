@@ -1414,6 +1414,8 @@ button { font-family: inherit; cursor: pointer; }
     .jobs-pagination__status { font-size: 12px; }
 }
 /* ---------- Worker active jobs and job details ---------- */
+.active-jobs__intro { margin: -8px 0 0; }
+.active-jobs__intro strong { color: var(--primary); font-size: 11px; letter-spacing: .04em; }
 .back-link {
     display: inline-flex;
     align-items: center;
@@ -1471,15 +1473,14 @@ button { font-family: inherit; cursor: pointer; }
 .active-job-card p { margin: 5px 0 0; line-height: 1.45; }
 .active-job-card__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .active-job-card__actions small { font-size: 11px; }
-.active-job-card__sub, .active-job-card__available {
+.active-job-card__actions .btn--details { min-height: 42px; padding: 11px 16px; font-size: 14px; }
+.active-job-card__sub {
     padding: 12px;
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 10px;
 }
 .active-job-card__sub p { margin-bottom: 0; }
-.active-job-card__available { color: var(--muted); font-size: 13px; }
-.active-job-card__available strong { color: var(--primary); font-size: 11px; letter-spacing: .04em; }
 
 .job-detail__card { gap: 18px; }
 .job-detail__cat { display: inline-flex; align-items: center; gap: 5px; margin-bottom: 7px; color: var(--primary); font-size: 12px; font-weight: 700; }
