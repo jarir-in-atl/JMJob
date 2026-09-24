@@ -22,7 +22,7 @@ export function PosterDashboardPage() {
         root.className = 'view view--poster-dashboard';
 
         const user = currentUser.get();
-        if (!user || (!user.is_admin && user.role !== 'poster')) {
+        if (!user) {
             root.innerHTML = `<div class="card"><h2>Poster access required</h2><a class="btn btn--primary" href="#/">Go home</a></div>`;
             return;
         }

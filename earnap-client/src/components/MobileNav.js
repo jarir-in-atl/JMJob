@@ -47,7 +47,7 @@ function getNavItems() {
     }
 
     const items = [...USER_NAV_ITEMS];
-    if (u && (u.is_admin || u.role === 'poster')) {
+    if (u && !u.is_admin) {
         items.push({ separator: true }, ...POSTER_NAV_ITEMS);
     }
     return items;

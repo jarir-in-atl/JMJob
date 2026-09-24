@@ -59,21 +59,19 @@ class User extends Model
 
     public function isPoster(): bool
     {
-        if ($this->isAdmin()) return false;
-        $role = strtolower(trim((string) ($this->role ?? "worker")));
-        return $role === "poster";
+        // Marketplace accounts are dual-capable: they may post jobs and work
+        // on other users' jobs. Admin remains a separate control-plane role.
+        return !$this->isAdmin();
     }
 
     /**
-     * Worker-capable accounts are allowed to bid, apply, submit, and manage
-     * their own marketplace assignments. An empty role is treated as the
-     * historical worker default for older records.
+     * Marketplace accounts may bid, apply, submit, and manage their own
+     * assignments. JobService independently blocks applications/bids on a
+     * job owned by the same account.
      */
     public function isWorker(): bool
     {
-        if ($this->isAdmin()) return false;
-        $role = strtolower(trim((string) ($this->role ?? "worker")));
-        return in_array($role, ["", "worker"], true);
+        return !$this->isAdmin();
     }
 
     public function isBanned(): bool

@@ -463,8 +463,8 @@ class JobMarketplaceTest extends TestCase
         foreach (['PosterDashboardPage.js', 'PosterJobsPage.js', 'PosterJobDetailPage.js'] as $posterPage) {
             $posterContent = file_get_contents(base_path('earnap-client/src/views/' . $posterPage));
             $this->assertTrue(
-                str_contains($posterContent, "!user || (!user.is_admin && user.role !== 'poster')")
-                    || str_contains($posterContent, "!!user && (user.is_admin || user.role === 'poster')"),
+                str_contains($posterContent, "if (!user)")
+                    || str_contains($posterContent, "return !!user;"),
                 $posterPage . ' must enforce the poster/admin UI role boundary.'
             );
         }

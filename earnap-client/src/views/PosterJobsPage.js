@@ -115,7 +115,7 @@ async function cancelJob(id) {
 
 function hasPosterAccess() {
     const user = currentUser.get();
-    return !!user && (user.is_admin || user.role === 'poster');
+    return !!user;
 }
 function label(value) { return String(value || '').replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()); }
 function formatDate(value) { if (!value) return 'unknown'; const date = new Date(String(value).replace(' ', 'T') + 'Z'); return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString(); }

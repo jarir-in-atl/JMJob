@@ -35,7 +35,8 @@ function render(job, bids, bidCount, myBid, mySubmission, user) {
     const closesLabel = closesIn != null ? formatDuration(closesIn) : '—';
 
     const isOpen = ['open', 'in_review'].includes(job.status);
-    const isWorker = !!user && !user.is_admin && (!user.role || user.role === 'worker');
+    const isWorker = !!user && !user.is_admin;
+    const isOwnJob = !!user && Number(job.poster?.id || 0) === Number(user.id);
     const assignedToCurrentUser = isWorker && (
         !!job.assignment_id || Number(job.assigned_worker_id || 0) === Number(user.id)
     );
@@ -71,7 +72,7 @@ function render(job, bids, bidCount, myBid, mySubmission, user) {
         </div>
 
         ${renderSubmissionSection(job, mySubmission, assignedToCurrentUser)}
-        ${assignedToCurrentUser ? '' : renderBidSection(job, bids, myBid, user, isOpen)}
+        ${assignedToCurrentUser ? '' : renderBidSection(job, bids, myBid, user, isOpen, isOwnJob)}
     `;
 
     wireBidForm(job, myBid, user);
@@ -161,7 +162,9 @@ function wireSubmissionForm(job) {
     });
 }
 
-function renderBidSection(job, bids, myBid, user, isOpen) {
+function renderBidSection(job, bids, myBid, user, isOpen, isOwnJob) {
+    if (isOwnJob) return '<div class="card"><p class="muted">You posted this job and cannot apply or bid on it.</p></div>';
+    if (user?.is_admin) return '<div class="card"><p class="muted">Administrators manage applications from the admin console.</p></div>';
     if (myBid) {
         return `
             <div class="card">

@@ -268,7 +268,7 @@ class JobService
             if (!$jobRow) throw new \RuntimeException('Job not found.');
             $job = new Job($jobRow);
             if ((int) $job->poster_id === (int) $worker->id) {
-                throw new \RuntimeException('You cannot apply to your own job posting.');
+                throw new \RuntimeException("You cannot apply to your own job posting.");
             }
             if (!$job->isOpen()) throw new \RuntimeException('Job is not open for applications.');
             if ($job->deadline_at && strtotime($job->deadline_at) < time()) {
@@ -1118,6 +1118,7 @@ class JobService
             $jobRow = $jobStmt->fetch(\PDO::FETCH_ASSOC);
             if (!$jobRow) throw new \RuntimeException('Job not found.');
             $job = new Job($jobRow);
+            if ((int) $job->poster_id === (int) $worker->id) throw new \RuntimeException("You cannot bid on your own job posting.");
             if (!$job->isOpen()) throw new \RuntimeException('Job is not open for bids.');
             if ($job->bidding_closes_at && strtotime($job->bidding_closes_at) < time()) {
                 throw new \RuntimeException('Bidding window has closed.');

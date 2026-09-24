@@ -278,22 +278,26 @@ try {
         'release_payment' => $posterController->releasePayment($workerPosterRequest, 999999),
         'cancel_job' => $posterController->cancelJob($workerPosterRequest, 999999),
     ] as $operation => $response) {
-        $assert($response->getStatus() === 403, "A worker reached the poster controller endpoint for {$operation}.");
+        $assert($response->getStatus() !== 403, "A dual-capable account reached the poster controller endpoint for {$operation}.");
     }
     $workerCreate = $service->create(
         User::find($userIds['worker']),
         1,
-        'Worker must not post',
+        'Dual-capability worker can post',
         'Role boundary integration check.',
         null,
         100
     );
-    $assert(($workerCreate['success'] ?? true) === false && str_contains((string) ($workerCreate['message'] ?? ''), 'Poster access'), 'A worker bypassed the poster service role boundary.');
-
+    if (($workerCreate["success"] ?? false) && isset($workerCreate["job"]->id)) $jobIds[] = (int) $workerCreate["job"]->id;
+    $assert(($workerCreate["success"] ?? false) === true, "A worker account could post a job.");
     // The inverse boundary must hold too: a poster or administrator cannot
     // reach worker-only marketplace operations by calling a service directly
     // or by invoking the controller without route middleware.
     $poster = User::find($userIds['poster']);
+    $selfApply = $service->applyForJob($poster, $approvedNotificationJobId, "self-application");
+    $assert(($selfApply["success"] ?? true) === false && str_contains((string) ($selfApply["message"] ?? ""), "own job"), "A user was allowed to apply to their own job.");
+    $selfBid = $service->placeBid($poster, $approvedNotificationJobId, 100, 1, "self-bid");
+    $assert(($selfBid["success"] ?? true) === false && str_contains((string) ($selfBid["message"] ?? ""), "own job"), "A user was allowed to bid on their own job.");
     $admin = User::find($userIds['admin']);
     foreach ([
         'apply' => $service->applyForJob($poster, 999999, 'poster must not apply'),
@@ -302,7 +306,7 @@ try {
         'submit' => $service->submitWork($poster, 999999, 'poster must not submit', null),
         'cancel' => $service->cancelAssignment(999999, (int) $poster->id, 'poster must not cancel', 'worker'),
     ] as $operation => $result) {
-        $assert(($result['success'] ?? true) === false && str_contains((string) ($result['message'] ?? ''), 'Worker access'), "A poster bypassed the worker service boundary for {$operation}.");
+        $assert(($result["success"] ?? true) === false && !str_contains((string) ($result["message"] ?? ""), "Worker access"), "A dual-capable account was incorrectly rejected for " . $operation . ".");
     }
 
     $posterWorkerRequest = new Request();
@@ -317,12 +321,12 @@ try {
         'submissions' => (new JobController())->mySubmissions($posterWorkerRequest),
         'apply' => (new JobController())->applyForJob($posterWorkerRequest, 999999),
     ] as $operation => $response) {
-        $assert($response->getStatus() === 403, "A poster reached the worker controller endpoint for {$operation}.");
+        $assert($response->getStatus() !== 403, "A dual-capable account reached the worker controller endpoint for {$operation}.");
     }
     $workerWorkflowResponse = (new JobController())->createWorkflowJob($workerPosterRequest);
-    $assert($workerWorkflowResponse->getStatus() === 403, 'A worker reached the poster workflow controller endpoint.');
+    $assert($workerWorkflowResponse->getStatus() !== 403, 'A dual-capable account reached the poster workflow controller endpoint.');
     $workerDeadlineResponse = (new JobController())->extendDeadline($workerPosterRequest, 999999);
-    $assert($workerDeadlineResponse->getStatus() === 403, 'A worker reached the poster deadline controller endpoint.');
+    $assert($workerDeadlineResponse->getStatus() !== 403, 'A dual-capable account reached the poster deadline controller endpoint.');
 
     $adminWorkerRequest = new Request();
     $adminWorkerRequest->setMeta('auth.user', $admin);
