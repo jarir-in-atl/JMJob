@@ -1,6 +1,6 @@
-// WorkerActiveJobsPage — jobs I'm currently working on, with submit-work action.
+// WorkerActiveJobsPage — jobs I'm currently working on, with job detail navigation and assignment status.
 import { api } from '../api.js';
-import { navigate, showFlash } from '../state.js';
+import { showFlash } from '../state.js';
 
 let _state = { jobs: [], submissions: [], loading: false };
 
@@ -13,7 +13,7 @@ export function WorkerActiveJobsPage() {
 
         root.innerHTML = `
             <h1 class="page-title">Active Jobs</h1>
-            <p class="muted active-jobs__intro"><strong>AVAILABLE TO APPLY</strong> Open job details to place your bid. Submit Work appears after assignment.</p>
+            <p class="muted active-jobs__intro"><strong>AVAILABLE TO APPLY</strong> Open job details to place your bid. Assigned workers can submit work from the job details page.</p>
             <div class="card" id="active-jobs-list"><div class="spinner"></div></div>
         `;
 
@@ -45,7 +45,6 @@ function render() {
            ? _state.submissions.find(s => Number(s.assignment_id) === Number(j.assignment_id))
            : _state.submissions.find(s => s.job_id === j.id);
        const status = j.worker_state === 'available' ? 'available' : (j.assignment_status || j.status);
-       const needsResubmission = status === 'revision' || ['revision', 'rejected'].includes(mySub?.status);
         const summary = String(j.description || '').trim();
         const remainingSlots = Number(j.remaining_workers ?? j.remaining_tasks_count ?? 0);
        return `
@@ -62,7 +61,7 @@ function render() {
                 <div class="active-job-card__actions">
                     <a class="btn btn--primary btn--details" href="#/jobs/${encodeURIComponent(j.id)}">View job details</a>
                 </div>
-                ${mySub && !needsResubmission ? renderExistingSubmission(j, mySub) : renderSubmitForm(j, mySub)}
+                ${mySub ? renderExistingSubmission(mySub) : ''}
                 ${!mySub && j.assignment_id ? `<div class="active-job-card__actions"><button type="button" class="btn btn--ghost btn--sm" data-cancel-assignment="${j.assignment_id}">Request cancellation</button><small class="muted">Available before submitting work.</small></div>` : ''}
             </div>
         `;
@@ -71,68 +70,20 @@ function render() {
     wireForms();
 }
 
-function renderExistingSubmission(job, sub) {
+function renderExistingSubmission(sub) {
     return `
         <div class="active-job-card__sub">
             <strong>Submitted:</strong> ${formatDate(sub.created_at)}
             <div class="muted">${escapeHtml((sub.description || '').slice(0, 200))}${(sub.description || '').length > 200 ? '…' : ''}</div>
             ${sub.status === 'pending_review' ? '<p class="muted">⏳ Awaiting poster review.</p>' : ''}
-            ${sub.status === 'revision' ? '<p class="muted">🔄 Poster requested changes. Please re-submit below.</p>' : ''}
+            ${sub.status === 'revision' ? '<p class="muted">🔄 Poster requested changes. Open job details to resubmit your work.</p>' : ''}
             ${sub.status === 'approved' ? '<p class="muted">✅ Approved! Payment has been released.</p>' : ''}
         </div>
     `;
 }
 
-function renderSubmitForm(job, existingSubmission = null) {
-    const requiresScreenshot = Array.isArray(job.proof_requirements)
-        && job.proof_requirements.some(requirement => requirement && requirement.type === 'screenshot');
-    return `
-        <form class="submit-form" data-job-id="${job.id}">
-            ${existingSubmission && ['revision', 'rejected'].includes(existingSubmission.status) ? `<p class="alert alert--warning"><strong>Revision requested:</strong> ${escapeHtml(existingSubmission.reviewer_note || existingSubmission.rejection_reason || 'Please update and resubmit your work.')}</p>` : ''}
-            <label class="submit-form__label">
-                What did you deliver? (description)
-                <textarea name="description" rows="3" required placeholder="Summarize what you delivered…">${escapeHtml(existingSubmission?.description || '')}</textarea>
-            </label>
-            <label class="submit-form__label">
-                External link (optional — Google Drive, GitHub, Figma, etc.)
-                <input name="external_link" type="url" value="${escapeHtml(existingSubmission?.external_link || '')}" placeholder="https://…">
-            </label>
-            <label class="submit-form__label">
-                Screenshot proof ${requiresScreenshot ? '(required)' : '(optional)'}
-                <input name="screenshot" type="file" accept="image/jpeg,image/png,image/gif,image/webp" ${requiresScreenshot ? 'required' : ''}>
-                <small class="muted">JPG, PNG, GIF, or WEBP; maximum 10 MB.</small>
-            </label>
-            <button type="submit" class="btn btn--success btn--xl" data-submit-btn>
-                <i class="bi bi-send"></i> Submit Work
-            </button>
-        </form>
-    `;
-}
 
 function wireForms() {
-    document.querySelectorAll('form.submit-form').forEach(form => {
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const jobId = parseInt(form.getAttribute('data-job-id'), 10);
-            const fd = new FormData(form);
-            const btn = form.querySelector('[data-submit-btn]');
-            btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass"></i> Submitting…';
-            try {
-                const payload = new FormData();
-                payload.append('description', String(fd.get('description') || '').trim());
-                payload.append('external_link', String(fd.get('external_link') || '').trim());
-                const screenshot = fd.get('screenshot');
-                if (screenshot instanceof File && screenshot.size > 0) payload.append('screenshot', screenshot);
-                await api.submitWork(jobId, payload);
-                showFlash('Work submitted!', 'success');
-                WorkerActiveJobsPage()();
-            } catch (err) {
-                showFlash(err.message || 'Failed to submit.', 'error');
-            } finally {
-                btn.disabled = false; btn.innerHTML = '<i class="bi bi-send"></i> Submit Work';
-            }
-        });
-    });
 
     document.querySelectorAll('[data-cancel-assignment]').forEach(button => {
         button.addEventListener('click', async () => {
