@@ -7,6 +7,9 @@
 
 set -e
 
+DEPLOY_STARTED_AT=$(date +%s)
+DEPLOY_STARTED_DISPLAY=$(date '+%Y-%m-%d %H:%M:%S %Z')
+
 # Prevent two local deploys from interleaving FTP mirrors. GitHub deployments
 # use the workflow concurrency group for the equivalent protection.
 DEPLOY_LOCK_PATH="/tmp/jmjob-deploy.lock"
@@ -39,6 +42,20 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
+
+print_deployment_timing() {
+    local finished_at finished_display elapsed_seconds elapsed_minutes elapsed_remainder
+    finished_at=$(date +%s)
+    finished_display=$(date '+%Y-%m-%d %H:%M:%S %Z')
+    elapsed_seconds=$((finished_at - DEPLOY_STARTED_AT))
+    elapsed_minutes=$((elapsed_seconds / 60))
+    elapsed_remainder=$((elapsed_seconds % 60))
+
+    echo -e "  Deployment Started: ${DEPLOY_STARTED_DISPLAY}"
+    echo -e "  Hard refresh (Ctrl+Shift+R) to see changes."
+    echo -e "  Deployment Finished: ${finished_display}"
+    printf '  Estimated Time Taken: %02d min %02d sec\n' "$elapsed_minutes" "$elapsed_remainder"
+}
 
 # Load .env
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -81,7 +98,7 @@ echo -e "${BLUE}============================================================${NC
 echo -e "${BLUE}  JMJob — Deployment${NC}"
 echo -e "${BLUE}============================================================${NC}"
 echo ""
-echo -e "Time:      $(date '+%Y-%m-%d %H:%M:%S %Z')"
+echo -e "Deployment Started: $(date '+%Y-%m-%d %H:%M:%S %Z')"
 echo -e "Server:    $FTP_HOST"
 echo -e "Local:     $LOCAL_ROOT"
 if [ "$CHECK_ONLY" = true ]; then
@@ -218,6 +235,7 @@ echo ""
 
 if [ "$CHECK_ONLY" = true ]; then
     echo -e "${GREEN}  ✅ Read-only FTP preflight complete; migrations and Git operations were skipped${NC}"
+    print_deployment_timing
     exit 0
 fi
 
@@ -291,5 +309,5 @@ echo -e "${BLUE}============================================================${NC
 echo -e "${GREEN}  ✅ Deployment & Git push complete!${NC}"
 echo -e "${BLUE}============================================================${NC}"
 echo ""
-echo -e "  Hard refresh (Ctrl+Shift+R) to see changes."
+print_deployment_timing
 echo ""

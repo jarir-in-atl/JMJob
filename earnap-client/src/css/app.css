@@ -2187,3 +2187,4 @@ button { font-family: inherit; cursor: pointer; }
 .topbar-active-jobs__link { color: var(--primary); font-size: 13px; font-weight: 500; text-decoration: none; }
 .topbar-active-jobs__link:hover { text-decoration: underline; }
 @media (max-width: 540px) { .topbar-active-jobs { width: min(320px, calc(100vw - 24px)); right: -8px; } }
+.poster-proof-attachment { display: flex; align-items: center; gap: 6px; margin-top: 8px; }

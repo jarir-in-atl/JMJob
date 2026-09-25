@@ -370,6 +370,8 @@ class PosterController extends Controller
             'worker_id'     => (int) $submission->worker_id,
             'bid_id'        => (int) $submission->bid_id,
             'description'   => $submission->description,
+            'attachment_path' => $submission->attachment_path,
+            'attachment_url'  => $submission->attachment_path ? '/api/jobs/submissions/' . (int) $submission->id . '/attachment' : null,
             'external_link' => $submission->external_link,
             'status'        => $submission->status,
             'reviewer_note' => $submission->reviewer_note,

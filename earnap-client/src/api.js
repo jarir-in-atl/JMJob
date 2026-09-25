@@ -175,6 +175,7 @@ export const api = {
     workerBids:           () => request('/worker/bids'),
     workerActiveJobs:     () => request('/worker/active-jobs'),
     submitWork:           (id, body) => request(`/jobs/${id}/submit`, { method: 'POST', body }),
+    proofAttachment:      (id) => downloadRequest(`/jobs/submissions/${encodeURIComponent(id)}/attachment`),
     workerCancelAssignment: (id, body = {}) => request(`/worker/assignments/${id}/cancel`, { method: 'POST', body }),
     workerSubmissions:    () => request('/worker/submissions'),
 

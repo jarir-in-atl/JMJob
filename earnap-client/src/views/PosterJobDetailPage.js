@@ -45,6 +45,7 @@ function render(content, job, bids, submissions) {
     content.querySelectorAll('[data-accept-bid]').forEach(button => button.addEventListener('click', () => acceptBid(job.id, button.dataset.acceptBid)));
     content.querySelectorAll('[data-release-submission]').forEach(button => button.addEventListener('click', () => releasePayment(job.id, button.dataset.releaseSubmission)));
     content.querySelectorAll('[data-revision-submission]').forEach(button => button.addEventListener('click', () => requestRevision(job.id, button.dataset.revisionSubmission)));
+    content.querySelectorAll('[data-proof-attachment]').forEach(button => button.addEventListener('click', () => openProofAttachment(button.dataset.proofAttachment)));
     content.querySelector('#poster-detail-cancel')?.addEventListener('click', () => cancelJob(job.id));
 }
 
@@ -58,8 +59,30 @@ function renderBids(job, bids) {
 function renderSubmissions(job, submissions) {
     if (!submissions.length) return '<p class="muted">No work submitted yet.</p>';
     return submissions.map(submission => `
-        <div class="poster-submission-row poster-submission-row--${escapeHtml(submission.status)}"><div><strong>${escapeHtml(submission.worker?.name || 'Worker')}</strong><span class="muted">Submitted ${formatDate(submission.created_at)} · ${escapeHtml(String(submission.status || '').replace('_', ' '))}</span><p>${escapeHtml(submission.description || '')}</p>${submission.external_link ? `<a href="${escapeHtml(submission.external_link)}" target="_blank" rel="noopener noreferrer">Open delivery link</a>` : ''}${submission.reviewer_note ? `<p class="muted"><strong>Revision note:</strong> ${escapeHtml(submission.reviewer_note)}</p>` : ''}</div>${submission.status === 'pending_review' && ['submitted', 'revision'].includes(job.status) ? `<div class="poster-submission-row__actions"><button class="btn btn--success btn--sm" data-release-submission="${Number(submission.id)}">Release payment</button><button class="btn btn--ghost btn--sm" data-revision-submission="${Number(submission.id)}">Request revision</button></div>` : ''}</div>
+        <div class="poster-submission-row poster-submission-row--${escapeHtml(submission.status)}"><div><strong>${escapeHtml(submission.worker?.name || 'Worker')}</strong><span class="muted">Submitted ${formatDate(submission.created_at)} · ${escapeHtml(String(submission.status || '').replace('_', ' '))}</span><p>${escapeHtml(submission.description || '')}</p>${submission.external_link ? `<a href="${escapeHtml(submission.external_link)}" target="_blank" rel="noopener noreferrer">Open delivery link</a>` : ''}${renderProofAttachment(submission)}${submission.reviewer_note ? `<p class="muted"><strong>Revision note:</strong> ${escapeHtml(submission.reviewer_note)}</p>` : ''}</div>${submission.status === 'pending_review' && ['submitted', 'revision'].includes(job.status) ? `<div class="poster-submission-row__actions"><button class="btn btn--success btn--sm" data-release-submission="${Number(submission.id)}">Release payment</button><button class="btn btn--ghost btn--sm" data-revision-submission="${Number(submission.id)}">Request revision</button></div>` : ''}</div>
     `).join('');
+}
+
+function renderProofAttachment(submission) {
+    if (!submission.attachment_url) return '';
+    const path = String(submission.attachment_path || '');
+    const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(path);
+    const label = isImage ? 'View screenshot' : 'Open proof attachment';
+    return `<div class="poster-proof-attachment"><i class="bi ${isImage ? 'bi-image' : 'bi-file-earmark-text'}"></i> <button type="button" class="btn btn--ghost btn--sm" data-proof-attachment="${Number(submission.id)}">${label}</button></div>`;
+}
+
+async function openProofAttachment(id) {
+    const popup = window.open('about:blank', '_blank', 'noopener,noreferrer');
+    try {
+        const blob = await api.proofAttachment(id);
+        const url = URL.createObjectURL(blob);
+        if (popup) popup.location.href = url;
+        else window.location.href = url;
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+        if (popup) popup.close();
+        showFlash(error.message || 'Could not open the proof attachment.', 'error');
+    }
 }
 
 async function acceptBid(jobId, bidId) {

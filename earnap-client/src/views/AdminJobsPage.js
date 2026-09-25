@@ -219,7 +219,9 @@ async function viewProofSubmissions(jobId, jobTitle) {
         content.innerHTML = submissions.map(sub => {
             const proofData = sub.work_proof_data || {};
             const attachment = sub.attachment_url || (sub.attachment_path ? (sub.attachment_path.startsWith('http') ? sub.attachment_path : `/storage/${sub.attachment_path}`) : null);
-            const isImage = attachment && /\.(jpg|jpeg|png|gif|webp)$/i.test(attachment);
+            const attachmentPath = String(sub.attachment_path || '');
+            const isImage = Boolean(attachment && (/\.(jpg|jpeg|png|gif|webp)$/i.test(attachment) || /\.(jpg|jpeg|png|gif|webp)$/i.test(attachmentPath)));
+            const attachmentLabel = isImage ? 'View screenshot' : 'Open proof attachment';
 
             return `
                 <div class="card" style="margin-bottom:16px; padding:16px; border:1px solid #e2e8f0; border-radius:8px; background:#f9fafb;">
@@ -238,7 +240,7 @@ async function viewProofSubmissions(jobId, jobTitle) {
                     ${attachment ? `
                         <div style="margin:10px 0;">
                             <strong>Proof Screenshot / Attachment:</strong><br>
-                            ${isImage ? `<a href="${escapeHtml(attachment)}" target="_blank"><img src="${escapeHtml(attachment)}" alt="Proof screenshot" style="max-width:100%; max-height:300px; border-radius:6px; border:1px solid #cbd5e1; margin-top:6px; object-fit:contain;"></a>` : `<a href="${escapeHtml(attachment)}" target="_blank" class="btn btn--ghost btn--sm"><i class="bi bi-download"></i> Download Attachment</a>`}
+                            <button type="button" class="btn btn--ghost btn--sm" data-proof-attachment="${Number(sub.id)}"><i class="bi ${isImage ? 'bi-image' : 'bi-file-earmark-text'}"></i> ${attachmentLabel}</button>
                         </div>
                     ` : ''}
 
@@ -248,6 +250,8 @@ async function viewProofSubmissions(jobId, jobTitle) {
                 </div>
             `;
         }).join('');
+
+        content.querySelectorAll('[data-proof-attachment]').forEach(button => button.addEventListener('click', () => openProofAttachment(button.dataset.proofAttachment)));
 
         content.querySelectorAll('.card').forEach((card, index) => {
             const submission = submissions[index];
@@ -271,6 +275,20 @@ async function viewProofSubmissions(jobId, jobTitle) {
         });
     } catch (error) {
         content.innerHTML = `<p class="muted">Failed to load submissions: ${escapeHtml(error.message || 'unknown error')}</p>`;
+    }
+}
+
+async function openProofAttachment(id) {
+    const popup = window.open('about:blank', '_blank', 'noopener,noreferrer');
+    try {
+        const blob = await api.proofAttachment(id);
+        const url = URL.createObjectURL(blob);
+        if (popup) popup.location.href = url;
+        else window.location.href = url;
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+        if (popup) popup.close();
+        showFlash(error.message || 'Could not open the proof attachment.', 'error');
     }
 }
 

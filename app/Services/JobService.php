@@ -1415,21 +1415,21 @@ class JobService
         if (is_string($proofRequirements)) {
             $proofRequirements = json_decode($proofRequirements, true) ?: [];
         }
-        $requiresScreenshot = false;
+        $requiresAttachment = false;
         $requiresWrittenReport = false;
         foreach ((array) $proofRequirements as $requirement) {
             $type = is_array($requirement)
                 ? strtolower(trim((string) ($requirement['type'] ?? 'text')))
                 : strtolower(trim((string) $requirement));
-            if ($type === 'screenshot') {
-                $requiresScreenshot = true;
+            if (in_array($type, ['screenshot', 'file', 'attachment', 'image', 'document'], true)) {
+                $requiresAttachment = true;
             }
             if (in_array($type, ['text', 'written', 'written_report', 'report', 'description'], true)) {
                 $requiresWrittenReport = true;
             }
         }
-        if ($requiresScreenshot && $proofFile === null) {
-            return ['success' => false, 'message' => 'A screenshot proof is required for this job.'];
+        if ($requiresAttachment && $proofFile === null) {
+            return ['success' => false, 'message' => 'A screenshot or proof attachment is required for this job.'];
         }
         if ($requiresWrittenReport && trim((string) $description) === '') {
             return ['success' => false, 'message' => 'A written report is required for this job.'];
@@ -1439,14 +1439,18 @@ class JobService
         $attachmentAbsolutePath = null;
         if ($proofFile !== null) {
             $extension = strtolower($proofFile->getClientOriginalExtension());
-            if (!in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true)) {
-                return ['success' => false, 'message' => 'Screenshot must be a JPG, PNG, GIF, or WEBP image.'];
+            $imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+            $documentExtensions = ['pdf', 'doc', 'docx'];
+            if (!in_array($extension, array_merge($imageExtensions, $documentExtensions), true)) {
+                return ['success' => false, 'message' => 'Proof must be a JPG, PNG, GIF, WEBP image, PDF, DOC, or DOCX file.'];
             }
 
             $proofDirectory = base_path('storage/job-proofs');
-            $upload = FileValidator::image($proofFile, $proofDirectory, (int) $worker->id, 10, 'screenshot');
+            $upload = in_array($extension, $imageExtensions, true)
+                ? FileValidator::image($proofFile, $proofDirectory, (int) $worker->id, 10, 'proof')
+                : FileValidator::document($proofFile, $proofDirectory, (int) $worker->id, 20, 'proof');
             if ($upload->failed()) {
-                return ['success' => false, 'message' => $upload->error ?: 'Screenshot upload failed.'];
+                return ['success' => false, 'message' => $upload->error ?: 'Proof attachment upload failed.'];
             }
 
             $filename = basename((string) $upload->path);

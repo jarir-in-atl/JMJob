@@ -57,6 +57,7 @@ function render(root, data, id) {
         try { await api.adminReviewSubmission(button.dataset.reviewId, { decision, note }); showFlash('Submission reviewed.', 'success'); await load(root, id); }
         catch (error) { showFlash(error.message || 'Could not review submission.', 'error'); }
     }));
+    root.querySelectorAll('[data-proof-attachment]').forEach(button => button.addEventListener('click', () => openProofAttachment(button.dataset.proofAttachment)));
     root.querySelectorAll('[data-ban-worker]').forEach(button => button.addEventListener('click', async () => {
         const workerId = button.dataset.banWorker;
         const isBanned = button.dataset.banState === '1';
@@ -113,7 +114,24 @@ function renderSubmission(submission) {
     const risk = submission.risk_status && submission.risk_status !== 'clear'
         ? ` · Risk ${escapeHtml(String(submission.risk_status).replace('_', ' '))} (${Number(submission.risk_score || 0).toFixed(0)})`
         : '';
-    return `<div class="admin-row"><div><strong>${escapeHtml(worker.name || 'Unknown worker')}</strong><span class="muted">${workerContact}</span><span class="muted">Submitted ${escapeHtml(formatDate(submission.submitted_at || submission.created_at))} · Attempt ${Number(submission.attempt_number || 1)} · ${escapeHtml(String(submission.status || '').replace('_', ' '))}${risk}</span><p>${escapeHtml(submission.description || '')}</p>${submission.external_link ? `<a href="${escapeHtml(submission.external_link)}" target="_blank" rel="noopener">Open delivery link</a>` : ''}${submission.attachment_url ? `${submission.external_link ? ' · ' : ''}<a href="${escapeHtml(submission.attachment_url)}" target="_blank" rel="noopener">Open screenshot</a>` : ''}${reviewNote ? `<p class="muted"><strong>Review note:</strong> ${escapeHtml(reviewNote)}</p>` : ''}</div>${actions}</div>`;
+    const attachmentAction = submission.attachment_url
+        ? `${submission.external_link ? ' · ' : ''}<button type="button" class="btn btn--ghost btn--sm" data-proof-attachment="${Number(submission.id)}"><i class="bi bi-file-earmark-text"></i> Open proof attachment</button>`
+        : '';
+    return `<div class="admin-row"><div><strong>${escapeHtml(worker.name || 'Unknown worker')}</strong><span class="muted">${workerContact}</span><span class="muted">Submitted ${escapeHtml(formatDate(submission.submitted_at || submission.created_at))} · Attempt ${Number(submission.attempt_number || 1)} · ${escapeHtml(String(submission.status || '').replace('_', ' '))}${risk}</span><p>${escapeHtml(submission.description || '')}</p>${submission.external_link ? `<a href="${escapeHtml(submission.external_link)}" target="_blank" rel="noopener">Open delivery link</a>` : ''}${attachmentAction}${reviewNote ? `<p class="muted"><strong>Review note:</strong> ${escapeHtml(reviewNote)}</p>` : ''}</div>${actions}</div>`;
+}
+
+async function openProofAttachment(id) {
+    const popup = window.open('about:blank', '_blank', 'noopener,noreferrer');
+    try {
+        const blob = await api.proofAttachment(id);
+        const url = URL.createObjectURL(blob);
+        if (popup) popup.location.href = url;
+        else window.location.href = url;
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+        if (popup) popup.close();
+        showFlash(error.message || 'Could not open the proof attachment.', 'error');
+    }
 }
 
 function canDelete(job, assignments) {

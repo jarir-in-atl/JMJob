@@ -2,6 +2,23 @@
 import { api } from '../api.js';
 import { currentUser, navigate, showFlash, refreshUser } from '../state.js';
 
+const FILE_PROOF_TYPES = new Set(['screenshot', 'file', 'attachment', 'image', 'document']);
+
+function proofRequirementType(requirement) {
+    return typeof requirement === 'object'
+        ? String(requirement?.type || 'text').toLowerCase()
+        : String(requirement || 'text').toLowerCase();
+}
+
+function isFileProofRequirement(requirement) {
+    return FILE_PROOF_TYPES.has(proofRequirementType(requirement));
+}
+
+function proofRequirementLabel(requirement) {
+    const title = typeof requirement === 'object' ? requirement?.title : '';
+    return title || (isFileProofRequirement(requirement) ? 'Screenshot / image / PDF / DOC / DOCX' : 'Written report');
+}
+
 export function JobDetailPage(id) {
     return async () => {
         const root = document.querySelector('[data-view]');
@@ -65,7 +82,7 @@ function render(job, bids, bidCount, myBid, mySubmission, user) {
                 <h3>Description</h3>
                 <p>${escapeHtml(job.description).replace(/\n/g, '<br>')}</p>
                 ${job.requirements ? `<h3>Requirements</h3><p>${escapeHtml(job.requirements).replace(/\n/g, '<br>')}</p>` : ''}
-                ${Array.isArray(job.proof_requirements) && job.proof_requirements.length ? `<h3>Proof required</h3><ul>${job.proof_requirements.map(requirement => `<li>${escapeHtml(requirement.title || (requirement.type === 'screenshot' ? 'Screenshot' : 'Written report'))}</li>`).join('')}</ul>` : ''}
+                ${Array.isArray(job.proof_requirements) && job.proof_requirements.length ? `<h3>Proof required</h3><ul>${job.proof_requirements.map(requirement => `<li>${escapeHtml(proofRequirementLabel(requirement))}</li>`).join('')}</ul>` : ''}
                 <h3>Posted by</h3>
                 <p>${job.poster ? escapeHtml(job.poster.name) : 'Unknown'} <span class="muted">@${job.poster?.username || '?'}</span></p>
             </div>
@@ -107,8 +124,8 @@ function renderSubmissionSection(job, submission, assignedToCurrentUser) {
     if (!canSubmit) {
         return `<div class="card"><p class="muted">This assignment is ${escapeHtml(String(assignmentStatus).replace('_', ' '))}.</p></div>`;
     }
-    const requiresScreenshot = Array.isArray(job.proof_requirements)
-        && job.proof_requirements.some(requirement => requirement && requirement.type === 'screenshot');
+    const requiresProofAttachment = Array.isArray(job.proof_requirements)
+        && job.proof_requirements.some(isFileProofRequirement);
     const revisionNote = submission?.reviewer_note || submission?.rejection_reason;
     return `
         <div class="card">
@@ -124,9 +141,9 @@ function renderSubmissionSection(job, submission, assignedToCurrentUser) {
                     <input name="external_link" type="url" value="${escapeHtml(submission?.external_link || '')}" placeholder="https://…">
                 </label>
                 <label class="submit-form__label">
-                    Screenshot proof ${requiresScreenshot ? '(required)' : '(optional)'}
-                    <input name="screenshot" type="file" accept="image/jpeg,image/png,image/gif,image/webp" ${requiresScreenshot ? 'required' : ''}>
-                    <small class="muted">JPG, PNG, GIF, or WEBP; maximum 10 MB.</small>
+                    Work proof attachment ${requiresProofAttachment ? '(required)' : '(optional)'}
+                    <input name="screenshot" type="file" accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx" ${requiresProofAttachment ? 'required' : ''}>
+                    <small class="muted">Screenshot/image: JPG, PNG, GIF, or WEBP up to 10 MB. Documents: PDF, DOC, or DOCX up to 20 MB.</small>
                 </label>
                 <button type="submit" class="btn btn--success btn--xl" id="job-submit-work-btn">
                     <i class="bi bi-send"></i> Submit Work
