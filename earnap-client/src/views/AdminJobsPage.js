@@ -19,6 +19,7 @@ const STATUSES = [
 ];
 
 let selectedStatus = 'pending_approval';
+const pendingJobApprovals = new Set();
 
 export function AdminJobsPage() {
     return async () => {
@@ -167,7 +168,9 @@ function renderJob(job) {
     }
 
     if (isPending) {
-        actions.appendChild(actionButton('Activate Job', 'btn--success', () => approveJob(job.id)));
+        const activateButton = actionButton('Activate Job', 'btn--success', () => approveJob(job.id, activateButton));
+        if (pendingJobApprovals.has(job.id)) setActivationPending(activateButton);
+        actions.appendChild(activateButton);
         actions.appendChild(actionButton('Decline', 'btn--danger', () => declineJob(job.id)));
     } else if (job.status === 'disputed') {
         actions.appendChild(actionButton('Release Payment', 'btn--success', () => resolveJob(job.id, 'release')));
@@ -316,14 +319,41 @@ async function reviewSubmission(submission, jobId, jobTitle, button, sibling) {
     }
 }
 
-async function approveJob(id) {
+function setActivationPending(button) {
+    if (!button) return;
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    button.innerHTML = '<i class="bi bi-hourglass-split"></i> Activating...';
+}
+
+function restoreActivationButton(button) {
+    if (!button || !button.isConnected) return;
+    button.disabled = false;
+    button.removeAttribute('aria-busy');
+    button.innerHTML = 'Activate Job';
+}
+
+async function approveJob(id, button) {
+    if (pendingJobApprovals.has(id)) {
+        setActivationPending(button);
+        return;
+    }
     if (!confirm('Approve and activate this job post?')) return;
+
+    pendingJobApprovals.add(id);
+    setActivationPending(button);
     try {
         await api.adminApproveJob(id);
         showFlash('Job approved and activated!', 'success');
+        pendingJobApprovals.delete(id);
         await load();
     } catch (error) {
+        pendingJobApprovals.delete(id);
+        restoreActivationButton(button);
         showFlash(error.message || 'Could not approve job.', 'error');
+    } finally {
+        pendingJobApprovals.delete(id);
+        restoreActivationButton(button);
     }
 }
 
