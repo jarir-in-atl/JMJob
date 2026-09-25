@@ -36,6 +36,81 @@ function themeToggle() {
     };
 }
 
+
+function activeJobsConfig() {
+    const isAdmin = !!currentUser.get()?.is_admin;
+    return {
+        isAdmin,
+        route: isAdmin ? '/admin/active-jobs' : '/worker/active-jobs',
+        load: isAdmin ? () => api.adminJobs('open') : () => api.workerActiveJobs(),
+    };
+}
+function toggleActiveJobs() {
+    const panel = document.getElementById('topbar-active-jobs-panel');
+    if (!panel) return;
+    const isOpen = panel.classList.contains('topbar-active-jobs--open');
+    document.querySelectorAll('.topbar-active-jobs--open').forEach(el => el.classList.remove('topbar-active-jobs--open'));
+    if (!isOpen) {
+        if (!panel.innerHTML.trim()) {
+            panel.innerHTML = activeJobsPanelHtml(activeJobsConfig());
+            panel.querySelector('[data-active-jobs-close]')?.addEventListener('click', () => panel.classList.remove('topbar-active-jobs--open'));
+        }
+        panel.classList.add('topbar-active-jobs--open');
+        setTimeout(loadActiveJobsPreview, 0);
+    }
+}
+function activeJobsMenu() {
+    return {
+        tag: 'div',
+        props: { class: 'topbar__active-jobs-wrap' },
+        children: [
+            {
+                tag: 'button',
+                props: { class: 'topbar__icon-btn topbar__active-jobs', 'aria-label': 'Active Jobs', title: 'Active Jobs', onclick: (e) => { e.stopPropagation(); toggleActiveJobs(); } },
+                children: [
+                    { tag: 'i', props: { class: 'bi bi-briefcase-fill' }, children: [] },
+                    { tag: 'span', props: { class: 'topbar__active-jobs-badge', id: 'topbar-active-jobs-count', 'aria-live': 'polite' }, children: ['0'] },
+                ],
+            },
+            { tag: 'div', props: { class: 'topbar-active-jobs', id: 'topbar-active-jobs-panel' }, children: [] },
+        ],
+    };
+}
+function activeJobsPanelHtml(config) {
+    return `<div class="topbar-active-jobs__header"><strong>Active Jobs</strong><button type="button" class="topbar-active-jobs__close" data-active-jobs-close aria-label="Close Active Jobs"><i class="bi bi-x-lg"></i></button></div><ul class="topbar-active-jobs__list" id="topbar-active-jobs-list"><li class="topbar-active-job"><i class="bi bi-hourglass-split topbar-active-job__icon"></i><div class="topbar-active-job__body"><div class="topbar-active-job__title">Loading active jobs…</div><div class="topbar-active-job__text">Your active job list will appear here.</div></div></li></ul><div class="topbar-active-jobs__footer"><a href="#${config.route}" class="topbar-active-jobs__link">View all active jobs</a></div>`;
+}
+
+async function loadActiveJobsPreview() {
+    const list = document.getElementById('topbar-active-jobs-list');
+    const badge = document.getElementById('topbar-active-jobs-count');
+    if (!list || !badge) return;
+
+    try {
+        const config = activeJobsConfig();
+        const response = await config.load();
+        const items = Array.isArray(response.data) ? response.data : [];
+        badge.textContent = items.length > 99 ? '99+' : String(items.length);
+        list.innerHTML = items.length
+            ? items.slice(0, 5).map(job => previewActiveJobHtml(job, config)).join('')
+            : '<li class="topbar-active-jobs__empty">No active jobs right now.</li>';
+    } catch {
+        list.innerHTML = '<li class="topbar-active-jobs__empty">Active Jobs are unavailable right now.</li>';
+        badge.textContent = '0';
+    }
+}
+function previewActiveJobHtml(job, config) {
+    const title = escapeHtml(job.title || 'Untitled job');
+    const description = escapeHtml(String(job.subtitle || job.description || '').trim().slice(0, 90));
+    const status = escapeHtml(String(job.worker_state || job.assignment_status || job.status || 'active').replace(/_/g, ' '));
+    const href = config.isAdmin ? `#${config.route}` : `#/jobs/${encodeURIComponent(job.id)}`;
+    return `<li class="topbar-active-job"><i class="bi bi-briefcase topbar-active-job__icon"></i><div class="topbar-active-job__body"><div class="topbar-active-job__title">${title}</div><div class="topbar-active-job__text">${description || 'Active job'} · ${status}</div><a class="topbar-active-job__action" href="${href}">Open</a></div></li>`;
+}
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+}
+// Legacy notification top-bar code is intentionally preserved for a future restore.
+/*
 function toggleNotifications() {
     const panel = document.getElementById('topbar-notifications-panel');
     if (!panel) return;
@@ -136,7 +211,7 @@ async function loadNotificationPreview() {
                     item.classList.remove('topbar-notification--unread');
                     const count = Math.max(0, Number(badge.textContent.replace('+', '')) - 1);
                     badge.textContent = String(count);
-                } catch { /* the full page can retry */ }
+                } catch { // the full page can retry
             });
         });
     } catch {
@@ -184,6 +259,21 @@ if (typeof document !== 'undefined') {
             !panel.contains(e.target) &&
             !e.target.closest('.topbar__notifications')) {
             panel.classList.remove('topbar-notifications--open');
+        }
+    });
+}
+
+*/
+
+// Close the Active Jobs panel when clicking outside it.
+if (typeof document !== 'undefined') {
+    document.addEventListener('click', (e) => {
+        const panel = document.getElementById('topbar-active-jobs-panel');
+        if (!panel) return;
+        if (panel.classList.contains('topbar-active-jobs--open') &&
+            !panel.contains(e.target) &&
+            !e.target.closest('.topbar__active-jobs')) {
+            panel.classList.remove('topbar-active-jobs--open');
         }
     });
 }
@@ -252,8 +342,8 @@ function authenticatedTopBar() {
                 children: [
                     // Theme toggle
                     themeToggle(),
-                    // Notifications bell + dropdown
-                    notificationBell(),
+                    // Active Jobs briefcase + dropdown (notification code remains commented above for restoration).
+                    activeJobsMenu(),
                     // User profile
                     {
                         tag: 'div',
