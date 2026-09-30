@@ -383,9 +383,14 @@ class JobMarketplaceTest extends TestCase
     {
         $this->assertTrue(file_exists(base_path('earnap-client/src/views/AdminCategoriesPage.js')));
         $this->assertTrue(file_exists(base_path('earnap-client/src/views/AdminSettingsPage.js')));
+        $this->assertTrue(file_exists(base_path('earnap-client/src/views/AdminJobPostPage.js')));
         $settings = file_get_contents(base_path('earnap-client/src/views/AdminSettingsPage.js'));
         foreach (['Advertisement System', 'Video Ads', 'Reward System', 'External Ad Network'] as $label) {
             $this->assertTrue(str_contains($settings, $label), "Admin settings is missing {$label}.");
+        }
+        $adminJobPost = file_get_contents(base_path('earnap-client/src/views/AdminJobPostPage.js'));
+        foreach (['name="category_id"', 'name="subcategory_id"', 'admin-category-select', 'admin-subcategory-select'] as $snippet) {
+            $this->assertTrue(str_contains($adminJobPost, $snippet), "Admin job post page is missing {$snippet}.");
         }
     }
 

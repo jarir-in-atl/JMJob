@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 - **Database / MySQL Encoding:** Fixed an issue in `src/Core/Database.php` (`Database::connectMysql()`) where multibyte Unicode strings (such as Bengali/Bangla script) could get corrupted into `?` question marks when communicating with MySQL/MariaDB servers whose default handshake charset is `latin1`. Enforced `SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci` via both `PDO::MYSQL_ATTR_INIT_COMMAND` and explicit connection execution.
+- **Admin Job Post UI:** Fixed `/admin/admin-job-post` where the subcategory selection was missing and displayed alongside subtitle as a plain text input. Added a reactive subcategory dropdown (`subcategory_id`) dynamically populated from the active category's subcategories with edit-mode preselection, and separated the job subtitle into its own optional input.
 
 ---
 

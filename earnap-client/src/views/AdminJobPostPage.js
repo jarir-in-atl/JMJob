@@ -28,19 +28,34 @@ function render(root, categories, job, editId) {
     const proof = job?.proof_requirements || [];
     const screenshotRequired = proof.some(item => item.type === 'screenshot');
     const writtenRequired = proof.some(item => item.type === 'text');
+
+    const selectedCategoryId = job?.category_id ? Number(job.category_id) : '';
+    const selectedCategory = categories.find(category => Number(category.id) === selectedCategoryId);
+    const subcategories = selectedCategory?.subcategories || [];
+    const selectedSubcategoryId = job?.subcategory_id ? Number(job.subcategory_id) : '';
+
     root.innerHTML = `
         <a href="#/admin/jobs" class="back-link"><i class="bi bi-arrow-left"></i> Job management</a>
         <div class="page-heading-row"><div><h1 class="page-title">${editId ? 'Edit Job' : 'Admin Job Post'}</h1><p class="muted">Create or maintain a job using the same worker assignment and payment workflow as customer posts.</p></div></div>
         <form class="card admin-job-form" id="admin-job-form">
             <div class="poster-form__grid">
                 <label>Category
-                    <select name="category_id" required><option value="">Choose category…</option>${categories.map(category => `<option value="${category.id}" ${Number(category.id) === Number(job?.category_id) ? 'selected' : ''}>${escapeHtml(category.name)}</option>`).join('')}</select>
+                    <select name="category_id" id="admin-category-select" required>
+                        <option value="">Choose category…</option>
+                        ${categories.map(category => `<option value="${category.id}" ${Number(category.id) === selectedCategoryId ? 'selected' : ''}>${escapeHtml(category.name)}</option>`).join('')}
+                    </select>
                 </label>
-                <label>Subtitle
-                    <input name="subtitle" maxlength="255" value="${escapeHtml(job?.subtitle || '')}" placeholder="Short job-card summary">
+                <label>Subcategory
+                    <select name="subcategory_id" id="admin-subcategory-select" ${!selectedCategory ? 'disabled' : ''}>
+                        <option value="">${selectedCategory && subcategories.length === 0 ? 'No subcategories available' : 'Choose subcategory (optional)…'}</option>
+                        ${subcategories.map(sub => `<option value="${sub.id}" ${Number(sub.id) === selectedSubcategoryId ? 'selected' : ''}>${escapeHtml(sub.name)}</option>`).join('')}
+                    </select>
                 </label>
             </div>
-            <label>Job title <input name="title" maxlength="160" required value="${escapeHtml(job?.title || '')}"></label>
+            <div class="poster-form__grid">
+                <label>Job title <input name="title" maxlength="160" required value="${escapeHtml(job?.title || '')}"></label>
+                <label>Job subtitle (Optional) <input name="subtitle" maxlength="255" value="${escapeHtml(job?.subtitle || '')}" placeholder="Short job-card summary"></label>
+            </div>
             <label>Customer name <input name="customer_name" maxlength="160" value="${escapeHtml(job?.customer_name || '')}"></label>
             <div class="poster-form__grid">
                 <label>Customer phone <input name="customer_phone" maxlength="32" value="${escapeHtml(job?.customer_phone || '')}"></label>
@@ -63,6 +78,27 @@ function render(root, categories, job, editId) {
         </form>
     `;
 
+    const categorySelect = root.querySelector('#admin-category-select');
+    const subcategorySelect = root.querySelector('#admin-subcategory-select');
+
+    categorySelect.addEventListener('change', () => {
+        const catId = Number(categorySelect.value);
+        const cat = categories.find(c => Number(c.id) === catId);
+        const subs = cat?.subcategories || [];
+
+        if (!cat) {
+            subcategorySelect.innerHTML = '<option value="">Choose subcategory (optional)…</option>';
+            subcategorySelect.disabled = true;
+        } else if (subs.length === 0) {
+            subcategorySelect.innerHTML = '<option value="">No subcategories available</option>';
+            subcategorySelect.disabled = true;
+        } else {
+            subcategorySelect.innerHTML = '<option value="">Choose subcategory (optional)…</option>' +
+                subs.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+            subcategorySelect.disabled = false;
+        }
+    });
+
     root.querySelector('#admin-job-cancel').addEventListener('click', () => navigate('/admin/jobs'));
     root.querySelector('#admin-job-form').addEventListener('submit', async event => {
         event.preventDefault();
@@ -71,8 +107,11 @@ function render(root, categories, job, editId) {
         const proofRequirements = [];
         if (data.get('requires_screenshot')) proofRequirements.push({ title: 'Screenshot proof', type: 'screenshot' });
         if (data.get('requires_written')) proofRequirements.push({ title: 'Written report', type: 'text' });
+        const subcategoryVal = data.get('subcategory_id');
+        const subcategoryId = subcategoryVal && Number(subcategoryVal) > 0 ? Number(subcategoryVal) : null;
         const body = {
             category_id: Number(data.get('category_id')),
+            subcategory_id: subcategoryId,
             title: String(data.get('title') || '').trim(),
             subtitle: String(data.get('subtitle') || '').trim(),
             customer_name: String(data.get('customer_name') || '').trim(),
