@@ -11,6 +11,11 @@
   - Updated `AdminJobController::detailPayload()` and `JobController::serializeJob()` to return `attachment_path` and public `attachment_url` in job response payloads.
   - Enhanced `AdminJobDetailPage.js` to prominently render the job screenshot/thumbnail, inline image previews for proof requirements, and inline image previews for worker submissions.
   - Added thumbnail file upload with live preview and removal controls in `AdminJobPostPage.js` so administrators can add or update screenshots when creating or editing jobs.
+- **Work Proof Flexibility (Images only, Texts only, or Both pairs):**
+  - Updated `AdminJobPostPage.js` and `PostJobPage.js` to support one-click preset modes ("Images only", "Texts only", "Both (Images & Texts)") as well as custom requirement pairs with explicit requirement titles and types.
+  - In `PostJobPage.js`, fixed requirement pair rows so posters can enter custom instructions/titles for screenshot requirements, with optional sample image uploads.
+  - In `JobDetailPage.js`, dynamically adjusted submission requirements: for image-only jobs, the description textarea is optional while the screenshot/attachment is required (workers are no longer blocked by HTML5 required attribute on description); for text-only jobs, description is required while file attachment is optional; for both pairs, both are required.
+  - In `JobService.php::submitWork()`, aligned validation and fraud detection so image-only submissions are not rejected for empty descriptions and do not trigger false-positive `very_short_description` risk penalties when valid proof files are provided. Also guarded content duplicate hashing to prevent flagging distinct workers submitting image-only proofs with empty descriptions.
 
 ---
 

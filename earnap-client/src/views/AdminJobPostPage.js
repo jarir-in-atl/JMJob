@@ -25,9 +25,15 @@ export function AdminJobPostPage() {
 }
 
 function render(root, categories, job, editId) {
-    const proof = job?.proof_requirements || [];
-    const screenshotRequired = proof.some(item => item.type === 'screenshot');
-    const writtenRequired = proof.some(item => item.type === 'text');
+    let proofRequirements = [];
+    if (Array.isArray(job?.proof_requirements) && job.proof_requirements.length > 0) {
+        proofRequirements = job.proof_requirements.map(item => ({
+            title: typeof item === 'object' ? (item.title || '') : (typeof item === 'string' ? item : ''),
+            type: (typeof item === 'object' ? item.type : item) === 'screenshot' ? 'screenshot' : 'text'
+        }));
+    } else {
+        proofRequirements = [{ title: 'Screenshot proof', type: 'screenshot' }];
+    }
 
     const selectedCategoryId = job?.category_id ? Number(job.category_id) : '';
     const selectedCategory = categories.find(category => Number(category.id) === selectedCategoryId);
@@ -87,9 +93,22 @@ function render(root, categories, job, editId) {
                     ` : ''}
                 </div>
             </label>
-            <div class="admin-job-proof-options">
-                <label><input name="requires_screenshot" type="checkbox" ${screenshotRequired ? 'checked' : ''}> Screenshot proof required</label>
-                <label><input name="requires_written" type="checkbox" ${writtenRequired ? 'checked' : ''}> Written report required</label>
+            <div class="admin-job-proof-card" style="margin: 1rem 0; padding: 1.25rem; background: var(--bg-secondary, #f8fafc); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.75rem; flex-wrap:wrap; gap:8px;">
+                    <div>
+                        <div style="font-weight:600; font-size:14px;"><i class="bi bi-shield-check"></i> Work Proof Requirements</div>
+                        <span class="muted" style="font-size:12px;">Choose whether proof will take images only, texts only, or both pairs of images and texts.</span>
+                    </div>
+                    <button type="button" class="btn btn--sm btn--ghost" id="admin-add-proof-btn"><i class="bi bi-plus-circle"></i> Add Requirement</button>
+                </div>
+
+                <div class="proof-mode-presets" style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;">
+                    <button type="button" class="btn btn--sm" id="admin-mode-images"><i class="bi bi-image"></i> Images only</button>
+                    <button type="button" class="btn btn--sm" id="admin-mode-texts"><i class="bi bi-file-text"></i> Texts only</button>
+                    <button type="button" class="btn btn--sm" id="admin-mode-both"><i class="bi bi-collection"></i> Both (Images & Texts)</button>
+                </div>
+
+                <div id="admin-proof-pairs-container"></div>
             </div>
             <label>Admin notes <textarea name="admin_notes" rows="3">${escapeHtml(job?.admin_notes || '')}</textarea></label>
             <label><input name="publish" type="checkbox" ${!job || job.status === 'open' ? 'checked' : ''}> Publish / activate immediately</label>
@@ -101,6 +120,91 @@ function render(root, categories, job, editId) {
     const subcategorySelect = root.querySelector('#admin-subcategory-select');
     const thumbnailInput = root.querySelector('#admin-thumbnail-input');
     const thumbnailPreview = root.querySelector('#admin-thumbnail-preview');
+
+    function saveProofRows() {
+        const rows = root.querySelectorAll('.admin-proof-row');
+        if (!rows.length) return;
+        proofRequirements = Array.from(rows).map(row => {
+            const type = row.querySelector('.admin-proof-type-select')?.value || 'screenshot';
+            const title = row.querySelector('.admin-proof-title-input')?.value.trim() || '';
+            return { title, type };
+        });
+    }
+
+    function renderProofRows() {
+        const container = root.querySelector('#admin-proof-pairs-container');
+        if (!container) return;
+
+        const hasScreenshot = proofRequirements.some(p => p.type === 'screenshot');
+        const hasText = proofRequirements.some(p => p.type === 'text');
+
+        const btnImages = root.querySelector('#admin-mode-images');
+        const btnTexts = root.querySelector('#admin-mode-texts');
+        const btnBoth = root.querySelector('#admin-mode-both');
+        if (btnImages) btnImages.className = `btn btn--sm ${hasScreenshot && !hasText ? 'btn--primary' : 'btn--outline'}`;
+        if (btnTexts) btnTexts.className = `btn btn--sm ${hasText && !hasScreenshot ? 'btn--primary' : 'btn--outline'}`;
+        if (btnBoth) btnBoth.className = `btn btn--sm ${hasScreenshot && hasText ? 'btn--primary' : 'btn--outline'}`;
+
+        container.innerHTML = proofRequirements.map((proof, idx) => `
+            <div class="admin-proof-row" style="display:flex; gap:8px; align-items:center; margin-bottom:8px;" data-index="${idx}">
+                <select class="admin-proof-type-select" style="min-width: 170px;">
+                    <option value="screenshot" ${proof.type === 'screenshot' ? 'selected' : ''}>📷 Image / Screenshot</option>
+                    <option value="text" ${proof.type === 'text' ? 'selected' : ''}>📝 Written Text</option>
+                </select>
+                <input type="text" class="admin-proof-title-input" placeholder="${proof.type === 'screenshot' ? 'Requirement (e.g. Screenshot of completed task)' : 'Requirement (e.g. Account username / ID)'}" value="${escapeHtml(proof.title || '')}" style="flex:1;" required>
+                ${proofRequirements.length > 1 ? `
+                    <button type="button" class="btn btn--ghost btn--sm admin-remove-proof-btn" data-index="${idx}" style="color:#ef4444;" title="Remove requirement"><i class="bi bi-trash"></i></button>
+                ` : ''}
+            </div>
+        `).join('');
+
+        container.querySelectorAll('.admin-proof-type-select').forEach(select => {
+            select.addEventListener('change', (e) => {
+                const row = e.target.closest('.admin-proof-row');
+                const idx = Number(row.dataset.index);
+                saveProofRows();
+                proofRequirements[idx].type = e.target.value;
+                renderProofRows();
+            });
+        });
+
+        container.querySelectorAll('.admin-remove-proof-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const idx = Number(e.currentTarget.dataset.index);
+                saveProofRows();
+                proofRequirements.splice(idx, 1);
+                if (proofRequirements.length === 0) {
+                    proofRequirements.push({ title: 'Screenshot proof', type: 'screenshot' });
+                }
+                renderProofRows();
+            });
+        });
+    }
+
+    renderProofRows();
+
+    root.querySelector('#admin-mode-images')?.addEventListener('click', () => {
+        proofRequirements = [{ title: 'Screenshot proof', type: 'screenshot' }];
+        renderProofRows();
+    });
+    root.querySelector('#admin-mode-texts')?.addEventListener('click', () => {
+        proofRequirements = [{ title: 'Written report', type: 'text' }];
+        renderProofRows();
+    });
+    root.querySelector('#admin-mode-both')?.addEventListener('click', () => {
+        proofRequirements = [
+            { title: 'Written report / Task info', type: 'text' },
+            { title: 'Screenshot proof', type: 'screenshot' }
+        ];
+        renderProofRows();
+    });
+    root.querySelector('#admin-add-proof-btn')?.addEventListener('click', () => {
+        saveProofRows();
+        const lastType = proofRequirements[proofRequirements.length - 1]?.type;
+        const newType = lastType === 'screenshot' ? 'text' : 'screenshot';
+        proofRequirements.push({ title: '', type: newType });
+        renderProofRows();
+    });
 
     function attachRemoveThumbnailHandler() {
         root.querySelector('#admin-remove-thumbnail')?.addEventListener('click', () => {
@@ -173,11 +277,13 @@ function render(root, categories, job, editId) {
     root.querySelector('#admin-job-cancel').addEventListener('click', () => navigate('/admin/jobs'));
     root.querySelector('#admin-job-form').addEventListener('submit', async event => {
         event.preventDefault();
+        saveProofRows();
         const form = event.currentTarget;
         const data = new FormData(form);
-        const proofRequirements = [];
-        if (data.get('requires_screenshot')) proofRequirements.push({ title: 'Screenshot proof', type: 'screenshot' });
-        if (data.get('requires_written')) proofRequirements.push({ title: 'Written report', type: 'text' });
+        const finalProof = proofRequirements.map(item => ({
+            title: item.title.trim() || (item.type === 'screenshot' ? 'Screenshot proof' : 'Written report'),
+            type: item.type
+        }));
         const subcategoryVal = data.get('subcategory_id');
         const subcategoryId = subcategoryVal && Number(subcategoryVal) > 0 ? Number(subcategoryVal) : null;
         const body = {
@@ -193,7 +299,7 @@ function render(root, categories, job, editId) {
             worker_count: Number(data.get('worker_count')),
             cost_per_worker: Number(data.get('cost_per_worker')),
             deadline_at: toSqlDate(String(data.get('deadline_at') || '')),
-            proof_requirements: proofRequirements,
+            proof_requirements: finalProof,
             admin_notes: String(data.get('admin_notes') || '').trim(),
             publish: !!data.get('publish'),
         };

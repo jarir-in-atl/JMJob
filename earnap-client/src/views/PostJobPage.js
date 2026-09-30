@@ -173,6 +173,9 @@ function renderStep1(container, root, state) {
 // STEP 2: Job Title, Task Instructions, Thumbnail & Proof Requirements
 // -----------------------------------------------------------------------------
 function renderStep2(container, root, state) {
+    const hasScreenshot = state.proofRequirements.some(p => p.type === 'screenshot');
+    const hasText = state.proofRequirements.some(p => p.type === 'text');
+
     container.innerHTML = `
         <form id="step-2-form" class="poster-form">
             <h2>Step 2: Job Details & Proof Requirements</h2>
@@ -194,30 +197,41 @@ function renderStep2(container, root, state) {
                 ${state.thumbnailBase64 ? `<div style="margin-top:0.5rem;"><img src="${state.thumbnailBase64}" style="max-height:80px; border-radius:4px; border:1px solid #ccc;"></div>` : ''}
             </label>
 
-            <div style="margin-top: 1.5rem;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.5rem;">
-                    <label style="margin:0; font-weight:bold;">Proof Requirements</label>
+            <div style="margin-top: 1.5rem; padding: 1.25rem; background: var(--bg-secondary, #f8fafc); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.5rem; flex-wrap:wrap; gap:8px;">
+                    <div>
+                        <div style="font-weight:600; font-size:14px;"><i class="bi bi-shield-check"></i> Proof Requirements</div>
+                        <span class="muted" style="font-size:12px;">Choose whether proof will take images only, texts only, or both pairs of images and texts.</span>
+                    </div>
                     <button type="button" class="btn btn--sm btn--ghost" id="add-proof-btn"><i class="bi bi-plus-circle"></i> Add Requirement Pair</button>
                 </div>
-                <p class="muted" style="font-size:0.875rem;">Specify requirement title and whether worker provides Text Proof or Screenshot Proof.</p>
+
+                <!-- Quick Mode Presets -->
+                <div class="proof-mode-presets" style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;">
+                    <button type="button" class="btn btn--sm ${hasScreenshot && !hasText ? 'btn--primary' : 'btn--outline'}" id="poster-mode-images"><i class="bi bi-image"></i> Images only</button>
+                    <button type="button" class="btn btn--sm ${hasText && !hasScreenshot ? 'btn--primary' : 'btn--outline'}" id="poster-mode-texts"><i class="bi bi-file-text"></i> Texts only</button>
+                    <button type="button" class="btn btn--sm ${hasScreenshot && hasText ? 'btn--primary' : 'btn--outline'}" id="poster-mode-both"><i class="bi bi-collection"></i> Both (Images & Texts)</button>
+                </div>
 
                 <div id="proof-pairs-container">
                     ${state.proofRequirements.map((proof, idx) => `
-                        <div class="proof-pair-row" style="display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem;" data-index="${idx}">
-                            <select class="proof-type-select" style="flex:1;">
-                                <option value="text" ${proof.type === 'text' ? 'selected' : ''}>Text Proof</option>
-                                <option value="screenshot" ${proof.type === 'screenshot' ? 'selected' : ''}>Screenshot Proof</option>
+                        <div class="proof-pair-row" style="display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem; flex-wrap:wrap;" data-index="${idx}">
+                            <select class="proof-type-select" style="min-width: 150px;">
+                                <option value="screenshot" ${proof.type === 'screenshot' ? 'selected' : ''}>📷 Screenshot Proof</option>
+                                <option value="text" ${proof.type === 'text' ? 'selected' : ''}>📝 Text Proof</option>
                             </select>
+                            <input type="text" class="proof-title-input" placeholder="${proof.type === 'screenshot' ? 'Screenshot requirement (e.g. Upload payment screenshot)' : 'Text requirement (e.g. Provide account username)'}" value="${escapeHtml(proof.title || '')}" style="flex:2; min-width: 180px;" required>
                             ${proof.type === 'screenshot' ? `
-                                <div style="flex:2; display:flex; align-items:center; gap:0.5rem;">
-                                    <input type="file" class="proof-file-input" accept="image/*" style="flex:1;">
-                                    ${proof.fileBase64 ? `<img src="${proof.fileBase64}" style="max-height:40px; max-width:60px; border-radius:4px; border:1px solid #ccc;">` : ''}
+                                <div style="display:flex; align-items:center; gap:0.5rem;">
+                                    <label class="btn btn--ghost btn--sm" style="margin:0; cursor:pointer; font-size:12px; white-space:nowrap;" title="Upload sample reference image for worker (optional)">
+                                        <i class="bi bi-upload"></i> Sample image
+                                        <input type="file" class="proof-file-input" accept="image/*" style="display:none;">
+                                    </label>
+                                    ${proof.fileBase64 || proof.image_url ? `<img src="${proof.fileBase64 || proof.image_url}" style="max-height:36px; max-width:50px; border-radius:4px; border:1px solid #ccc; object-fit:contain;">` : ''}
                                 </div>
-                            ` : `
-                                <input type="text" class="proof-title-input" placeholder="Proof Requirement Title (e.g. Provide Username)" value="${escapeHtml(proof.title || '')}" style="flex:2;" required>
-                            `}
+                            ` : ''}
                             ${state.proofRequirements.length > 1 ? `
-                                <button type="button" class="btn btn--ghost remove-proof-btn" data-index="${idx}" style="color:#ef4444;"><i class="bi bi-trash"></i></button>
+                                <button type="button" class="btn btn--ghost remove-proof-btn" data-index="${idx}" style="color:#ef4444;" title="Remove requirement"><i class="bi bi-trash"></i></button>
                             ` : ''}
                         </div>
                     `).join('')}
@@ -234,13 +248,36 @@ function renderStep2(container, root, state) {
         </form>
     `;
 
+    // Mode preset button events
+    container.querySelector('#poster-mode-images')?.addEventListener('click', () => {
+        saveStep2Inputs(container, state);
+        state.proofRequirements = [{ title: 'Screenshot Proof', type: 'screenshot' }];
+        renderStep2(container, root, state);
+    });
+    container.querySelector('#poster-mode-texts')?.addEventListener('click', () => {
+        saveStep2Inputs(container, state);
+        state.proofRequirements = [{ title: 'Written Text Proof', type: 'text' }];
+        renderStep2(container, root, state);
+    });
+    container.querySelector('#poster-mode-both')?.addEventListener('click', () => {
+        saveStep2Inputs(container, state);
+        state.proofRequirements = [
+            { title: 'Written Proof (e.g. Account username / ID)', type: 'text' },
+            { title: 'Screenshot Proof (e.g. Completed task screenshot)', type: 'screenshot' }
+        ];
+        renderStep2(container, root, state);
+    });
+
     // Proof pairs logic
     const pairsContainer = container.querySelector('#proof-pairs-container');
 
     // Dynamic dropdown type change
     pairsContainer.addEventListener('change', (e) => {
         if (e.target.classList.contains('proof-type-select')) {
+            const row = e.target.closest('.proof-pair-row');
+            const idx = Number(row.getAttribute('data-index'));
             saveStep2Inputs(container, state);
+            state.proofRequirements[idx].type = e.target.value;
             renderStep2(container, root, state);
         } else if (e.target.classList.contains('proof-file-input')) {
             const row = e.target.closest('.proof-pair-row');
@@ -249,8 +286,11 @@ function renderStep2(container, root, state) {
             if (file) {
                 const reader = new FileReader();
                 reader.onload = (evt) => {
+                    saveStep2Inputs(container, state);
                     state.proofRequirements[idx].fileBase64 = evt.target.result;
-                    state.proofRequirements[idx].title = file.name;
+                    if (!state.proofRequirements[idx].title) {
+                        state.proofRequirements[idx].title = 'Screenshot Proof';
+                    }
                     renderStep2(container, root, state);
                 };
                 reader.readAsDataURL(file);
@@ -260,7 +300,9 @@ function renderStep2(container, root, state) {
 
     container.querySelector('#add-proof-btn').addEventListener('click', () => {
         saveStep2Inputs(container, state);
-        state.proofRequirements.push({ title: '', type: 'text' });
+        const lastType = state.proofRequirements[state.proofRequirements.length - 1]?.type;
+        const newType = lastType === 'screenshot' ? 'text' : 'screenshot';
+        state.proofRequirements.push({ title: '', type: newType });
         renderStep2(container, root, state);
     });
 
@@ -270,6 +312,9 @@ function renderStep2(container, root, state) {
             const idx = Number(btn.getAttribute('data-index'));
             saveStep2Inputs(container, state);
             state.proofRequirements.splice(idx, 1);
+            if (state.proofRequirements.length === 0) {
+                state.proofRequirements.push({ title: 'Screenshot Proof', type: 'screenshot' });
+            }
             renderStep2(container, root, state);
         }
     });
@@ -319,18 +364,22 @@ function saveStep2Inputs(container, state) {
     state.description = container.querySelector('#job-desc-input')?.value || '';
 
     const rows = container.querySelectorAll('.proof-pair-row');
-    state.proofRequirements = Array.from(rows).map((row, idx) => {
-        const type = row.querySelector('.proof-type-select')?.value || 'text';
-        const titleInput = row.querySelector('.proof-title-input');
-        const title = titleInput ? titleInput.value : (state.proofRequirements[idx]?.title || 'Screenshot Proof');
-        const fileBase64 = state.proofRequirements[idx]?.fileBase64 || null;
+    if (rows.length > 0) {
+        state.proofRequirements = Array.from(rows).map((row, idx) => {
+            const type = row.querySelector('.proof-type-select')?.value || 'screenshot';
+            const titleInput = row.querySelector('.proof-title-input');
+            const title = titleInput ? titleInput.value.trim() : (state.proofRequirements[idx]?.title || (type === 'screenshot' ? 'Screenshot Proof' : 'Text Proof'));
+            const fileBase64 = state.proofRequirements[idx]?.fileBase64 || null;
+            const imageUrl = state.proofRequirements[idx]?.image_url || null;
 
-        return {
-            title,
-            type,
-            fileBase64
-        };
-    });
+            return {
+                title,
+                type,
+                fileBase64,
+                image_url: imageUrl
+            };
+        });
+    }
 }
 
 // -----------------------------------------------------------------------------

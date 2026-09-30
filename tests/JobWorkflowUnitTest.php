@@ -57,11 +57,58 @@ class JobWorkflowUnitTest extends TestCase
         $this->assertTrue(mb_strlen($banglaTitle) <= 160);
         $this->assertTrue(mb_strlen($banglaDesc) > 0);
     }
+    public function testProofRequirementsCategorization(): void
+    {
+        $classify = function (array $proofRequirements): array {
+            $requiresAttachment = false;
+            $requiresWrittenReport = false;
+            foreach ($proofRequirements as $requirement) {
+                $type = is_array($requirement)
+                    ? strtolower(trim((string) ($requirement['type'] ?? 'text')))
+                    : strtolower(trim((string) $requirement));
+                if (in_array($type, ['screenshot', 'file', 'attachment', 'image', 'document'], true)) {
+                    $requiresAttachment = true;
+                }
+                if (in_array($type, ['text', 'written', 'written_report', 'report', 'description'], true)) {
+                    $requiresWrittenReport = true;
+                }
+            }
+            return [$requiresAttachment, $requiresWrittenReport];
+        };
+
+        // 1. Images only
+        [$imgAttach, $imgText] = $classify([['title' => 'Proof screenshot', 'type' => 'screenshot']]);
+        $this->assertTrue($imgAttach, 'Images only must require attachment');
+        $this->assertFalse($imgText, 'Images only must NOT require written report');
+
+        // 2. Texts only
+        [$txtAttach, $txtText] = $classify([['title' => 'Username', 'type' => 'text']]);
+        $this->assertFalse($txtAttach, 'Texts only must NOT require attachment');
+        $this->assertTrue($txtText, 'Texts only must require written report');
+
+        // 3. Both pairs
+        [$bothAttach, $bothText] = $classify([
+            ['title' => 'Account Username', 'type' => 'text'],
+            ['title' => 'Payment Receipt Screenshot', 'type' => 'screenshot'],
+        ]);
+        $this->assertTrue($bothAttach, 'Both pairs must require attachment');
+        $this->assertTrue($bothText, 'Both pairs must require written report');
+
+        // 4. Legacy format
+        [$legAttach, $legText] = $classify(['screenshot']);
+        $this->assertTrue($legAttach, 'Legacy screenshot must require attachment');
+        $this->assertFalse($legText, 'Legacy screenshot must NOT require written report');
+    }
 }
 
 $test = new JobWorkflowUnitTest();
 echo "--- Job Workflow Unit Test ---\n";
-foreach (['testAdditiveFeeCalculation', 'testSelfApplicationGuardLogic', 'testBanglaTextAndUnicodeHandling'] as $method) {
+foreach ([
+    'testAdditiveFeeCalculation',
+    'testSelfApplicationGuardLogic',
+    'testBanglaTextAndUnicodeHandling',
+    'testProofRequirementsCategorization'
+] as $method) {
     echo "Running {$method}... ";
     try {
         $test->setUp();

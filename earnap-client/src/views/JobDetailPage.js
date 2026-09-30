@@ -82,7 +82,33 @@ function render(job, bids, bidCount, myBid, mySubmission, user) {
                 <h3>Description</h3>
                 <p>${escapeHtml(job.description).replace(/\n/g, '<br>')}</p>
                 ${job.requirements ? `<h3>Requirements</h3><p>${escapeHtml(job.requirements).replace(/\n/g, '<br>')}</p>` : ''}
-                ${Array.isArray(job.proof_requirements) && job.proof_requirements.length ? `<h3>Proof required</h3><ul>${job.proof_requirements.map(requirement => `<li>${escapeHtml(proofRequirementLabel(requirement))}</li>`).join('')}</ul>` : ''}
+                ${Array.isArray(job.proof_requirements) && job.proof_requirements.length ? `
+                    <h3>Proof required</h3>
+                    <div class="proof-requirements-list" style="margin-top:8px;">
+                        ${job.proof_requirements.map((requirement, idx) => {
+                            const isFile = isFileProofRequirement(requirement);
+                            const title = typeof requirement === 'object' ? requirement?.title : '';
+                            const displayTitle = title || (isFile ? 'Screenshot / Image proof' : 'Written report');
+                            const proofImg = (typeof requirement === 'object' && (requirement.image_url || requirement.fileBase64)) ? (requirement.image_url || requirement.fileBase64) : null;
+                            return `
+                                <div style="margin-bottom:8px; padding:10px 12px; background:var(--bg-secondary, #f8fafc); border:1px solid var(--border-color, #e2e8f0); border-radius:6px;">
+                                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                                        <span><strong>#${idx + 1}.</strong> ${escapeHtml(displayTitle)}</span>
+                                        <span class="badge" style="font-size:11px;">${isFile ? 'IMAGE / SCREENSHOT' : 'TEXT PROOF'}</span>
+                                    </div>
+                                    ${proofImg ? `
+                                        <div style="margin-top:8px;">
+                                            <span class="muted" style="font-size:12px; display:block; margin-bottom:4px;">Sample reference image:</span>
+                                            <a href="${escapeHtml(proofImg)}" target="_blank" rel="noopener noreferrer">
+                                                <img src="${escapeHtml(proofImg)}" alt="Proof sample" style="max-height:120px; max-width:100%; border-radius:4px; border:1px solid #cbd5e1; object-fit:contain;" />
+                                            </a>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                ` : ''}
                 <h3>Posted by</h3>
                 <p>${job.poster ? escapeHtml(job.poster.name) : 'Unknown'} <span class="muted">@${job.poster?.username || '?'}</span></p>
             </div>
@@ -124,8 +150,9 @@ function renderSubmissionSection(job, submission, assignedToCurrentUser) {
     if (!canSubmit) {
         return `<div class="card"><p class="muted">This assignment is ${escapeHtml(String(assignmentStatus).replace('_', ' '))}.</p></div>`;
     }
-    const requiresProofAttachment = Array.isArray(job.proof_requirements)
-        && job.proof_requirements.some(isFileProofRequirement);
+    const hasProofReqs = Array.isArray(job.proof_requirements) && job.proof_requirements.length > 0;
+    const requiresProofAttachment = hasProofReqs && job.proof_requirements.some(isFileProofRequirement);
+    const requiresWrittenReport = hasProofReqs && job.proof_requirements.some(r => !isFileProofRequirement(r));
     const revisionNote = submission?.reviewer_note || submission?.rejection_reason;
     return `
         <div class="card">
@@ -133,8 +160,8 @@ function renderSubmissionSection(job, submission, assignedToCurrentUser) {
             ${revisionNote ? `<p class="alert alert--warning"><strong>Revision requested:</strong> ${escapeHtml(revisionNote)}</p>` : ''}
             <form id="job-submission-form" class="submit-form">
                 <label class="submit-form__label">
-                    What did you deliver? (description)
-                    <textarea name="description" rows="4" required placeholder="Summarize what you delivered…">${escapeHtml(submission?.description || '')}</textarea>
+                    ${requiresWrittenReport ? 'Written report / delivery details (required)' : (requiresProofAttachment ? 'Submission notes / comments (optional)' : 'What did you deliver? (description)')}
+                    <textarea name="description" rows="4" ${requiresWrittenReport ? 'required' : ''} placeholder="${requiresWrittenReport ? 'Describe your completed work or provide requested text proofs…' : 'Optional notes or comments about your submission…'}">${escapeHtml(submission?.description || '')}</textarea>
                 </label>
                 <label class="submit-form__label">
                     External link (optional)
@@ -156,15 +183,37 @@ function renderSubmissionSection(job, submission, assignedToCurrentUser) {
 function wireSubmissionForm(job) {
     const form = document.getElementById('job-submission-form');
     if (!form) return;
+
+    const hasProofReqs = Array.isArray(job.proof_requirements) && job.proof_requirements.length > 0;
+    const requiresProofAttachment = hasProofReqs && job.proof_requirements.some(isFileProofRequirement);
+    const requiresWrittenReport = hasProofReqs && job.proof_requirements.some(r => !isFileProofRequirement(r));
+
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const button = document.getElementById('job-submit-work-btn');
         const fd = new FormData(form);
-        const payload = new FormData();
-        payload.append('description', String(fd.get('description') || '').trim());
-        payload.append('external_link', String(fd.get('external_link') || '').trim());
+        const description = String(fd.get('description') || '').trim();
+        const external_link = String(fd.get('external_link') || '').trim();
         const screenshot = fd.get('screenshot');
-        if (screenshot instanceof File && screenshot.size > 0) payload.append('screenshot', screenshot);
+        const hasFile = screenshot instanceof File && screenshot.size > 0;
+
+        if (requiresProofAttachment && !hasFile) {
+            showFlash('Please upload your proof screenshot/attachment.', 'error');
+            return;
+        }
+        if (requiresWrittenReport && !description) {
+            showFlash('Please provide a written report description.', 'error');
+            return;
+        }
+        if (!requiresProofAttachment && !requiresWrittenReport && !description && !hasFile && !external_link) {
+            showFlash('Please provide at least one form of proof (written description, screenshot, or external link).', 'error');
+            return;
+        }
+
+        const payload = new FormData();
+        payload.append('description', description);
+        payload.append('external_link', external_link);
+        if (hasFile) payload.append('screenshot', screenshot);
         button.disabled = true;
         button.innerHTML = '<i class="bi bi-hourglass"></i> Submitting…';
         try {

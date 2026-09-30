@@ -1488,6 +1488,11 @@ class JobService
         if ($requiresWrittenReport && trim((string) $description) === '') {
             return ['success' => false, 'message' => 'A written report is required for this job.'];
         }
+        if (!$requiresAttachment && !$requiresWrittenReport) {
+            if (trim((string) $description) === '' && $proofFile === null && trim((string) $externalLink) === '') {
+                return ['success' => false, 'message' => 'Please provide at least one form of proof (written description, external link, or attachment).'];
+            }
+        }
 
         $attachmentPath = null;
         $attachmentAbsolutePath = null;
@@ -1533,9 +1538,11 @@ class JobService
         $velocityLimit = max(1, (int) SettingService::get('fraud_daily_submission_velocity_limit', 10));
         $sharedIdentityThreshold = max(2, (int) SettingService::get('fraud_shared_identity_worker_threshold', 2));
         $reviewThreshold = max(1, (int) SettingService::get('fraud_review_threshold', 20));
-        if (mb_strlen($normalizedDescription) < $minimumDescriptionLength) {
-            $riskScore += 20;
-            $riskFlags[] = 'very_short_description';
+        if ($requiresWrittenReport || !$requiresAttachment) {
+            if (mb_strlen($normalizedDescription) < $minimumDescriptionLength) {
+                $riskScore += 20;
+                $riskFlags[] = 'very_short_description';
+            }
         }
         $contentHash = hash('sha256', implode('|', [
             (int) $job->id,
@@ -1551,15 +1558,17 @@ class JobService
 
         if ($riskColumnsAvailable) {
             try {
-                $duplicateStmt = Database::connect()->prepare(
-                    "SELECT COUNT(*) FROM job_submissions
-                     WHERE job_id = :job_id AND content_hash = :content_hash
-                       AND status IN ('pending_review', 'approved')"
-                );
-                $duplicateStmt->execute(['job_id' => $job->id, 'content_hash' => $contentHash]);
-                if ((int) $duplicateStmt->fetchColumn() > 0) {
-                    $riskScore += 45;
-                    $riskFlags[] = 'duplicate_content_on_job';
+                if ($normalizedDescription !== '' || trim((string) $externalLink) !== '') {
+                    $duplicateStmt = Database::connect()->prepare(
+                        "SELECT COUNT(*) FROM job_submissions
+                         WHERE job_id = :job_id AND content_hash = :content_hash
+                           AND status IN ('pending_review', 'approved')"
+                    );
+                    $duplicateStmt->execute(['job_id' => $job->id, 'content_hash' => $contentHash]);
+                    if ((int) $duplicateStmt->fetchColumn() > 0) {
+                        $riskScore += 45;
+                        $riskFlags[] = 'duplicate_content_on_job';
+                    }
                 }
 
                 $velocityStmt = Database::connect()->prepare(

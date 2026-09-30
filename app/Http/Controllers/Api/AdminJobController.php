@@ -649,10 +649,22 @@ class AdminJobController extends Controller
         if (is_string($requirements)) $requirements = json_decode($requirements, true) ?: [];
         $out = [];
         foreach ((array) $requirements as $requirement) {
-            if (!is_array($requirement)) continue;
+            if (!is_array($requirement)) {
+                if (is_string($requirement) && trim($requirement) !== '') {
+                    $type = in_array(strtolower(trim($requirement)), ['screenshot', 'image', 'file'], true) ? 'screenshot' : 'text';
+                    $out[] = ['title' => $type === 'screenshot' ? 'Screenshot proof' : 'Written proof', 'type' => $type];
+                }
+                continue;
+            }
             $type = ($requirement['type'] ?? 'text') === 'screenshot' ? 'screenshot' : 'text';
             $title = trim((string) ($requirement['title'] ?? ($type === 'screenshot' ? 'Screenshot proof' : 'Written proof')));
-            if ($title !== '') $out[] = ['title' => mb_substr($title, 0, 160), 'type' => $type];
+            if ($title !== '') {
+                $item = ['title' => mb_substr($title, 0, 160), 'type' => $type];
+                if (!empty($requirement['image_url'])) {
+                    $item['image_url'] = (string) $requirement['image_url'];
+                }
+                $out[] = $item;
+            }
         }
         return $out;
     }
