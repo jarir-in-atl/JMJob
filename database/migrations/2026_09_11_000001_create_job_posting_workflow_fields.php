@@ -131,15 +131,19 @@ class CreateJobPostingWorkflowFields extends Migration {
             $db->exec("ALTER TABLE jobs ADD COLUMN assigned_bid_id INT NULL;");
         }
         if (!in_array('subcategory_id', $existingCols, true)) {
+            $afterCat = in_array('category_id', $existingCols, true) ? 'AFTER category_id' : '';
+            $afterBudget = in_array('budget', $existingCols, true) ? 'AFTER budget' : '';
+            $afterDesc = in_array('description', $existingCols, true) ? 'AFTER description' : '';
+            $afterStatus = in_array('status', $existingCols, true) ? 'AFTER status' : '';
             $db->exec("ALTER TABLE jobs
-                ADD COLUMN subcategory_id INT NULL AFTER category_id,
-                ADD COLUMN worker_count INT NOT NULL DEFAULT 1 AFTER budget,
+                ADD COLUMN subcategory_id INT NULL {$afterCat},
+                ADD COLUMN worker_count INT NOT NULL DEFAULT 1 {$afterBudget},
                 ADD COLUMN cost_per_worker DECIMAL(12,4) NOT NULL DEFAULT 0.0000 AFTER worker_count,
                 ADD COLUMN system_fee_percent DECIMAL(5,2) NOT NULL DEFAULT 30.00 AFTER cost_per_worker,
                 ADD COLUMN system_fee_amount DECIMAL(12,4) NOT NULL DEFAULT 0.0000 AFTER system_fee_percent,
                 ADD COLUMN total_payable_amount DECIMAL(12,4) NOT NULL DEFAULT 0.0000 AFTER system_fee_amount,
-                ADD COLUMN proof_requirements JSON NULL AFTER description,
-                ADD COLUMN decline_reason TEXT NULL AFTER status,
+                ADD COLUMN proof_requirements JSON NULL {$afterDesc},
+                ADD COLUMN decline_reason TEXT NULL {$afterStatus},
                 ADD INDEX idx_jobs_subcategory (subcategory_id);");
         }
 

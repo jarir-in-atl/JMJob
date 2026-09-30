@@ -39,7 +39,7 @@ class SeedCategoriesFromDataCommand extends Command
         $this->ensureTablesAndColumns($pdo);
 
         echo "Clearing existing Categories & Subcategories...\n";
-        $driver = strtolower((string) getenv('DB_DRIVER'));
+        $driver = strtolower(Database::getDriverName() ?: (string) getenv('DB_DRIVER'));
         if ($driver === 'sqlite') {
             $pdo->exec("DELETE FROM subcategories");
             $pdo->exec("DELETE FROM categories");
@@ -51,17 +51,51 @@ class SeedCategoriesFromDataCommand extends Command
             $pdo->exec("SET FOREIGN_KEY_CHECKS=1");
         }
 
+        $friendlyNames = [
+            'AdsClick'          => 'Ads Click',
+            'Bot'               => 'Bot',
+            'Facebook'          => 'Facebook',
+            'Instagram'         => 'Instagram',
+            'Linkedin'          => 'LinkedIn',
+            'MobileApplication' => 'Mobile Application',
+            'Review'            => 'Review',
+            'SignUp'            => 'Sign Up',
+            'Telegram'          => 'Telegram',
+            'Tiktok'            => 'TikTok',
+            'Website'           => 'Website',
+            'Whatsapp'          => 'WhatsApp',
+            'Youtube'           => 'YouTube',
+        ];
+
+        $categoryIcons = [
+            'AdsClick'          => 'bi-cursor-fill',
+            'Bot'               => 'bi-robot',
+            'Facebook'          => 'bi-facebook',
+            'Instagram'         => 'bi-instagram',
+            'Linkedin'          => 'bi-linkedin',
+            'MobileApplication' => 'bi-phone',
+            'Review'            => 'bi-star-fill',
+            'SignUp'            => 'bi-person-plus-fill',
+            'Telegram'          => 'bi-telegram',
+            'Tiktok'            => 'bi-tiktok',
+            'Website'           => 'bi-globe',
+            'Whatsapp'          => 'bi-whatsapp',
+            'Youtube'           => 'bi-youtube',
+        ];
+
         $catOrder = 1;
         $totalCats = 0;
         $totalSubcats = 0;
 
         foreach ($files as $file) {
             $filename = basename($file, '.json');
-            $categoryName = trim($filename);
-            if ($categoryName === '') continue;
+            $rawName = trim($filename);
+            if ($rawName === '') continue;
 
+            $categoryName = $friendlyNames[$rawName] ?? $rawName;
             $slug = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $categoryName));
             $slug = trim($slug, '-');
+            $icon = $categoryIcons[$rawName] ?? 'bi-tags-fill';
 
             $jsonContent = file_get_contents($file);
             $items = json_decode($jsonContent, true);
@@ -87,7 +121,7 @@ class SeedCategoriesFromDataCommand extends Command
                 ':name'       => $categoryName,
                 ':slug'       => $slug,
                 ':desc'       => "Category for {$categoryName} tasks",
-                ':icon'       => 'bi-tags-fill',
+                ':icon'       => $icon,
                 ':order'      => $catOrder++,
                 ':min_cost'   => $minCostCategory,
                 ':created_at' => $now,
@@ -123,7 +157,6 @@ class SeedCategoriesFromDataCommand extends Command
         }
 
         echo "Successfully seeded {$totalCats} Categories and {$totalSubcats} Subcategories.\n";
-        return self::SUCCESS;
         return self::SUCCESS;
     }
 

@@ -79,14 +79,12 @@ echo "Project root:  $projectRoot\n";
 echo "DB driver:     " . Database::getDriverName() . "\n";
 echo "Timestamp:     " . date('Y-m-d H:i:s T') . "\n\n";
 
-// Web calls remain a simple idempotent migration call. A read-only status
-// action is also available for deployment control-plane checks; CLI callers
-// may use the maintenance actions explicitly.
-$action = PHP_SAPI === 'cli'
-    ? ($_GET['action'] ?? $_POST['action'] ?? 'migrate')
-    : (($_GET['action'] ?? '') === 'status' ? 'status' : 'migrate');
+// Web calls default to migrate. Status and maintenance actions can also be called explicitly.
+$requestedAction = $_GET['action'] ?? $_POST['action'] ?? ($argv[1] ?? 'migrate');
+$allowedActions = ['status', 'migrate', 'seed_categories', 'seed', 'rollback'];
+$action = in_array($requestedAction, $allowedActions, true) ? $requestedAction : 'migrate';
 
-if (PHP_SAPI === 'cli' && isset($_GET['rollback']) && $_GET['rollback'] === '1') {
+if (isset($_GET['rollback']) && $_GET['rollback'] === '1') {
     $action = 'rollback';
 }
 
@@ -119,13 +117,14 @@ try {
             echo "▶ Running migrations...\n\n";
             $manager?->migrate();
 
-            if (PHP_SAPI === 'cli' && isset($_GET['seed_categories']) && $_GET['seed_categories'] === '1') {
+            if (isset($_GET['seed_categories']) && $_GET['seed_categories'] === '1') {
                 echo "\n▶ Running SeedCategoriesFromDataCommand...\n\n";
+                require_once $projectRoot . '/app/Console/Commands/SeedCategoriesFromDataCommand.php';
                 $cmd = new \App\Console\Commands\SeedCategoriesFromDataCommand();
                 $cmd->handle();
             }
 
-            if (PHP_SAPI === 'cli' && isset($_GET['seed']) && $_GET['seed'] === '1') {
+            if (isset($_GET['seed']) && $_GET['seed'] === '1') {
                 echo "\n▶ Running EarnAppSeeder...\n\n";
                 require_once $projectRoot . '/database/seeders/EarnAppSeeder.php';
                 $seeder = new \EarnAppSeeder();
@@ -134,6 +133,7 @@ try {
             break;
         case 'seed_categories':
             echo "▶ Running SeedCategoriesFromDataCommand...\n\n";
+            require_once $projectRoot . '/app/Console/Commands/SeedCategoriesFromDataCommand.php';
             $cmd = new \App\Console\Commands\SeedCategoriesFromDataCommand();
             $cmd->handle();
             break;
