@@ -122,8 +122,8 @@ function renderJob(job) {
     let metricsHtml = '';
     if (!isPending && !isDeclined) {
         metricsHtml = `
-            <div class="admin-job-row__metrics" style="display: flex; gap: 16px; margin: 10px 0; background: rgba(0,0,0,0.03); padding: 10px 14px; border-radius: 6px; font-size: 13px;">
-                <div><i class="bi bi-clock-history"></i> <strong>Days Remaining:</strong> <span style="color:#d97706;">${escapeHtml(job.days_remaining || 'N/A')}</span></div>
+            <div class="admin-job-row__metrics">
+                <div><i class="bi bi-clock-history"></i> <strong>Days Remaining:</strong> <span class="metric-highlight">${escapeHtml(job.days_remaining || 'N/A')}</span></div>
                 <div><i class="bi bi-people"></i> <strong>Workers:</strong> ${Number(job.in_progress_workers || 0)} working / ${Number(job.pending_review_workers || 0)} review / ${Number(job.revision_workers || 0)} revision / ${Number(job.rejected_workers || 0)} rejected / ${Number(job.completed_workers || 0)} completed</div>
                 <div><i class="bi bi-hourglass-split"></i> <strong>Unassigned:</strong> ${Number(job.remaining_workers ?? job.remaining_tasks_count ?? 0)} slots</div>
                 <div><i class="bi bi-cash-stack"></i> <strong>Paid:</strong> ${escapeHtml(job.currency || 'BDT')} ${Number(job.completed_amount || 0).toFixed(2)} / <strong>Remaining:</strong> ${Number(job.remaining_amount || 0).toFixed(2)}</div>
@@ -194,11 +194,11 @@ async function viewProofSubmissions(jobId, jobTitle) {
     const container = document.getElementById('admin-proof-modal-container');
     if (!container) return;
     container.innerHTML = `
-        <div class="modal-backdrop" style="position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:99999;">
-            <div class="modal-card" style="background:#fff; width:90%; max-width:800px; max-height:85vh; border-radius:12px; padding:24px; overflow-y:auto; box-shadow:0 10px 30px rgba(0,0,0,0.2);">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-                    <h2 style="margin:0; font-size:18px;"><i class="bi bi-file-earmark-check"></i> Proof Submissions for "${escapeHtml(jobTitle)}"</h2>
-                    <button class="btn btn--ghost btn--sm" id="close-proof-modal"><i class="bi bi-x-lg"></i> Close</button>
+        <div class="modal-backdrop" style="position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:99999; padding:12px; box-sizing:border-box;">
+            <div class="modal-card" style="background:var(--card, #fff); width:100%; max-width:800px; max-height:85vh; border-radius:12px; padding:18px; overflow-y:auto; box-shadow:0 10px 30px rgba(0,0,0,0.2); box-sizing:border-box;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; gap:8px;">
+                    <h2 style="margin:0; font-size:16px; min-width:0; overflow-wrap:anywhere;"><i class="bi bi-file-earmark-check"></i> Proof Submissions for "${escapeHtml(jobTitle)}"</h2>
+                    <button class="btn btn--ghost btn--sm" id="close-proof-modal" style="flex-shrink:0;"><i class="bi bi-x-lg"></i> Close</button>
                 </div>
                 <div id="proof-modal-content"><div class="spinner"></div></div>
             </div>

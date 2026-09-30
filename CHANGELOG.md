@@ -16,6 +16,11 @@
   - In `PostJobPage.js`, fixed requirement pair rows so posters can enter custom instructions/titles for screenshot requirements, with optional sample image uploads.
   - In `JobDetailPage.js`, dynamically adjusted submission requirements: for image-only jobs, the description textarea is optional while the screenshot/attachment is required (workers are no longer blocked by HTML5 required attribute on description); for text-only jobs, description is required while file attachment is optional; for both pairs, both are required.
   - In `JobService.php::submitWork()`, aligned validation and fraud detection so image-only submissions are not rejected for empty descriptions and do not trigger false-positive `very_short_description` risk penalties when valid proof files are provided. Also guarded content duplicate hashing to prevent flagging distinct workers submitting image-only proofs with empty descriptions.
+- **Mobile Responsiveness (Admin & Poster Jobs Management):**
+  - Fixed horizontal viewport overflow on mobile devices (`<= 768px`) across `#/admin/jobs` and `#/poster/jobs` caused by rigid inline flex containers and fixed-width child cards.
+  - Replaced rigid inline flex in `AdminJobsPage.js` and `PosterJobsPage.js` with responsive CSS grid (`.admin-job-row__metrics`, `.poster-job-row__metrics`) that cleanly adapts from multi-column cards on desktop to single-column full-width cards on mobile screens.
+  - Added horizontal swipe/touch scrolling with hidden scrollbars for `.admin-tabs` and flex-shrink constraints.
+  - Applied mobile breakpoints for toolbar filters, action buttons, modals, and container boundaries (`min-width: 0`, `overflow-x: hidden`) to ensure elements stay within the viewport without horizontal blowout.
 
 ---
 
