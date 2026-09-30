@@ -195,7 +195,13 @@ class Database
         $port = $config['port'] ?? 3306;
         $db   = $config['dbname'] ?? '';
         $dsn  = "mysql:host={$host};port={$port};dbname={$db};charset=utf8mb4";
-        return new PDO($dsn, $config['username'] ?? '', $config['password'] ?? '', self::pdoOptions());
+        $options = self::pdoOptions();
+        if (defined('PDO::MYSQL_ATTR_INIT_COMMAND')) {
+            $options[PDO::MYSQL_ATTR_INIT_COMMAND] = "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci";
+        }
+        $pdo = new PDO($dsn, $config['username'] ?? '', $config['password'] ?? '', $options);
+        $pdo->exec("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
+        return $pdo;
     }
 
     private static function connectPgsql(array $config): PDO

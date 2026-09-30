@@ -203,7 +203,7 @@ class SeedCategoriesFromDataCommand extends Command
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP NULL,
                 UNIQUE KEY uq_categories_slug (slug)
-            ) ENGINE=INNODB;");
+            ) ENGINE=INNODB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
 
             $pdo->exec("CREATE TABLE IF NOT EXISTS subcategories (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -216,7 +216,7 @@ class SeedCategoriesFromDataCommand extends Command
                 min_cost DECIMAL(10,2) NOT NULL DEFAULT 1.00,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP NULL
-            ) ENGINE=INNODB;");
+            ) ENGINE=INNODB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
         }
 
         // Add min_cost column if table already existed without it

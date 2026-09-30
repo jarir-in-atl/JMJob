@@ -1,5 +1,12 @@
 # Nemesis Framework — Changelog
 
+## [7.1.2] — 2026-09-30
+
+### Bug Fixes
+- **Database / MySQL Encoding:** Fixed an issue in `src/Core/Database.php` (`Database::connectMysql()`) where multibyte Unicode strings (such as Bengali/Bangla script) could get corrupted into `?` question marks when communicating with MySQL/MariaDB servers whose default handshake charset is `latin1`. Enforced `SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci` via both `PDO::MYSQL_ATTR_INIT_COMMAND` and explicit connection execution.
+
+---
+
 ## [7.1.1] — 2026-08-30
 
 Comprehensive gap-fix release. Closes all 12 known gaps identified during

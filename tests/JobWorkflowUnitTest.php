@@ -40,11 +40,28 @@ class JobWorkflowUnitTest extends TestCase
         $isSelf = ($posterId === $workerId);
         $this->assertTrue($isSelf, 'Poster cannot apply to their own job');
     }
+    public function testBanglaTextAndUnicodeHandling(): void
+    {
+        $banglaTitle = 'ফেসবুক পেজে লাইক দিন';
+        $banglaDesc = 'কাজটি খুব সহজ। নির্দিষ্ট লিংকে গিয়ে লাইক দিন এবং স্ক্রিনশট জমা দিন।';
+        $proofs = [
+            ['title' => 'স্ক্রিনশট প্রুফ', 'type' => 'screenshot']
+        ];
+
+        $encoded = json_encode($proofs, JSON_UNESCAPED_UNICODE);
+        $this->assertStringContainsString('স্ক্রিনশট প্রুফ', $encoded);
+
+        $decoded = json_decode($encoded, true);
+        $this->assertSame('স্ক্রিনশট প্রুফ', $decoded[0]['title']);
+
+        $this->assertTrue(mb_strlen($banglaTitle) <= 160);
+        $this->assertTrue(mb_strlen($banglaDesc) > 0);
+    }
 }
 
 $test = new JobWorkflowUnitTest();
 echo "--- Job Workflow Unit Test ---\n";
-foreach (['testAdditiveFeeCalculation', 'testSelfApplicationGuardLogic'] as $method) {
+foreach (['testAdditiveFeeCalculation', 'testSelfApplicationGuardLogic', 'testBanglaTextAndUnicodeHandling'] as $method) {
     echo "Running {$method}... ";
     try {
         $test->setUp();

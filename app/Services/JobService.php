@@ -2913,6 +2913,13 @@ class JobService
         $base = preg_replace('/[^a-z0-9]+/i', '-', $base);
         $base = trim($base, '-');
         $base = substr($base, 0, 160) ?: 'job';
+        if ($base === 'job') {
+            $slug = 'job-' . bin2hex(random_bytes(3));
+            while (Job::findBySlug($slug) !== null) {
+                $slug = 'job-' . bin2hex(random_bytes(3));
+            }
+            return $slug;
+        }
         $slug = $base;
         $i = 1;
         while (Job::findBySlug($slug) !== null) {
