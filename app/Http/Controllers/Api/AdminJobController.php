@@ -33,6 +33,15 @@ class AdminJobController extends Controller
 
         $proof = $this->normalizeProofRequirements($body['proof_requirements'] ?? []);
         $deadline = $this->dateValue($body['deadline_at'] ?? null) ?: date('Y-m-d H:i:s', time() + 7 * 86400);
+
+        $thumbnailData = $body['thumbnail'] ?? $body['attachment'] ?? null;
+        $attachmentPath = null;
+        if (!empty($thumbnailData) && is_string($thumbnailData)) {
+            $attachmentPath = JobService::saveBase64Image($thumbnailData, 'job-proofs');
+        } elseif (!empty($body['attachment_path']) && is_string($body['attachment_path'])) {
+            $attachmentPath = trim($body['attachment_path']);
+        }
+
         $result = $this->jobService->createWorkflowJob(
             $admin,
             (int) $body['category_id'],
@@ -46,7 +55,8 @@ class AdminJobController extends Controller
             trim((string) ($body['subtitle'] ?? '')) ?: null,
             trim((string) ($body['customer_name'] ?? '')) ?: $admin->name,
             trim((string) ($body['customer_phone'] ?? '')) ?: ($admin->phone ?? null),
-            trim((string) ($body['customer_email'] ?? '')) ?: $admin->email
+            trim((string) ($body['customer_email'] ?? '')) ?: $admin->email,
+            $attachmentPath
         );
         if (!($result['success'] ?? false)) return Response::json($result, 422);
 
@@ -63,6 +73,9 @@ class AdminJobController extends Controller
             'status' => $publish ? Job::STATUS_OPEN : Job::STATUS_PENDING_APPROVAL,
             'updated_at' => date('Y-m-d H:i:s'),
         ];
+        if ($attachmentPath !== null) {
+            $metadata['attachment_path'] = $attachmentPath;
+        }
         Fluent::table('jobs')->where('id', '=', $jobId)->update($metadata);
         if ($publish) {
             $publishedJob = Job::find($jobId);
@@ -130,6 +143,19 @@ class AdminJobController extends Controller
         }
         if (array_key_exists('proof_requirements', $body)) {
             $update['proof_requirements'] = json_encode($this->normalizeProofRequirements($body['proof_requirements']), JSON_UNESCAPED_UNICODE);
+        }
+        if (array_key_exists('thumbnail', $body) || array_key_exists('attachment', $body)) {
+            $thumb = (string) ($body['thumbnail'] ?? $body['attachment'] ?? '');
+            if (!empty($thumb)) {
+                $savedPath = JobService::saveBase64Image($thumb, 'job-proofs');
+                if ($savedPath) {
+                    $update['attachment_path'] = $savedPath;
+                }
+            } else {
+                $update['attachment_path'] = null;
+            }
+        } elseif (array_key_exists('attachment_path', $body)) {
+            $update['attachment_path'] = trim((string) ($body['attachment_path'] ?? '')) ?: null;
         }
         if (array_key_exists('deadline_at', $body)) {
             $deadline = $this->dateValue($body['deadline_at']);
@@ -394,7 +420,10 @@ class AdminJobController extends Controller
                 'status' => $submission->status,
                 'description' => $submission->description,
                 'external_link' => $submission->external_link,
-                'attachment_url' => $submission->attachment_path ? '/api/jobs/submissions/' . (int) $submission->id . '/attachment' : null,
+                'attachment_path' => $submission->attachment_path,
+                'attachment_url' => $submission->attachment_path
+                    ? (str_starts_with($submission->attachment_path, 'http') ? $submission->attachment_path : '/storage/' . ltrim($submission->attachment_path, '/'))
+                    : null,
                 'attempt_number' => (int) ($submission->attempt_number ?: 1),
                 'submitted_at' => $submission->submitted_at ?: $submission->created_at,
                 'reviewed_at' => $submission->reviewed_at,
@@ -435,6 +464,12 @@ class AdminJobController extends Controller
             ];
         }
         $customerName = $job->customer_name ?: ($job->poster()?->name ?? null);
+        $attachmentUrl = null;
+        if ($job->attachment_path) {
+            $attachmentUrl = str_starts_with($job->attachment_path, 'http')
+                ? $job->attachment_path
+                : '/storage/' . ltrim($job->attachment_path, '/');
+        }
         return [
             'job' => [
                 'id' => (int) $job->id,
@@ -442,6 +477,8 @@ class AdminJobController extends Controller
                 'subtitle' => $job->subtitle ?? null,
                 'description' => $job->description,
                 'requirements' => $job->requirements,
+                'attachment_path' => $job->attachment_path,
+                'attachment_url' => $attachmentUrl,
                 'proof_requirements' => is_string($job->proof_requirements ?? null) ? (json_decode($job->proof_requirements, true) ?: []) : ((array) ($job->proof_requirements ?? [])),
                 'status' => $job->status,
                 'category_id' => $job->category_id ? (int) $job->category_id : null,

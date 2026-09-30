@@ -34,6 +34,10 @@ function render(root, categories, job, editId) {
     const subcategories = selectedCategory?.subcategories || [];
     const selectedSubcategoryId = job?.subcategory_id ? Number(job.subcategory_id) : '';
 
+    const currentThumbnail = job?.attachment_url || (job?.attachment_path ? (job.attachment_path.startsWith('http') ? job.attachment_path : `/storage/${job.attachment_path}`) : null);
+    let newThumbnailBase64 = null;
+    let removeCurrentThumbnail = false;
+
     root.innerHTML = `
         <a href="#/admin/jobs" class="back-link"><i class="bi bi-arrow-left"></i> Job management</a>
         <div class="page-heading-row"><div><h1 class="page-title">${editId ? 'Edit Job' : 'Admin Job Post'}</h1><p class="muted">Create or maintain a job using the same worker assignment and payment workflow as customer posts.</p></div></div>
@@ -68,6 +72,21 @@ function render(root, categories, job, editId) {
                 <label>Payment per worker <input name="cost_per_worker" type="number" min="0.01" step="0.0001" value="${Number(job?.cost_per_worker || 0)}" required></label>
             </div>
             <label>Deadline <input name="deadline_at" type="datetime-local" value="${toLocalInput(job?.deadline_at)}"></label>
+            <label>Job Screenshot / Thumbnail (Optional)
+                <input id="admin-thumbnail-input" type="file" accept="image/*">
+                <div id="admin-thumbnail-preview" style="margin-top: 8px;">
+                    ${currentThumbnail ? `
+                        <div id="admin-current-thumbnail-box" style="display:flex; align-items:center; gap:12px; padding:10px; background:var(--bg-secondary, #f8fafc); border:1px solid var(--border-color, #e2e8f0); border-radius:6px;">
+                            <img src="${escapeHtml(currentThumbnail)}" style="max-height:80px; max-width:140px; border-radius:4px; border:1px solid #cbd5e1; object-fit:contain;" alt="Current thumbnail">
+                            <div style="flex:1;">
+                                <div style="font-size:13px; font-weight:600;">Current Screenshot</div>
+                                <span class="muted" style="font-size:12px;">Choose a new file to replace it, or remove it.</span>
+                            </div>
+                            <button type="button" class="btn btn--ghost btn--sm" id="admin-remove-thumbnail" style="color:#ef4444;"><i class="bi bi-trash"></i> Remove</button>
+                        </div>
+                    ` : ''}
+                </div>
+            </label>
             <div class="admin-job-proof-options">
                 <label><input name="requires_screenshot" type="checkbox" ${screenshotRequired ? 'checked' : ''}> Screenshot proof required</label>
                 <label><input name="requires_written" type="checkbox" ${writtenRequired ? 'checked' : ''}> Written report required</label>
@@ -80,6 +99,58 @@ function render(root, categories, job, editId) {
 
     const categorySelect = root.querySelector('#admin-category-select');
     const subcategorySelect = root.querySelector('#admin-subcategory-select');
+    const thumbnailInput = root.querySelector('#admin-thumbnail-input');
+    const thumbnailPreview = root.querySelector('#admin-thumbnail-preview');
+
+    function attachRemoveThumbnailHandler() {
+        root.querySelector('#admin-remove-thumbnail')?.addEventListener('click', () => {
+            removeCurrentThumbnail = true;
+            newThumbnailBase64 = null;
+            if (thumbnailInput) thumbnailInput.value = '';
+            if (thumbnailPreview) thumbnailPreview.innerHTML = '<span class="muted" style="font-size:12px; font-style:italic;">Screenshot removed. Click "Save changes" to apply.</span>';
+        });
+    }
+    attachRemoveThumbnailHandler();
+
+    thumbnailInput?.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            newThumbnailBase64 = event.target.result;
+            removeCurrentThumbnail = false;
+            thumbnailPreview.innerHTML = `
+                <div style="display:flex; align-items:center; gap:12px; padding:10px; background:var(--bg-secondary, #f8fafc); border:1px solid var(--border-color, #e2e8f0); border-radius:6px;">
+                    <img src="${newThumbnailBase64}" style="max-height:80px; max-width:140px; border-radius:4px; border:1px solid #cbd5e1; object-fit:contain;" alt="New thumbnail preview">
+                    <div style="flex:1;">
+                        <div style="font-size:13px; font-weight:600; color:#10b981;"><i class="bi bi-check-circle"></i> New screenshot selected</div>
+                        <span class="muted" style="font-size:12px;">${escapeHtml(file.name)} (${(file.size / 1024).toFixed(1)} KB)</span>
+                    </div>
+                    <button type="button" class="btn btn--ghost btn--sm" id="admin-clear-new-thumbnail" style="color:#ef4444;"><i class="bi bi-x-circle"></i> Clear</button>
+                </div>
+            `;
+            root.querySelector('#admin-clear-new-thumbnail')?.addEventListener('click', () => {
+                newThumbnailBase64 = null;
+                thumbnailInput.value = '';
+                if (currentThumbnail && !removeCurrentThumbnail) {
+                    thumbnailPreview.innerHTML = `
+                        <div id="admin-current-thumbnail-box" style="display:flex; align-items:center; gap:12px; padding:10px; background:var(--bg-secondary, #f8fafc); border:1px solid var(--border-color, #e2e8f0); border-radius:6px;">
+                            <img src="${escapeHtml(currentThumbnail)}" style="max-height:80px; max-width:140px; border-radius:4px; border:1px solid #cbd5e1; object-fit:contain;" alt="Current thumbnail">
+                            <div style="flex:1;">
+                                <div style="font-size:13px; font-weight:600;">Current Screenshot</div>
+                                <span class="muted" style="font-size:12px;">Choose a new file to replace it, or remove it.</span>
+                            </div>
+                            <button type="button" class="btn btn--ghost btn--sm" id="admin-remove-thumbnail" style="color:#ef4444;"><i class="bi bi-trash"></i> Remove</button>
+                        </div>
+                    `;
+                    attachRemoveThumbnailHandler();
+                } else {
+                    thumbnailPreview.innerHTML = '';
+                }
+            });
+        };
+        reader.readAsDataURL(file);
+    });
 
     categorySelect.addEventListener('change', () => {
         const catId = Number(categorySelect.value);
@@ -126,6 +197,13 @@ function render(root, categories, job, editId) {
             admin_notes: String(data.get('admin_notes') || '').trim(),
             publish: !!data.get('publish'),
         };
+        if (newThumbnailBase64) {
+            body.thumbnail = newThumbnailBase64;
+        } else if (removeCurrentThumbnail) {
+            body.attachment_path = null;
+        } else if (job?.attachment_path) {
+            body.attachment_path = job.attachment_path;
+        }
         const button = form.querySelector('[type="submit"]');
         button.disabled = true;
         try {

@@ -5,6 +5,12 @@
 ### Bug Fixes
 - **Database / MySQL Encoding:** Fixed an issue in `src/Core/Database.php` (`Database::connectMysql()`) where multibyte Unicode strings (such as Bengali/Bangla script) could get corrupted into `?` question marks when communicating with MySQL/MariaDB servers whose default handshake charset is `latin1`. Enforced `SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci` via both `PDO::MYSQL_ATTR_INIT_COMMAND` and explicit connection execution.
 - **Admin Job Post UI:** Fixed `/admin/admin-job-post` where the subcategory selection was missing and displayed alongside subtitle as a plain text input. Added a reactive subcategory dropdown (`subcategory_id`) dynamically populated from the active category's subcategories with edit-mode preselection, and separated the job subtitle into its own optional input.
+- **Job Screenshot & Thumbnail Handling:** Fixed an issue where uploaded screenshots/thumbnails on job postings were not persisted and failed to render in the Admin Job Details page (`#/admin/jobs/{id}`).
+  - Added `JobService::saveBase64Image()` to reliably store base64 image uploads into `storage/job-proofs/` and record the relative path in `jobs.attachment_path`.
+  - Updated `PosterController::createJob()` and `AdminJobController::createJob()` / `update()` to decode and persist uploaded thumbnails and proof requirement sample images.
+  - Updated `AdminJobController::detailPayload()` and `JobController::serializeJob()` to return `attachment_path` and public `attachment_url` in job response payloads.
+  - Enhanced `AdminJobDetailPage.js` to prominently render the job screenshot/thumbnail, inline image previews for proof requirements, and inline image previews for worker submissions.
+  - Added thumbnail file upload with live preview and removal controls in `AdminJobPostPage.js` so administrators can add or update screenshots when creating or editing jobs.
 
 ---
 

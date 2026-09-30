@@ -35,6 +35,54 @@ use RuntimeException;
 class JobService
 {
     /**
+     * Decode a base64 image data URL (e.g., "data:image/png;base64,....")
+     * and save it to storage/{subfolder}/, returning the relative path like "{subfolder}/{filename}".
+     */
+    public static function saveBase64Image(string $dataUrl, string $subfolder = 'job-proofs'): ?string
+    {
+        $dataUrl = trim($dataUrl);
+        if ($dataUrl === '') {
+            return null;
+        }
+
+        // If it's already a relative path or URL, return it
+        if (!str_starts_with($dataUrl, 'data:image/')) {
+            if (str_starts_with($dataUrl, 'job-proofs/') || str_starts_with($dataUrl, 'http://') || str_starts_with($dataUrl, 'https://')) {
+                return $dataUrl;
+            }
+            return null;
+        }
+
+        if (!preg_match('/^data:image\/(png|jpeg|jpg|webp|gif);base64,(.+)$/is', $dataUrl, $matches)) {
+            return null;
+        }
+
+        $type = strtolower($matches[1]);
+        if ($type === 'jpeg') {
+            $type = 'jpg';
+        }
+
+        $binary = base64_decode($matches[2], true);
+        if ($binary === false || strlen($binary) === 0) {
+            return null;
+        }
+
+        $targetDir = base_path('storage/' . trim($subfolder, '/'));
+        if (!is_dir($targetDir)) {
+            @mkdir($targetDir, 0755, true);
+        }
+
+        $filename = 'job_' . bin2hex(random_bytes(16)) . '.' . $type;
+        $filePath = $targetDir . DIRECTORY_SEPARATOR . $filename;
+
+        if (file_put_contents($filePath, $binary) === false) {
+            return null;
+        }
+
+        return trim($subfolder, '/') . '/' . $filename;
+    }
+
+    /**
      * Enhanced Poster flow: 3-step job creation with additive fee and pending_approval status.
      */
     public function createWorkflowJob(
@@ -50,7 +98,8 @@ class JobService
         ?string $subtitle = null,
         ?string $customerName = null,
         ?string $customerPhone = null,
-        ?string $customerEmail = null
+        ?string $customerEmail = null,
+        ?string $attachmentPath = null
     ): array {
         if ($poster->isBanned()) {
             return ['success' => false, 'message' => 'Banned accounts cannot post jobs.'];
@@ -109,19 +158,24 @@ class JobService
             'deadline_at'          => $deadlineAt,
             'bidding_closes_at'    => $deadlineAt,
             'status'               => Job::STATUS_PENDING_APPROVAL,
+            'attachment_path'      => $attachmentPath,
             'created_at'           => date('Y-m-d H:i:s'),
         ]);
 
         // Customer metadata is additive and may not exist during a staged
         // rollout. Keep the core job creation successful on older hosts.
         try {
-            Fluent::table('jobs')->where('id', '=', $id)->update([
+            $metadataUpdates = [
                 'subtitle'       => $subtitle,
                 'customer_name'  => $customerName ?? $poster->name,
                 'customer_phone' => $customerPhone ?? ($poster->phone ?? null),
                 'customer_email' => $customerEmail ?? $poster->email,
                 'updated_at'     => date('Y-m-d H:i:s'),
-            ]);
+            ];
+            if ($attachmentPath !== null) {
+                $metadataUpdates['attachment_path'] = $attachmentPath;
+            }
+            Fluent::table('jobs')->where('id', '=', $id)->update($metadataUpdates);
         } catch (\Throwable $e) {
             // Metadata migration can be applied after the application code.
         }

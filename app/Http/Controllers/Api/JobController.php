@@ -394,6 +394,12 @@ class JobController extends Controller
         $category = $j->category();
         $poster   = $j->poster();
         [$activeWorkers, $remainingWorkers] = $this->workerSlotSummary($j);
+        $attachmentUrl = null;
+        if ($j->attachment_path) {
+            $attachmentUrl = str_starts_with($j->attachment_path, 'http')
+                ? $j->attachment_path
+                : '/storage/' . ltrim($j->attachment_path, '/');
+        }
         $out = [
             'id'              => (int) $j->id,
             'slug'            => $j->slug,
@@ -401,6 +407,8 @@ class JobController extends Controller
             'subtitle'        => $j->subtitle ?? null,
             'description'     => $j->description,
             'requirements'    => $j->requirements,
+            'attachment_path' => $j->attachment_path,
+            'attachment_url'  => $attachmentUrl,
             'customer_name'   => $j->customer_name ?? null,
             'customer_phone'  => $j->customer_phone ?? null,
             'customer_email'  => $j->customer_email ?? null,

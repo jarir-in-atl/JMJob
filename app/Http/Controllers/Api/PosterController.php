@@ -77,27 +77,59 @@ class PosterController extends Controller
             return Response::json(['success' => false, 'message' => 'category_id, title, and description are required.'], 422);
         }
 
+        $thumbnailData  = isset($body['thumbnail']) ? (string) $body['thumbnail'] : null;
+        $attachmentPath = null;
+        if (!empty($thumbnailData)) {
+            $attachmentPath = JobService::saveBase64Image($thumbnailData, 'job-proofs');
+        }
+
+        // Process proof requirements screenshot images if base64
+        $processedProofReqs = [];
+        foreach ($proofReqs as $p) {
+            if (!is_array($p)) continue;
+            $type = $p['type'] ?? 'text';
+            $itemTitle = trim((string) ($p['title'] ?? ''));
+            $fileBase64 = $p['fileBase64'] ?? null;
+            $imageUrl = $p['image_url'] ?? null;
+            if ($type === 'screenshot' && !empty($fileBase64) && is_string($fileBase64) && str_starts_with($fileBase64, 'data:image/')) {
+                $savedProofPath = JobService::saveBase64Image($fileBase64, 'job-proofs');
+                if ($savedProofPath) {
+                    $imageUrl = '/storage/' . $savedProofPath;
+                    $fileBase64 = null;
+                }
+            }
+            $processedProofReqs[] = [
+                'title'      => $itemTitle,
+                'type'       => $type,
+                'fileBase64' => $fileBase64,
+                'image_url'  => $imageUrl,
+            ];
+        }
+
         if ($workerCount > 0 && $costPerWorker > 0) {
             $deadline = $deadlineAt ?? date('Y-m-d H:i:s', time() + 7 * 86400);
             $result = $this->jobService->createWorkflowJob(
                 $user, $categoryId, $subcategoryId, $title, $description,
-                $proofReqs, $workerCount, $costPerWorker, $deadline,
-                $subtitle, $user->name, $user->phone ?? null, $user->email
+                $processedProofReqs, $workerCount, $costPerWorker, $deadline,
+                $subtitle, $user->name, $user->phone ?? null, $user->email,
+                $attachmentPath
             );
         } else {
             if ($budget <= 0) {
                 return Response::json(['success' => false, 'message' => 'budget is required.'], 422);
             }
             $result = $this->jobService->create($user, $categoryId, $title, $description, $requirements, $budget, $deadlineAt, $windowHours);
-            if (($result['success'] ?? false) && $subtitle !== '') {
+            if (($result['success'] ?? false) && ($subtitle !== '' || $attachmentPath !== null)) {
                 try {
-                    \Nemesis\Core\Fluent::table('jobs')->where('id', '=', $result['job']->id)->update([
-                        'subtitle' => $subtitle,
+                    $meta = [
                         'customer_name' => $user->name,
                         'customer_phone' => $user->phone ?? null,
                         'customer_email' => $user->email,
                         'updated_at' => date('Y-m-d H:i:s'),
-                    ]);
+                    ];
+                    if ($subtitle !== '') $meta['subtitle'] = $subtitle;
+                    if ($attachmentPath !== null) $meta['attachment_path'] = $attachmentPath;
+                    \Nemesis\Core\Fluent::table('jobs')->where('id', '=', $result['job']->id)->update($meta);
                 } catch (\Throwable $e) {}
             }
         }
@@ -234,6 +266,13 @@ class PosterController extends Controller
             }
         }
 
+        $attachmentUrl = null;
+        if ($job->attachment_path) {
+            $attachmentUrl = str_starts_with($job->attachment_path, 'http')
+                ? $job->attachment_path
+                : '/storage/' . ltrim($job->attachment_path, '/');
+        }
+
         return [
             'id'                   => (int) $job->id,
             'title'                => $job->title,
@@ -243,6 +282,8 @@ class PosterController extends Controller
             'customer_phone'       => $job->customer_phone ?? null,
             'customer_email'       => $job->customer_email ?? null,
             'requirements'         => $job->requirements,
+            'attachment_path'      => $job->attachment_path,
+            'attachment_url'       => $attachmentUrl,
             'budget'               => (float) $job->budget,
             'currency'             => $job->currency,
             'category_id'          => (int) $job->category_id,

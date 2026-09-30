@@ -27,23 +27,63 @@ async function load(root, id) {
 function render(root, data, id) {
     const job = data.job || {};
     const progress = data.progress || {};
-   const assignments = data.assignments || [];
-   const bids = data.bids || [];
-   const submissions = data.submissions || [];
+    const assignments = data.assignments || [];
+    const bids = data.bids || [];
+    const submissions = data.submissions || [];
     const currency = job.currency || 'BDT';
     const proofRequirements = Array.isArray(job.proof_requirements) ? job.proof_requirements : [];
+
+    const jobAttachment = job.attachment_url || (job.attachment_path ? (job.attachment_path.startsWith('http') ? job.attachment_path : `/storage/${job.attachment_path}`) : null);
+    const jobScreenshotMarkup = jobAttachment ? `
+        <div class="job-screenshot-section" style="margin: 16px 0; padding: 14px; background: var(--card-bg, #ffffff); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
+                <strong style="display:flex; align-items:center; gap:6px;"><i class="bi bi-image" style="color:var(--primary, #4f46e5); font-size:1.1rem;"></i> Job Screenshot / Thumbnail:</strong>
+                <a href="${escapeHtml(jobAttachment)}" target="_blank" rel="noopener noreferrer" class="btn btn--ghost btn--sm"><i class="bi bi-box-arrow-up-right"></i> Open full size</a>
+            </div>
+            <div style="text-align:center; background:#f8fafc; border-radius:6px; padding:10px; border:1px solid #edf2f7;">
+                <a href="${escapeHtml(jobAttachment)}" target="_blank" rel="noopener noreferrer" style="display:inline-block; max-width:100%;">
+                    <img src="${escapeHtml(jobAttachment)}" alt="Job screenshot" style="max-width: 100%; max-height: 400px; object-fit: contain; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.06);" />
+                </a>
+            </div>
+        </div>
+    ` : `
+        <div class="job-screenshot-empty" style="margin: 16px 0; padding: 12px 16px; background: var(--bg-secondary, #f8fafc); border: 1px dashed var(--border-color, #cbd5e1); border-radius: 8px; display:flex; justify-content:space-between; align-items:center;">
+            <span class="muted"><i class="bi bi-image"></i> No job screenshot attached.</span>
+            <button type="button" class="btn btn--ghost btn--sm" id="btn-add-screenshot"><i class="bi bi-upload"></i> Upload / Edit screenshot</button>
+        </div>
+    `;
+
     const proofMarkup = proofRequirements.length
-        ? `<ul>${proofRequirements.map(item => `<li>${escapeHtml(item.title || 'Proof')} <span class="muted">(${escapeHtml(item.type || 'text')})</span></li>`).join('')}</ul>`
+        ? `<div class="proof-requirements-list" style="margin-top:8px;">${proofRequirements.map((item, idx) => {
+            const proofImg = item.image_url || item.fileBase64 || null;
+            return `
+                <div style="margin-bottom:8px; padding:10px 12px; background:var(--bg-secondary, #f8fafc); border:1px solid var(--border-color, #e2e8f0); border-radius:6px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <strong>#${idx + 1}. ${escapeHtml(item.title || 'Requirement')}</strong>
+                        <span class="badge" style="font-size:11px;">${escapeHtml(String(item.type || 'text').toUpperCase())}</span>
+                    </div>
+                    ${proofImg ? `
+                        <div style="margin-top:8px;">
+                            <span class="muted" style="font-size:12px; display:block; margin-bottom:4px;">Reference screenshot:</span>
+                            <a href="${escapeHtml(proofImg)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;">
+                                <img src="${escapeHtml(proofImg)}" alt="Proof sample" style="max-height:160px; max-width:100%; border-radius:4px; border:1px solid #cbd5e1; object-fit:contain;" />
+                            </a>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }).join('')}</div>`
         : '<p class="muted">No structured proof requirements configured.</p>';
-   root.innerHTML = `
+    root.innerHTML = `
         <a href="#/admin/jobs" class="back-link"><i class="bi bi-arrow-left"></i> Job management</a>
         <div class="page-heading-row"><div><h1 class="page-title">${escapeHtml(job.title)}</h1><p class="muted">${escapeHtml(job.subtitle || '')}</p></div><div class="admin-row__actions"><button class="btn btn--ghost btn--sm" id="edit-job">Edit job</button>${canDelete(job, assignments) ? '<button class="btn btn--danger btn--sm" id="delete-job">Delete job</button>' : ''}</div></div>
-        <div class="card"><div class="admin-job-row__meta"><span><strong>Customer:</strong> ${escapeHtml(job.customer_name || '—')}</span><span><strong>Phone:</strong> ${escapeHtml(job.customer_phone || '—')}</span><span><strong>Email:</strong> ${escapeHtml(job.customer_email || '—')}</span><span><strong>Status:</strong> ${escapeHtml(String(job.status || '').replace('_', ' ').toUpperCase())}</span><span><strong>Start date:</strong> ${escapeHtml(formatDate(job.created_at))}</span><span><strong>Deadline:</strong> ${escapeHtml(formatDate(job.deadline_at))}</span></div><p>${escapeHtml(job.description || '').replace(/\n/g, '<br>')}</p>${job.requirements ? `<p><strong>Requirements:</strong><br>${escapeHtml(job.requirements).replace(/\n/g, '<br>')}</p>` : ''}<div><strong>Proof requirements:</strong>${proofMarkup}</div></div>
+        <div class="card"><div class="admin-job-row__meta"><span><strong>Customer:</strong> ${escapeHtml(job.customer_name || '—')}</span><span><strong>Phone:</strong> ${escapeHtml(job.customer_phone || '—')}</span><span><strong>Email:</strong> ${escapeHtml(job.customer_email || '—')}</span><span><strong>Status:</strong> ${escapeHtml(String(job.status || '').replace('_', ' ').toUpperCase())}</span><span><strong>Start date:</strong> ${escapeHtml(formatDate(job.created_at))}</span><span><strong>Deadline:</strong> ${escapeHtml(formatDate(job.deadline_at))}</span></div>${jobScreenshotMarkup}<p>${escapeHtml(job.description || '').replace(/\n/g, '<br>')}</p>${job.requirements ? `<p><strong>Requirements:</strong><br>${escapeHtml(job.requirements).replace(/\n/g, '<br>')}</p>` : ''}<div><strong>Proof requirements:</strong>${proofMarkup}</div></div>
         <div class="stat-grid"><div class="stat-tile"><span class="muted">Total workers</span><strong>${Number(progress.total_workers || 0)}</strong></div><div class="stat-tile"><span class="muted">Assigned</span><strong>${Number(progress.assigned_workers || 0)}</strong></div><div class="stat-tile"><span class="muted">Working</span><strong>${Number(progress.in_progress_workers || 0)}</strong></div><div class="stat-tile"><span class="muted">Pending review</span><strong>${Number(progress.pending_review_workers || 0)}</strong></div><div class="stat-tile"><span class="muted">Revision</span><strong>${Number(progress.revision_workers || 0)}</strong></div><div class="stat-tile"><span class="muted">Completed</span><strong>${Number(progress.completed_workers || 0)}</strong></div><div class="stat-tile"><span class="muted">Rejected</span><strong>${Number(progress.rejected_workers || 0)}</strong></div><div class="stat-tile"><span class="muted">Cancelled/refunded</span><strong>${Number(progress.cancelled_workers || 0)}</strong></div><div class="stat-tile"><span class="muted">Remaining</span><strong>${Number(progress.remaining_workers || 0)}</strong></div><div class="stat-tile"><span class="muted">Total job amount</span><strong>${formatAmount(progress.total_amount, currency)}</strong></div><div class="stat-tile"><span class="muted">Total payable</span><strong>${formatAmount(progress.total_payable_amount, currency)}</strong></div><div class="stat-tile"><span class="muted">Completed amount</span><strong>${formatAmount(progress.completed_amount, currency)}</strong></div><div class="stat-tile"><span class="muted">Pending amount</span><strong>${formatAmount(progress.pending_amount, currency)}</strong></div><div class="stat-tile"><span class="muted">Remaining amount</span><strong>${formatAmount(progress.remaining_amount, currency)}</strong></div></div>
         <div class="card"><h2 class="card__title">Worker assignments</h2><div class="admin-list">${assignments.length ? assignments.map(item => renderAssignment(item, bids)).join('') : '<p class="muted">No assignments yet.</p>'}</div></div>
         <div class="card"><h2 class="card__title">Pending worker bids</h2><div class="admin-list">${bids.filter(bid => bid.status === 'pending').length ? bids.filter(bid => bid.status === 'pending').map(renderBid).join('') : '<p class="muted">No pending bids.</p>'}</div></div>
         <div class="card"><h2 class="card__title">Submissions</h2><div class="admin-list" id="admin-detail-submissions">${submissions.length ? submissions.map(renderSubmission).join('') : '<p class="muted">No submissions yet.</p>'}</div></div>
    `;
+    root.querySelector('#btn-add-screenshot')?.addEventListener('click', () => navigate(`/admin/admin-job-post?edit=${id}`));
     root.querySelector('#edit-job')?.addEventListener('click', () => navigate(`/admin/admin-job-post?edit=${id}`));
     root.querySelector('#delete-job')?.addEventListener('click', async () => {
         if (!confirm('Delete this job and its unassigned bids?')) return;
@@ -114,10 +154,20 @@ function renderSubmission(submission) {
     const risk = submission.risk_status && submission.risk_status !== 'clear'
         ? ` · Risk ${escapeHtml(String(submission.risk_status).replace('_', ' '))} (${Number(submission.risk_score || 0).toFixed(0)})`
         : '';
-    const attachmentAction = submission.attachment_url
-        ? `${submission.external_link ? ' · ' : ''}<button type="button" class="btn btn--ghost btn--sm" data-proof-attachment="${Number(submission.id)}"><i class="bi bi-file-earmark-text"></i> Open proof attachment</button>`
+    const subAttachment = submission.attachment_url || (submission.attachment_path ? (submission.attachment_path.startsWith('http') ? submission.attachment_path : `/storage/${submission.attachment_path}`) : null);
+    const subAttachmentPath = String(submission.attachment_path || '');
+    const isImage = Boolean(subAttachment && (/\.(jpg|jpeg|png|gif|webp)$/i.test(subAttachment) || /\.(jpg|jpeg|png|gif|webp)$/i.test(subAttachmentPath)));
+    const attachmentAction = subAttachment
+        ? `${submission.external_link ? ' · ' : ''}<button type="button" class="btn btn--ghost btn--sm" data-proof-attachment="${Number(submission.id)}"><i class="bi ${isImage ? 'bi-image' : 'bi-file-earmark-text'}"></i> ${isImage ? 'View screenshot' : 'Open proof attachment'}</button>`
         : '';
-    return `<div class="admin-row"><div><strong>${escapeHtml(worker.name || 'Unknown worker')}</strong><span class="muted">${workerContact}</span><span class="muted">Submitted ${escapeHtml(formatDate(submission.submitted_at || submission.created_at))} · Attempt ${Number(submission.attempt_number || 1)} · ${escapeHtml(String(submission.status || '').replace('_', ' '))}${risk}</span><p>${escapeHtml(submission.description || '')}</p>${submission.external_link ? `<a href="${escapeHtml(submission.external_link)}" target="_blank" rel="noopener">Open delivery link</a>` : ''}${attachmentAction}${reviewNote ? `<p class="muted"><strong>Review note:</strong> ${escapeHtml(reviewNote)}</p>` : ''}</div>${actions}</div>`;
+    const inlineImageMarkup = isImage ? `
+        <div style="margin-top:8px;">
+            <a href="${escapeHtml(subAttachment)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;">
+                <img src="${escapeHtml(subAttachment)}" alt="Submission proof screenshot" style="max-height:160px; max-width:100%; border-radius:4px; border:1px solid #cbd5e1; object-fit:contain;" />
+            </a>
+        </div>
+    ` : '';
+    return `<div class="admin-row"><div><strong>${escapeHtml(worker.name || 'Unknown worker')}</strong><span class="muted">${workerContact}</span><span class="muted">Submitted ${escapeHtml(formatDate(submission.submitted_at || submission.created_at))} · Attempt ${Number(submission.attempt_number || 1)} · ${escapeHtml(String(submission.status || '').replace('_', ' '))}${risk}</span><p>${escapeHtml(submission.description || '')}</p>${submission.external_link ? `<a href="${escapeHtml(submission.external_link)}" target="_blank" rel="noopener">Open delivery link</a>` : ''}${attachmentAction}${inlineImageMarkup}${reviewNote ? `<p class="muted"><strong>Review note:</strong> ${escapeHtml(reviewNote)}</p>` : ''}</div>${actions}</div>`;
 }
 
 async function openProofAttachment(id) {
