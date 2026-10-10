@@ -51,9 +51,9 @@ function render() {
             <div class="active-job-card" data-id="${j.id}">
                 <div class="active-job-card__head">
                     <div>
-                        <h3>${escapeHtml(j.title)}</h3>
-                       ${j.subtitle ? `<div class="muted">${escapeHtml(j.subtitle)}</div>` : ''}
-                        ${summary ? `<p class="muted">${escapeHtml(summary.slice(0, 180))}${summary.length > 180 ? '…' : ''}</p>` : ''}
+                        <h3 data-i18n-ignore>${escapeHtml(j.title)}</h3>
+                       ${j.subtitle ? `<div class="muted" data-i18n-ignore>${escapeHtml(j.subtitle)}</div>` : ''}
+                        ${summary ? `<p class="muted" data-i18n-ignore>${escapeHtml(summary.slice(0, 180))}${summary.length > 180 ? '…' : ''}</p>` : ''}
                         <div class="muted">Pay: ৳${parseFloat(j.cost_per_worker || j.budget || 0).toFixed(2)} · Available slots: ${remainingSlots} · Deadline: ${escapeHtml(j.deadline_at || 'None')}</div>
                     </div>
                     <span class="badge badge--status badge--${status}">${status.toUpperCase()}</span>
@@ -74,7 +74,7 @@ function renderExistingSubmission(sub) {
     return `
         <div class="active-job-card__sub">
             <strong>Submitted:</strong> ${formatDate(sub.created_at)}
-            <div class="muted">${escapeHtml((sub.description || '').slice(0, 200))}${(sub.description || '').length > 200 ? '…' : ''}</div>
+            <div class="muted" data-i18n-ignore>${escapeHtml((sub.description || '').slice(0, 200))}${(sub.description || '').length > 200 ? '…' : ''}</div>
             ${sub.status === 'pending_review' ? '<p class="muted">⏳ Awaiting poster review.</p>' : ''}
             ${sub.status === 'revision' ? '<p class="muted">🔄 Poster requested changes. Open job details to resubmit your work.</p>' : ''}
             ${sub.status === 'approved' ? '<p class="muted">✅ Approved! Payment has been released.</p>' : ''}

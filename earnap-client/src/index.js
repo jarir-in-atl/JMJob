@@ -5,6 +5,7 @@ import { mount } from '@ghost-js/core';
 import { AppShell } from './components/AppShell.js';
 import { startRouter } from './route-loader.js';
 import { authToken, refreshUser } from './state.js';
+import { initializeLocalization } from './i18n.js';
 
 // Render the shell
 const app = document.getElementById('app') || (() => {
@@ -15,6 +16,7 @@ const app = document.getElementById('app') || (() => {
 })();
 app.innerHTML = '';
 mount(AppShell(), app);
+initializeLocalization();
 
 // Try to refresh the user from a persisted token
 if (authToken.get()) {

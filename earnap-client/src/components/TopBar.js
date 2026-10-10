@@ -3,6 +3,7 @@ import { when } from '@ghost-js/core';
 import { openMobileNav } from './MobileNav.js';
 import { theme, toggleTheme } from '../theme.js';
 import { api } from '../api.js';
+import { getLanguage, setLanguage } from '../i18n.js';
 
 export function TopBar() {
     return when(
@@ -33,6 +34,30 @@ function themeToggle() {
             props: { class: () => `bi ${isDark() ? 'bi-sun' : 'bi-moon'}` },
             children: [],
         }],
+    };
+}
+
+function languageSelector() {
+    const language = getLanguage();
+    return {
+        tag: 'div',
+        props: {
+            class: 'language-switcher',
+            role: 'group',
+            'aria-label': 'Select language',
+        },
+        children: ['en', 'bn'].map(choice => ({
+            tag: 'button',
+            props: {
+                type: 'button',
+                class: `language-switcher__button ${language === choice ? 'is-active' : ''}`,
+                'data-language-choice': choice,
+                'aria-label': choice === 'en' ? 'Switch to English' : 'Switch to Bengali',
+                'aria-pressed': String(language === choice),
+                onclick: () => setLanguage(choice),
+            },
+            children: [choice.toUpperCase()],
+        })),
     };
 }
 
@@ -299,6 +324,7 @@ function publicTopBar() {
                 props: { class: 'topbar__right' },
                 children: [
                     themeToggle(),
+                    languageSelector(),
                     { tag: 'a', props: { class: 'topbar__link', href: '#/login' }, children: ['Log in'] },
                     { tag: 'a', props: { class: 'topbar__link topbar__link--cta', href: '#/register' }, children: ['Sign up'] },
                 ],
@@ -342,6 +368,7 @@ function authenticatedTopBar() {
                 children: [
                     // Theme toggle
                     themeToggle(),
+                    languageSelector(),
                     // Active Jobs briefcase + dropdown (notification code remains commented above for restoration).
                     activeJobsMenu(),
                     // User profile

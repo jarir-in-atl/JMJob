@@ -141,7 +141,7 @@ function renderJob(job) {
         </div>
 
         <p class="admin-job-row__description muted">${escapeHtml(job.description || '')}</p>
-        ${job.subtitle ? `<p class="muted"><strong>Subtitle:</strong> ${escapeHtml(job.subtitle)}</p>` : ''}
+        ${job.subtitle ? `<p class="muted"><strong>Subtitle:</strong> <span data-i18n-ignore>${escapeHtml(job.subtitle)}</span></p>` : ''}
 
         ${metricsHtml}
 

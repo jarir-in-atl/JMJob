@@ -7,6 +7,12 @@
     <title>JMJob — Work. Earn. Grow.</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700;800&display=swap">
+    <script>
+        try {
+            document.documentElement.lang = localStorage.getItem('jmjob_language') === 'bn' ? 'bn' : 'en';
+        } catch (_) {}
+    </script>
     <link rel="stylesheet" href="/css/app-v2.css?v={{ time() }}">
     <link rel="icon" type="image/jpeg" href="/favicon.jpeg">
 </head>
@@ -17,6 +23,12 @@
             <p>Loading JMJob…</p>
         </div>
     </div>
+    <script>
+        if (document.documentElement.lang === 'bn') {
+            const loadingLabel = document.querySelector('.app-loading p');
+            if (loadingLabel) loadingLabel.textContent = 'JMJob লোড হচ্ছে…';
+        }
+    </script>
     <script>
         window.JMJOB_CONFIG = {
             apiBase: '/api',
