@@ -116,6 +116,19 @@ button { font-family: inherit; cursor: pointer; }
     cursor: pointer;
 }
 .topbar__icon-btn:hover { background: var(--bg); }
+.topbar__menu-btn {
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 18px;
+}
+.topbar__menu-btn:hover { background: var(--bg); color: var(--text); }
 .topbar__icon-btn.theme-toggle { border: none; font-size: 16px; }
 .topbar__link { padding: 8px 14px; border-radius: 8px; color: var(--text); font-weight: 500; }
 .topbar__link--cta { background: var(--primary); color: #fff; }
@@ -1931,6 +1944,21 @@ button { font-family: inherit; cursor: pointer; }
     font-size: 18px;
     letter-spacing: 0.5px;
 }
+.sidebar__mobile-close {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    margin-left: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+}
+.sidebar__mobile-close:hover { background: var(--bg); color: var(--text); }
+.sidebar--admin .sidebar__mobile-close { color: #94a3b8; border-color: #334155; }
+.sidebar--admin .sidebar__mobile-close:hover { background: #1e293b; color: #f1f5f9; }
 .sidebar__brand-text {
     display: inline-flex;
     align-items: center;
@@ -2053,6 +2081,36 @@ button { font-family: inherit; cursor: pointer; }
 @media (max-width: 768px) {
     .sidebar {
         transform: translateX(-100%);
+        z-index: 201;
+        width: min(280px, calc(100vw - 48px));
+    }
+    .sidebar--collapsed {
+        width: min(280px, calc(100vw - 48px));
+    }
+    .sidebar--collapsed .sidebar__label,
+    .sidebar--collapsed .sidebar__header {
+        display: block !important;
+    }
+    .sidebar--collapsed .sidebar__brand-suffix,
+    .sidebar--collapsed .sidebar__admin-badge {
+        display: inline-block !important;
+    }
+    .sidebar--collapsed .sidebar__item {
+        justify-content: flex-start;
+        padding: 10px 14px;
+    }
+    .sidebar--collapsed .sidebar__brand {
+        justify-content: flex-start;
+        padding: 0 20px;
+    }
+    .sidebar__collapse-btn {
+        display: none;
+    }
+    .sidebar__mobile-close {
+        display: inline-flex;
+    }
+    .sidebar-overlay {
+        z-index: 200;
     }
     .sidebar--open {
         transform: translateX(0);

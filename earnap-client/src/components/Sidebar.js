@@ -71,6 +71,7 @@ export function Sidebar() {
         props: {
             class: () => `sidebar ${isCollapsed.get() ? 'sidebar--collapsed' : ''} ${isAdminRoute() ? 'sidebar--admin' : ''}`,
             id: 'sidebar',
+            'aria-label': () => isAdminRoute() ? 'Admin navigation' : 'Navigation',
         },
         children: [
             Brand(),
@@ -98,6 +99,16 @@ function Brand() {
                 tag: 'span',
                 props: { class: () => `sidebar__admin-badge ${isAdminRoute() ? 'sidebar__admin-badge--active' : ''}` },
                 children: ['ADMIN'],
+            },
+            {
+                tag: 'button',
+                props: {
+                    type: 'button',
+                    class: 'sidebar__mobile-close',
+                    'aria-label': 'Close navigation',
+                    onclick: () => closeSidebar(),
+                },
+                children: [{ tag: 'i', props: { class: 'bi bi-x-lg' }, children: [] }],
             },
         ],
     };
@@ -186,6 +197,8 @@ export function openSidebar() {
     const overlay = document.getElementById('sidebar-overlay');
     if (sidebar) sidebar.classList.add('sidebar--open');
     if (overlay) overlay.classList.add('sidebar-overlay--active');
+    document.body.style.overflow = 'hidden';
+    document.querySelector('.topbar__menu-btn[aria-controls="sidebar"]')?.setAttribute('aria-expanded', 'true');
 }
 
 export function closeSidebar() {
@@ -193,4 +206,6 @@ export function closeSidebar() {
     const overlay = document.getElementById('sidebar-overlay');
     if (sidebar) sidebar.classList.remove('sidebar--open');
     if (overlay) overlay.classList.remove('sidebar-overlay--active');
+    document.body.style.overflow = '';
+    document.querySelector('.topbar__menu-btn[aria-controls="sidebar"]')?.setAttribute('aria-expanded', 'false');
 }

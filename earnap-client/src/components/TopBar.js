@@ -1,9 +1,22 @@
-import { currentUser, isAuthenticated, logout, showFlash } from '../state.js';
+import { currentUser, isAuthenticated, logout, route, showFlash } from '../state.js';
 import { when } from '@ghost-js/core';
 import { openMobileNav } from './MobileNav.js';
+import { openSidebar } from './Sidebar.js';
 import { theme, toggleTheme } from '../theme.js';
 import { api } from '../api.js';
 import { getLanguage, setLanguage } from '../i18n.js';
+
+function isAdminNavigation() {
+    return !!currentUser.get()?.is_admin || route.get().startsWith('/admin');
+}
+
+function openNavigation() {
+    if (isAdminNavigation()) {
+        openSidebar();
+        return;
+    }
+    openMobileNav();
+}
 
 export function TopBar() {
     return when(
@@ -350,8 +363,10 @@ function authenticatedTopBar() {
                         tag: 'button',
                         props: {
                             class: 'topbar__menu-btn',
-                            onclick: () => openMobileNav(),
-                            'aria-label': 'Open menu',
+                            onclick: () => openNavigation(),
+                            'aria-label': () => isAdminNavigation() ? 'Open admin navigation' : 'Open menu',
+                            'aria-controls': () => isAdminNavigation() ? 'sidebar' : 'mobile-nav',
+                            'aria-expanded': 'false',
                         },
                         children: [{ tag: 'i', props: { class: 'bi bi-list' }, children: [] }],
                     },
