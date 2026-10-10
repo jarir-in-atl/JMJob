@@ -1,5 +1,6 @@
 import { route, navigate, isAuthenticated, currentUser } from '../state.js';
 import { signal } from '@ghost-js/core';
+import { SHOW_DEPOSIT_UI } from '../features.js';
 
 const USER_NAV_ITEMS = [
     { path: '/', label: 'Dashboard', icon: 'bi-house-door' },
@@ -51,7 +52,7 @@ function getNavItems() {
     if (u && !u.is_admin) {
         items.push({ separator: true }, ...POSTER_NAV_ITEMS);
     }
-    return items;
+    return items.filter(item => SHOW_DEPOSIT_UI || item.path !== '/deposit');
 }
 
 // Collapsed state signal (persisted to localStorage)

@@ -1,6 +1,7 @@
 import { api } from '../api.js';
 import { showFlash, refreshUser } from '../state.js';
 import { currentUser } from '../state.js';
+import { SHOW_DEPOSIT_UI } from '../features.js';
 
 export function AdminPage() {
     return async () => {
@@ -25,7 +26,7 @@ export function AdminPage() {
             <div class="admin-tabs">
                 <button class="admin-tab admin-tab--active" data-tab="stats"><i class="bi bi-speedometer2"></i> Overview</button>
                 <button class="admin-tab" data-tab="withdrawals"><i class="bi bi-wallet2"></i> Withdrawals</button>
-                <button class="admin-tab" data-tab="payments"><i class="bi bi-cash-stack"></i> Deposits</button>
+                ${SHOW_DEPOSIT_UI ? '<button class="admin-tab" data-tab="payments"><i class="bi bi-cash-stack"></i> Deposits</button>' : ''}
                 <button class="admin-tab" data-tab="users"><i class="bi bi-people"></i> Users & Roles</button>
                 <button class="admin-tab" data-tab="providers"><i class="bi bi-play-circle"></i> Ad Providers</button>
                 <button class="admin-tab" data-tab="video-ads"><i class="bi bi-film"></i> Video Ads</button>

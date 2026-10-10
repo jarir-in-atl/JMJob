@@ -2,6 +2,7 @@
 // Triggered by the hamburger button in the TopBar. Lives independently from the
 // desktop Sidebar so users see a discoverable, full-height nav on every viewport.
 import { route, navigate, isAuthenticated, currentUser } from '../state.js';
+import { SHOW_DEPOSIT_UI } from '../features.js';
 
 const USER_NAV_ITEMS = [
     { path: '/', label: 'Dashboard', icon: 'bi-house-door' },
@@ -50,7 +51,7 @@ function getNavItems() {
     if (u && !u.is_admin) {
         items.push({ separator: true }, ...POSTER_NAV_ITEMS);
     }
-    return items;
+    return items.filter(item => SHOW_DEPOSIT_UI || item.path !== '/deposit');
 }
 
 function NavItem({ path, label, icon }) {

@@ -3,6 +3,7 @@
 // summary cards. Layout matches the JMJob reference design.
 import { currentUser, route, navigate, showFlash, refreshUser } from '../state.js';
 import { api } from '../api.js';
+import { SHOW_DEPOSIT_UI } from '../features.js';
 
 export function HomePage() {
     return async () => {
@@ -20,8 +21,8 @@ export function HomePage() {
         // Section 1: user header (avatar + name + balance)
         root.appendChild(renderUserHeader(u));
 
-        // Section 2: 3-column icon grid (Earn Ad, Web Task, Tasks, Withdraw,
-        // Referral, Profile, Support, Deposit) — matches reference
+        // Section 2: 3-column icon grid. Deposit remains available behind the
+        // SHOW_DEPOSIT_UI flag so it can be restored without rebuilding the UI.
         root.appendChild(renderIconGrid());
 
         // Section 3: Quick action cards (Daily Mission) — hidden as requested
@@ -171,7 +172,7 @@ function renderIconGrid() {
         { path: '/deposit',   label: 'Deposit',     icon: 'bi-cash-coin',          tone: 'green' },
     ];
 
-    items.forEach(item => {
+    items.filter(item => SHOW_DEPOSIT_UI || item.path !== '/deposit').forEach(item => {
         const a = el('a', `icon-grid__item icon-grid__item--${item.tone}`);
         a.href = `#${item.path}`;
         a.innerHTML = `

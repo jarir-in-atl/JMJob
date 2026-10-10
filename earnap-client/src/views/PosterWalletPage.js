@@ -2,6 +2,7 @@
 
 import { api } from '../api.js';
 import { currentUser, navigate } from '../state.js';
+import { SHOW_DEPOSIT_UI } from '../features.js';
 
 export function PosterWalletPage() {
     return async () => {
@@ -30,10 +31,10 @@ function render(content, stats, deposits) {
     const spent = money(stats.total_spent);
     content.innerHTML = `
         <div class="stat-grid poster-wallet-stat-grid"><div class="stat-tile poster-stat-tile"><span class="muted">Available wallet</span><strong>৳${wallet}</strong></div><div class="stat-tile poster-stat-tile"><span class="muted">Frozen in escrow</span><strong>৳${frozen}</strong></div><div class="stat-tile poster-stat-tile"><span class="muted">Total spent</span><strong>৳${spent}</strong></div></div>
-        <div class="card poster-wallet-actions"><div><h2 class="card__title">Need more wallet funds?</h2><p class="muted">Submit a bKash, Nagad, Rocket, or Upay TRXID deposit for admin verification.</p></div><button class="btn btn--primary" id="poster-wallet-deposit">Make a deposit</button></div>
+        ${SHOW_DEPOSIT_UI ? `<div class="card poster-wallet-actions"><div><h2 class="card__title">Need more wallet funds?</h2><p class="muted">Submit a bKash, Nagad, Rocket, or Upay TRXID deposit for admin verification.</p></div><button class="btn btn--primary" id="poster-wallet-deposit">Make a deposit</button></div>` : ''}
         <div class="card"><h2 class="card__title">Deposit history</h2><div class="poster-deposit-list">${renderDeposits(deposits)}</div></div>
     `;
-    content.querySelector('#poster-wallet-deposit').addEventListener('click', () => navigate('/deposit'));
+    content.querySelector('#poster-wallet-deposit')?.addEventListener('click', () => navigate('/deposit'));
 }
 function renderDeposits(deposits) { if (!deposits.length) return '<p class="muted">No deposits submitted yet.</p>'; return deposits.map(deposit => `<div class="poster-deposit-row"><span><strong>${escapeHtml((deposit.gateway || '').toUpperCase())}</strong><small>${escapeHtml(deposit.trxid)} · ${formatDate(deposit.created_at)}</small></span><span><strong>৳${Number(deposit.amount || 0).toFixed(2)}</strong><small>${escapeHtml(deposit.status || '')}</small></span></div>`).join(''); }
 function money(value) { const amount = Number(value || 0); return Number.isFinite(amount) ? amount.toFixed(2) : '0.00'; }
