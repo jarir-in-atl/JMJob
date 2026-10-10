@@ -15,57 +15,297 @@ export function PostJobPage() {
             return;
         }
 
-        // State holder for the 3-step wizard
-        const state = {
-            currentStep: 1,
-            categories: [],
-            // Step 1
-            mainCategoryId: '',
-            subCategoryId: '',
-            // Step 2
-            title: '',
-            subtitle: '',
-            description: '', // Task Instructions
-            thumbnailBase64: '',
-            proofRequirements: [
-                { title: '', type: 'text' }
-            ],
-            // Step 3
-            workerCount: 1,
-            costPerWorker: 10,
-            biddingValue: 3,
-            biddingUnit: 'days',
-            deadlineAt: '',
-            feePercentage: 30 // Default 30% system fee
+        root.innerHTML = `
+            <div class="page-heading-row poster-post-job-heading">
+                <div>
+                    <h1 class="page-title">Post a Job</h1>
+                    <p class="muted">Create a new job or manage jobs you have already submitted.</p>
+                </div>
+                <button class="btn btn--primary" type="button" id="post-job-open-form">
+                    <i class="bi bi-plus-lg"></i> Post a Job
+                </button>
+            </div>
+
+            <section class="card poster-posted-jobs" aria-labelledby="poster-posted-jobs-title">
+                <div class="poster-posted-jobs__header">
+                    <div>
+                        <h2 id="poster-posted-jobs-title">Previously Posted Jobs</h2>
+                        <p class="muted">Review each job's status, budget, and worker needs.</p>
+                    </div>
+                    <div class="poster-posted-jobs__tools">
+                        <span class="poster-posted-jobs__count" id="poster-posted-jobs-count" aria-label="Number of jobs">0</span>
+                        <button class="btn btn--ghost btn--sm" type="button" id="poster-posted-jobs-refresh">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+                <div id="poster-posted-jobs-list"><div class="spinner"></div></div>
+            </section>
+
+            <div class="modal poster-job-modal" id="post-job-modal" hidden aria-hidden="true">
+                <div class="modal__backdrop" data-post-job-close></div>
+                <section class="modal__content poster-job-modal__content" role="dialog" aria-modal="true" aria-labelledby="post-job-modal-title">
+                    <button class="modal__close" type="button" data-post-job-close aria-label="Close post job form">×</button>
+                    <div class="poster-job-modal__heading">
+                        <span class="poster-job-modal__eyebrow">NEW LISTING</span>
+                        <h2 id="post-job-modal-title">Post a Job</h2>
+                        <p class="muted">Follow the steps to submit your job for review.</p>
+                    </div>
+                    <div id="poster-job-wizard"></div>
+                </section>
+            </div>
+        `;
+
+        let categories = null;
+        let activeWizardState = null;
+        let opening = false;
+        const modal = root.querySelector('#post-job-modal');
+        const wizardRoot = root.querySelector('#poster-job-wizard');
+        const openButton = root.querySelector('#post-job-open-form');
+        const refreshButton = root.querySelector('#poster-posted-jobs-refresh');
+
+        const closeWizard = () => {
+            modal.hidden = true;
+            modal.setAttribute('aria-hidden', 'true');
+            wizardRoot.innerHTML = '';
+            activeWizardState = null;
+            opening = false;
+            openButton.focus();
         };
 
-        try {
-            const response = await api.categories();
-            state.categories = response.data || [];
-        } catch (error) {
-            showFlash(error.message || 'Could not load categories.', 'error');
+        const openWizard = async () => {
+            if (opening) return;
+            opening = true;
+            modal.hidden = false;
+            modal.setAttribute('aria-hidden', 'false');
+            wizardRoot.innerHTML = '<div class="card poster-job-modal__loading"><div class="spinner"></div><p class="muted">Loading categories…</p></div>';
+            modal.querySelector('.modal__close')?.focus();
+
+            const wizardState = createWizardState();
+            wizardState.closeModal = closeWizard;
+            wizardState.refreshJobs = () => loadPostedJobs(root, openWizard);
+            activeWizardState = wizardState;
+
+            try {
+                if (!categories) {
+                    const response = await api.categories();
+                    categories = response.data || [];
+                }
+                if (activeWizardState !== wizardState || !modal.isConnected) return;
+                wizardState.categories = categories;
+                renderWizard(wizardRoot, wizardState);
+            } catch (error) {
+                if (activeWizardState !== wizardState || !modal.isConnected) return;
+                showFlash(error.message || 'Could not load categories.', 'error');
+                wizardRoot.innerHTML = `
+                    <div class="card poster-job-modal__loading">
+                        <p>Could not load categories.</p>
+                        <button class="btn btn--secondary" type="button" data-retry-categories>Try again</button>
+                    </div>
+                `;
+                wizardRoot.querySelector('[data-retry-categories]')?.addEventListener('click', openWizard);
+            } finally {
+                if (activeWizardState === wizardState) opening = false;
+            }
+        };
+
+        openButton.addEventListener('click', openWizard);
+        refreshButton.addEventListener('click', () => loadPostedJobs(root, openWizard));
+        modal.addEventListener('click', event => {
+            if (event.target.closest('[data-post-job-close]')) closeWizard();
+        });
+        modal.addEventListener('keydown', event => {
+            if (event.key === 'Escape') closeWizard();
+        });
+
+        await loadPostedJobs(root, openWizard);
+    };
+}
+
+function createWizardState() {
+    return {
+        currentStep: 1,
+        categories: [],
+        mainCategoryId: '',
+        subCategoryId: '',
+        title: '',
+        subtitle: '',
+        description: '',
+        thumbnailBase64: '',
+        proofRequirements: [{ title: '', type: 'text' }],
+        workerCount: 1,
+        costPerWorker: 10,
+        biddingValue: 3,
+        biddingUnit: 'days',
+        deadlineAt: '',
+        feePercentage: 30
+    };
+}
+
+async function loadPostedJobs(root, openWizard) {
+    const list = root.querySelector('#poster-posted-jobs-list');
+    const count = root.querySelector('#poster-posted-jobs-count');
+    const refreshButton = root.querySelector('#poster-posted-jobs-refresh');
+    if (!list) return;
+
+    list.innerHTML = '<div class="card poster-posted-jobs__loading"><div class="spinner"></div><p class="muted">Loading your jobs…</p></div>';
+    if (refreshButton) refreshButton.disabled = true;
+
+    try {
+        const response = await api.posterMyJobs();
+        const jobs = Array.isArray(response.data) ? response.data : [];
+        if (count) count.textContent = String(jobs.length);
+
+        if (!jobs.length) {
+            list.innerHTML = `
+                <div class="poster-posted-jobs__empty">
+                    <span class="poster-posted-jobs__empty-icon"><i class="bi bi-briefcase"></i></span>
+                    <strong>No jobs have been posted yet.</strong>
+                    <span>Your submitted jobs will appear in this table.</span>
+                    <button class="btn btn--primary btn--sm" type="button" data-post-first-job><i class="bi bi-plus-lg"></i> Post your first job</button>
+                </div>
+            `;
+            list.querySelector('[data-post-first-job]')?.addEventListener('click', openWizard);
+            return;
         }
 
-        renderWizard(root, state);
-    };
+        list.innerHTML = `
+            <div class="poster-posted-jobs__table-wrap">
+                <table class="poster-posted-jobs__table">
+                    <thead><tr>
+                        <th scope="col">Job</th>
+                        <th scope="col">Job Status</th>
+                        <th scope="col">Worker Progress</th>
+                        <th scope="col">Total Cost</th>
+                        <th scope="col">Posted</th>
+                        <th scope="col">Actions</th>
+                    </tr></thead>
+                    <tbody>
+                        ${jobs.map(renderPostedJobRow).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+        list.querySelectorAll('[data-poster-manage-job]').forEach(button => {
+            button.addEventListener('click', () => navigate(`/poster/jobs/${Number(button.dataset.posterManageJob)}`));
+        });
+    } catch {
+        if (count) count.textContent = '—';
+        list.innerHTML = `
+            <div class="poster-posted-jobs__error">
+                <i class="bi bi-exclamation-circle"></i>
+                <strong>Could not load your jobs.</strong>
+                <button class="btn btn--ghost btn--sm" type="button" data-retry-posted-jobs>Try again</button>
+            </div>
+        `;
+        list.querySelector('[data-retry-posted-jobs]')?.addEventListener('click', () => loadPostedJobs(root, openWizard));
+    } finally {
+        if (refreshButton) refreshButton.disabled = false;
+    }
+}
+
+function renderPostedJobRow(job) {
+    const status = String(job.status || 'unknown');
+    const statusLabel = {
+        pending_approval: 'Pending Approval',
+        open: 'Open to Workers',
+        in_review: 'In Review',
+        assigned: 'Assigned',
+        submitted: 'Submitted',
+        revision: 'Revision Requested',
+        completed: 'Completed',
+        declined: 'Declined',
+        cancelled: 'Cancelled',
+        disputed: 'Disputed',
+        expired: 'Expired',
+    }[status] || label(status);
+    const statusClass = {
+        pending_approval: 'badge--pending_approval',
+        submitted: 'badge--pending_review',
+        declined: 'badge--rejected',
+        disputed: 'badge--revision',
+        expired: 'badge--cancelled',
+    }[status] || `badge--${status.replace(/[^a-z0-9_-]/gi, '')}`;
+    const totalCost = Number(job.total_payable_amount || job.budget || 0);
+    const jobId = Number(job.id) || 0;
+    const needed = Math.max(1, workerCount(job.worker_count, 1));
+    const engaged = workerCount(job.active_workers_count);
+    const assigned = workerCount(job.assigned_workers_count);
+    const working = workerCount(job.in_progress_workers);
+    const awaitingReview = workerCount(job.pending_review_workers);
+    const revision = workerCount(job.revision_workers);
+    const rejected = workerCount(job.rejected_workers);
+    const completed = workerCount(job.completed_workers_count);
+    const cancelled = workerCount(job.cancelled_workers);
+    const remaining = workerCount(job.remaining_tasks_count, Math.max(0, needed - assigned));
+    const progress = Math.min(100, Math.round((engaged / needed) * 100));
+    const titleMarkup = job.title
+        ? `<strong class="poster-posted-jobs__job-title" data-i18n-ignore>${escapeHtml(job.title)}</strong>`
+        : '<strong class="poster-posted-jobs__job-title">Untitled job</strong>';
+    const subtitle = String(job.subtitle || '').trim();
+    const workerMetrics = [
+        ['Assigned', assigned],
+        ['Working', working],
+        ['Awaiting Review', awaitingReview],
+        ['Revision', revision],
+        ['Rejected', rejected],
+        ['Completed', completed],
+        ['Cancelled', cancelled],
+        ['Slots left', remaining],
+    ];
+
+    return `
+        <tr>
+            <td class="poster-posted-jobs__job-cell">
+                ${titleMarkup}
+                ${subtitle ? `<small class="poster-posted-jobs__subtitle" data-i18n-ignore>${escapeHtml(subtitle)}</small>` : ''}
+            </td>
+            <td><span class="badge badge--status ${statusClass}">${escapeHtml(statusLabel)}</span></td>
+            <td class="poster-posted-jobs__worker-cell">
+                <div class="poster-worker-progress__summary">
+                    <span><span>Engaged</span> <strong>${engaged}</strong> / <span>Needed</span> <strong>${needed}</strong></span>
+                    <strong>${progress}%</strong>
+                </div>
+                <div class="poster-worker-progress__bar" role="progressbar" aria-label="Worker engagement" aria-valuemin="0" aria-valuemax="${needed}" aria-valuenow="${Math.min(engaged, needed)}">
+                    <span style="width:${progress}%"></span>
+                </div>
+                <div class="poster-worker-progress__metrics">
+                    ${workerMetrics.map(([metricLabel, count]) => `
+                        <span class="poster-worker-progress__metric">
+                            <small>${metricLabel}</small>
+                            <strong>${count}</strong>
+                        </span>
+                    `).join('')}
+                </div>
+            </td>
+            <td><strong>${escapeHtml(job.currency || 'BDT')} ${totalCost.toFixed(2)}</strong></td>
+            <td>${escapeHtml(formatPostedDate(job.created_at))}</td>
+            <td><button class="btn btn--ghost btn--sm" type="button" data-poster-manage-job="${jobId}">Manage Job</button></td>
+        </tr>
+    `;
+}
+
+function workerCount(value, fallback = 0) {
+    const count = Number(value);
+    return Number.isFinite(count) && count >= 0 ? Math.floor(count) : fallback;
+}
+
+function label(value) {
+    return String(value || '').replace(/_/g, ' ').replace(/\b\w/g, character => character.toUpperCase());
+}
+
+function formatPostedDate(value) {
+    if (!value) return '—';
+    const date = new Date(String(value).replace(' ', 'T') + 'Z');
+    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 function renderWizard(root, state) {
     root.innerHTML = `
-        <a href="#/poster" class="back-link"><i class="bi bi-arrow-left"></i> Poster dashboard</a>
-        <h1 class="page-title">Post a Job</h1>
-        
-        <!-- Step Indicator -->
-        <div class="wizard-steps" style="display: flex; gap: 1rem; margin-bottom: 1.5rem; justify-content: space-between;">
-            <div class="wizard-step ${state.currentStep === 1 ? 'active' : ''} ${state.currentStep > 1 ? 'completed' : ''}" style="flex: 1; padding: 0.75rem; background: ${state.currentStep === 1 ? 'var(--primary-light, #e0e7ff)' : '#f3f4f6'}; border-radius: 8px; text-align: center; font-weight: bold; color: ${state.currentStep === 1 ? 'var(--primary, #4f46e5)' : '#4b5563'};">
-                1. Category Selection
-            </div>
-            <div class="wizard-step ${state.currentStep === 2 ? 'active' : ''} ${state.currentStep > 2 ? 'completed' : ''}" style="flex: 1; padding: 0.75rem; background: ${state.currentStep === 2 ? 'var(--primary-light, #e0e7ff)' : '#f3f4f6'}; border-radius: 8px; text-align: center; font-weight: bold; color: ${state.currentStep === 2 ? 'var(--primary, #4f46e5)' : '#4b5563'};">
-                2. Job Details & Proofs
-            </div>
-            <div class="wizard-step ${state.currentStep === 3 ? 'active' : ''}" style="flex: 1; padding: 0.75rem; background: ${state.currentStep === 3 ? 'var(--primary-light, #e0e7ff)' : '#f3f4f6'}; border-radius: 8px; text-align: center; font-weight: bold; color: ${state.currentStep === 3 ? 'var(--primary, #4f46e5)' : '#4b5563'};">
-                3. Workers & Pricing
-            </div>
+        <div class="poster-wizard-steps" aria-label="Job posting steps">
+            <div class="poster-wizard-step ${state.currentStep === 1 ? 'is-active' : ''} ${state.currentStep > 1 ? 'is-complete' : ''}"><span>1</span><strong>Category Selection</strong></div>
+            <div class="poster-wizard-step ${state.currentStep === 2 ? 'is-active' : ''} ${state.currentStep > 2 ? 'is-complete' : ''}"><span>2</span><strong>Job Details & Proofs</strong></div>
+            <div class="poster-wizard-step ${state.currentStep === 3 ? 'is-active' : ''}"><span>3</span><strong>Workers & Pricing</strong></div>
         </div>
 
         <div class="card" id="wizard-card-body">
@@ -142,7 +382,7 @@ function renderStep1(container, root, state) {
         state.subCategoryId = e.target.value;
     });
 
-    container.querySelector('#step-cancel').addEventListener('click', handleCancel);
+    container.querySelector('#step-cancel').addEventListener('click', () => handleCancel(state));
 
     container.querySelector('#step-1-form').addEventListener('submit', (e) => {
         e.preventDefault();
@@ -332,7 +572,7 @@ function renderStep2(container, root, state) {
         }
     });
 
-    container.querySelector('#step-cancel').addEventListener('click', handleCancel);
+    container.querySelector('#step-cancel').addEventListener('click', () => handleCancel(state));
 
     container.querySelector('#step-2-back').addEventListener('click', () => {
         saveStep2Inputs(container, state);
@@ -473,7 +713,7 @@ function renderStep3(container, root, state) {
     workerInput.addEventListener('input', updateCalculations);
     costInput.addEventListener('input', updateCalculations);
 
-    container.querySelector('#step-cancel').addEventListener('click', handleCancel);
+    container.querySelector('#step-cancel').addEventListener('click', () => handleCancel(state));
 
     container.querySelector('#step-3-back').addEventListener('click', () => {
         saveStep3Inputs(container, state);
@@ -514,6 +754,7 @@ function renderStep3(container, root, state) {
                 bidding_window_hours: windowHours,
             });
 
+            state.refreshJobs?.();
             showFlash('Job submitted for admin review.', 'success');
             
             const user = currentUser.get();
@@ -538,10 +779,11 @@ function renderStep3(container, root, state) {
                         </div>
 
                         <div>
-                            <a href="#/poster/jobs" class="btn btn--ghost">Go to My Jobs</a>
+                            <button type="button" class="btn btn--ghost" data-post-job-done>Return to posted jobs</button>
                         </div>
                     </div>
                 `;
+                cardBody.querySelector('[data-post-job-done]')?.addEventListener('click', () => state.closeModal?.());
             }
         } catch (error) {
             showFlash(error.message || 'Could not publish job.', 'error');
@@ -559,9 +801,10 @@ function saveStep3Inputs(container, state) {
     state.deadlineAt = container.querySelector('#deadline-input')?.value || '';
 }
 
-function handleCancel() {
+function handleCancel(state) {
     if (confirm('Are you sure you want to cancel posting this job?')) {
-        navigate('/poster');
+        if (typeof state?.closeModal === 'function') state.closeModal();
+        else navigate('/poster');
     }
 }
 
