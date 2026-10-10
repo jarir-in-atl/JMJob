@@ -292,11 +292,13 @@ function renderPostedJobRow(job) {
     return `
         <tr>
             <td class="poster-posted-jobs__job-cell">
+                <span class="poster-posted-jobs__mobile-label">Job</span>
                 ${titleMarkup}
                 ${subtitle ? `<small class="poster-posted-jobs__subtitle" data-i18n-ignore>${escapeHtml(subtitle)}</small>` : ''}
             </td>
-            <td><span class="badge badge--status ${statusClass}">${escapeHtml(statusLabel)}</span></td>
+            <td><span class="poster-posted-jobs__mobile-label">Job Status</span><span class="badge badge--status ${statusClass}">${escapeHtml(statusLabel)}</span></td>
             <td class="poster-posted-jobs__worker-cell">
+                <span class="poster-posted-jobs__mobile-label">Worker Progress</span>
                 <div class="poster-worker-progress__summary">
                     <span><span>Engaged</span> <strong>${engaged}</strong> / <span>Needed</span> <strong>${needed}</strong></span>
                     <strong>${progress}%</strong>
@@ -313,9 +315,9 @@ function renderPostedJobRow(job) {
                     `).join('')}
                 </div>
             </td>
-            <td><strong>${escapeHtml(job.currency || 'BDT')} ${totalCost.toFixed(2)}</strong></td>
-            <td>${escapeHtml(formatPostedDate(job.created_at))}</td>
-            <td><button class="btn btn--ghost btn--sm" type="button" data-poster-manage-job="${jobId}">Manage Job</button></td>
+            <td><span class="poster-posted-jobs__mobile-label">Total Cost</span><strong>${escapeHtml(job.currency || 'BDT')} ${totalCost.toFixed(2)}</strong></td>
+            <td><span class="poster-posted-jobs__mobile-label">Posted</span>${escapeHtml(formatPostedDate(job.created_at))}</td>
+            <td><span class="poster-posted-jobs__mobile-label">Actions</span><button class="btn btn--ghost btn--sm" type="button" data-poster-manage-job="${jobId}">Manage Job</button></td>
         </tr>
     `;
 }

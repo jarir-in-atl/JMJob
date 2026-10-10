@@ -844,11 +844,13 @@ var Si=Object.defineProperty;var S=(e,t)=>()=>(e&&(t=e(e=0)),t);var E=(e,t)=>{fo
         `,a.querySelector("[data-retry-posted-jobs]")?.addEventListener("click",()=>yt(e,t))}finally{r&&(r.disabled=!1)}}}function rr(e,t){let a={given:0,running:0,completed:0};Array.isArray(t)&&t.forEach(s=>{a.given+=z(s.assigned_workers_count),a.running+=z(s.in_progress_workers),a.completed+=z(s.completed_workers_count)}),e.querySelectorAll("[data-task-summary]").forEach(s=>{let r=s.dataset.taskSummary;s.textContent=Array.isArray(t)&&Object.prototype.hasOwnProperty.call(a,r)?String(a[r]):"\u2014"})}function pn(e){let t=String(e.status||"unknown"),a={pending_approval:"Pending Approval",open:"Active",in_review:"In Review",assigned:"Assigned",submitted:"Submitted",revision:"Revision Requested",completed:"Completed",declined:"Declined",cancelled:"Cancelled",disputed:"Disputed",expired:"Expired"}[t]||un(t),s={pending_approval:"badge--pending_approval",submitted:"badge--pending_review",declined:"badge--rejected",disputed:"badge--revision",expired:"badge--cancelled"}[t]||`badge--${t.replace(/[^a-z0-9_-]/gi,"")}`,r=Number(e.total_payable_amount||e.budget||0),i=Number(e.id)||0,n=Math.max(1,z(e.worker_count,1)),o=z(e.active_workers_count),d=z(e.assigned_workers_count),p=z(e.in_progress_workers),u=z(e.pending_review_workers),g=z(e.revision_workers),w=z(e.rejected_workers),b=z(e.completed_workers_count),$=z(e.cancelled_workers),k=z(e.remaining_tasks_count,Math.max(0,n-d)),A=Math.min(100,Math.round(o/n*100)),P=e.title?`<strong class="poster-posted-jobs__job-title" data-i18n-ignore>${te(e.title)}</strong>`:'<strong class="poster-posted-jobs__job-title">Untitled job</strong>',G=String(e.subtitle||"").trim(),h=[["Assigned",d],["Working",p],["Awaiting Review",u],["Revision",g],["Rejected",w],["Completed",b],["Cancelled",$],["Slots left",k]];return`
         <tr>
             <td class="poster-posted-jobs__job-cell">
+                <span class="poster-posted-jobs__mobile-label">Job</span>
                 ${P}
                 ${G?`<small class="poster-posted-jobs__subtitle" data-i18n-ignore>${te(G)}</small>`:""}
             </td>
-            <td><span class="badge badge--status ${s}">${te(a)}</span></td>
+            <td><span class="poster-posted-jobs__mobile-label">Job Status</span><span class="badge badge--status ${s}">${te(a)}</span></td>
             <td class="poster-posted-jobs__worker-cell">
+                <span class="poster-posted-jobs__mobile-label">Worker Progress</span>
                 <div class="poster-worker-progress__summary">
                     <span><span>Engaged</span> <strong>${o}</strong> / <span>Needed</span> <strong>${n}</strong></span>
                     <strong>${A}%</strong>
@@ -865,9 +867,9 @@ var Si=Object.defineProperty;var S=(e,t)=>()=>(e&&(t=e(e=0)),t);var E=(e,t)=>{fo
                     `).join("")}
                 </div>
             </td>
-            <td><strong>${te(e.currency||"BDT")} ${r.toFixed(2)}</strong></td>
-            <td>${te(mn(e.created_at))}</td>
-            <td><button class="btn btn--ghost btn--sm" type="button" data-poster-manage-job="${i}">Manage Job</button></td>
+            <td><span class="poster-posted-jobs__mobile-label">Total Cost</span><strong>${te(e.currency||"BDT")} ${r.toFixed(2)}</strong></td>
+            <td><span class="poster-posted-jobs__mobile-label">Posted</span>${te(mn(e.created_at))}</td>
+            <td><span class="poster-posted-jobs__mobile-label">Actions</span><button class="btn btn--ghost btn--sm" type="button" data-poster-manage-job="${i}">Manage Job</button></td>
         </tr>
     `}function z(e,t=0){let a=Number(e);return Number.isFinite(a)&&a>=0?Math.floor(a):t}function un(e){return String(e||"").replace(/_/g," ").replace(/\b\w/g,t=>t.toUpperCase())}function mn(e){if(!e)return"\u2014";let t=new Date(String(e).replace(" ","T")+"Z");return Number.isNaN(t.getTime())?String(e):t.toLocaleDateString(void 0,{year:"numeric",month:"short",day:"numeric"})}function ze(e,t){e.innerHTML=`
         <div class="poster-wizard-steps" aria-label="Job posting steps">
