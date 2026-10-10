@@ -1,187 +1,333 @@
 import { api, getAuthToken } from '../api.js';
-import { currentUser, showFlash, refreshUser, navigate } from '../state.js';
+import { currentUser, showFlash, refreshUser } from '../state.js';
 
 export function EarnPage() {
     return async () => {
         const root = document.querySelector('[data-view]');
         if (!root) return;
-        root.innerHTML = '<div class="card"><p class="muted">Loading available ads…</p></div>';
+        root.innerHTML = '<div class="card"><p class="muted">Loading video rewards…</p></div>';
         root.className = 'view view--earn';
 
-       const u = currentUser.get();
-       const adsRemaining = u ? u.ads_remaining : 0;
-       try {
-            const [response, historyResponse] = await Promise.all([
-                api.videoAds(),
-                api.adHistory().catch(() => ({ meta: {} })),
-            ]);
-           const items = response.data || [];
-            const history = historyResponse.meta || {};
-           const enabled = response.meta?.enabled !== false;
-           root.innerHTML = `
-                <div class="card card--earn">
-                    <h2 class="card__title">Ads Reward Center</h2>
-                    <p class="card__sub">Server-timed sponsor videos and daily rewards</p>
-                    <div class="ad-progress">
-                        <div class="ad-progress__bar" style="width: ${u ? Math.min(100, ((u.today_ads || 0) / (u.ads_limit || 50)) * 100) : 0}%"></div>
-                   </div>
-                   <p class="ad-progress__label">${u ? u.today_ads : 0} / ${u ? u.ads_limit : 50} ads today</p>
-                    <div class="ad-earn-summary">
-                        <div><span class="muted">Available ads</span><strong>${items.length}</strong></div>
-                        <div><span class="muted">Remaining limit</span><strong>${response.meta?.ads_remaining_today ?? adsRemaining}</strong></div>
-                        <div><span class="muted">Today’s ad earnings</span><strong>৳${Number(history.today_earnings || 0).toFixed(4)}</strong></div>
-                        <div><span class="muted">Total ad earnings</span><strong>৳${Number(history.total_earnings || 0).toFixed(4)}</strong></div>
+        const user = currentUser.get();
+        try {
+            const response = await api.videoAds();
+            const items = Array.isArray(response.data) ? response.data : [];
+            const meta = response.meta || {};
+            const enabled = meta.enabled !== false;
+            const dailyLimit = Number(user?.ads_limit || 0);
+            const todayAds = Number(user?.today_ads || 0);
+            const remaining = Number(meta.ads_remaining_today ?? user?.ads_remaining ?? 0);
+            const dailyProgress = dailyLimit > 0 ? Math.min(100, (todayAds / dailyLimit) * 100) : 0;
+
+            root.innerHTML = `
+                <section class="earn-hero">
+                    <div class="earn-hero__glow earn-hero__glow--one"></div>
+                    <div class="earn-hero__glow earn-hero__glow--two"></div>
+                    <div class="earn-hero__content">
+                        <span class="earn-hero__eyebrow"><i class="bi bi-play-circle-fill"></i> VIDEO INCOME</span>
+                        <h1>Earn Money Watching Videos</h1>
+                        <p>Watch a sponsor video, wait for the timer, and collect its reward in your JMJob balance.</p>
+                        <div class="earn-hero__stats">
+                            <div class="earn-hero__stat">
+                                <i class="bi bi-coin"></i>
+                                <div><span>Today’s video earnings</span><strong>৳${money(meta.today_earnings)}</strong></div>
+                            </div>
+                            <div class="earn-hero__stat">
+                                <i class="bi bi-wallet2"></i>
+                                <div><span>Total video earnings</span><strong>৳${money(meta.total_earnings)}</strong></div>
+                            </div>
+                        </div>
                     </div>
-                   ${!enabled ? '<p class="muted">Watch-and-earn is currently paused.</p>' : ''}
-                    <div class="video-ad-list"></div>
-                    ${enabled && items.length === 0 ? '<p class="muted">No sponsor videos are available right now.</p>' : ''}
-                    <button id="watch-btn" class="btn btn--ghost btn--sm" ${adsRemaining <= 0 || !enabled ? 'disabled' : ''}>Use standard ad reward</button>
-                </div>
+                </section>
+
+                <section class="card earn-progress-card">
+                    <div class="earn-progress-card__top">
+                        <div>
+                            <span class="earn-section-kicker">TODAY</span>
+                            <h2>Daily ad allowance</h2>
+                        </div>
+                        <span class="earn-progress-card__count">${dailyLimit > 0 ? `${todayAds} / ${dailyLimit}` : `${todayAds} ads`}</span>
+                    </div>
+                    ${dailyLimit > 0 ? `<div class="earn-progress"><span style="width:${dailyProgress}%"></span></div>` : ''}
+                    <div class="earn-progress-card__bottom">
+                        <span>${dailyLimit > 0 ? `${remaining} ad rewards remaining today` : 'No daily ad limit'}</span>
+                        <span>${Number(meta.video_views_today || 0)} video rewards claimed today</span>
+                    </div>
+                    <div class="earn-stat-strip">
+                        <div><i class="bi bi-camera-video"></i><span>${items.length} videos available</span></div>
+                        <div><i class="bi bi-shield-check"></i><span>Rewards are checked by JMJob</span></div>
+                    </div>
+                </section>
+
+                <section class="earn-video-section">
+                    <div class="earn-section-heading">
+                        <div>
+                            <span class="earn-section-kicker">WATCH & EARN</span>
+                            <h2>Videos for you</h2>
+                            <p>Choose a video below and complete its watch timer to claim the reward.</p>
+                        </div>
+                        <span class="earn-video-count">${items.length}</span>
+                    </div>
+                    ${!enabled ? '<div class="earn-empty"><i class="bi bi-pause-circle"></i><strong>Video rewards are paused</strong><span>Please check back later.</span></div>' : ''}
+                    ${enabled && items.length === 0 ? '<div class="earn-empty"><i class="bi bi-film"></i><strong>No videos available right now</strong><span>New sponsor videos will appear here when they are ready.</span></div>' : ''}
+                    <div class="earn-video-grid"></div>
+                </section>
+
+                <section class="card earn-howto">
+                    <div class="earn-howto__heading"><span class="earn-howto__icon"><i class="bi bi-lightbulb-fill"></i></span><div><span class="earn-section-kicker">QUICK GUIDE</span><h2>How video rewards work</h2></div></div>
+                    <div class="earn-howto__steps">
+                        <div><span>1</span><p><strong>Choose a video</strong><small>Check its reward and required watch time.</small></p></div>
+                        <div><span>2</span><p><strong>Watch and wait</strong><small>Keep the video open until the timer finishes.</small></p></div>
+                        <div><span>3</span><p><strong>Claim your reward</strong><small>Your reward is credited after JMJob verifies the timer.</small></p></div>
+                    </div>
+                </section>
             `;
-            const list = root.querySelector('.video-ad-list');
-            items.forEach(ad => {
-                const card = document.createElement('div');
-                card.className = 'admin-row';
-                card.innerHTML = `<div><strong>${escapeHtml(ad.title)}</strong><span class="muted">${ad.duration_seconds}s · +${Number(ad.reward_amount || 0).toFixed(4)} · ${ad.watched_today}/${ad.daily_limit || '∞'} today</span></div>`;
-                const button = document.createElement('button');
-                button.className = 'btn btn--primary btn--sm';
-                button.textContent = ad.can_start && adsRemaining > 0 ? 'Watch & earn' : 'Unavailable';
-                button.disabled = !ad.can_start || adsRemaining <= 0;
-                button.addEventListener('click', () => openVideoAdModal(ad));
-                card.appendChild(button);
-                list.appendChild(card);
-            });
-            const btn = root.querySelector('#watch-btn');
-            if (btn && !btn.disabled) btn.addEventListener('click', () => openAdModal());
-        } catch (e) {
-            root.innerHTML = `<div class="card card--earn"><h2 class="card__title">Ads Reward Center</h2><p class="muted">${escapeHtml(e.message || 'Could not load ads.')}</p></div>`;
+
+            const list = root.querySelector('.earn-video-grid');
+            items.forEach(ad => list.appendChild(renderVideoCard(ad, remaining)));
+        } catch (error) {
+            root.innerHTML = `<section class="card card--earn"><h1 class="card__title">Video income</h1><p class="muted">${escapeHtml(error.message || 'Could not load video rewards.')}</p><button class="btn btn--ghost btn--sm" type="button">Retry</button></section>`;
+            root.querySelector('button')?.addEventListener('click', () => EarnPage()());
         }
     };
 }
 
+function renderVideoCard(ad, remaining) {
+    const card = document.createElement('article');
+    card.className = 'earn-video-card';
+    const canStart = Boolean(ad.can_start) && remaining > 0;
+    const campaignLimit = Number(ad.daily_limit || 0);
+    const watchedToday = Number(ad.watched_today || 0);
+    const activity = campaignLimit > 0
+        ? `${watchedToday} / ${campaignLimit} today`
+        : `${watchedToday} watched today`;
+
+    card.innerHTML = `
+        <div class="earn-video-card__top">
+            <span class="earn-video-card__icon"><i class="bi bi-play-fill"></i></span>
+            <span class="earn-video-card__badge">SPONSORED</span>
+        </div>
+        <h3 class="earn-video-card__title">${escapeHtml(ad.title || 'Sponsored video')}</h3>
+        <div class="earn-video-card__details">
+            <span><i class="bi bi-clock"></i>${Number(ad.duration_seconds || 0)} sec</span>
+            <span><i class="bi bi-coin"></i>৳${money(ad.reward_amount)}</span>
+        </div>
+        <p class="earn-video-card__limit">${escapeHtml(activity)}</p>
+        <button class="btn ${canStart ? 'btn--primary' : 'btn--ghost'} earn-video-card__button" type="button" ${canStart ? '' : 'disabled'}>
+            <i class="bi ${canStart ? 'bi-play-circle-fill' : 'bi-hourglass-split'}"></i>${canStart ? 'Watch & earn' : (remaining <= 0 ? 'Daily limit reached' : 'Campaign limit reached')}
+        </button>
+    `;
+    if (canStart) card.querySelector('button')?.addEventListener('click', () => openVideoAdModal(ad));
+    return card;
+}
+
 async function openVideoAdModal(ad) {
-    let response;
+    let session;
     try {
-        response = await api.videoAdStart({ video_ad_id: ad.id });
-    } catch (e) {
-        showFlash(e.message || 'Could not start this ad.', 'error');
+        const response = await api.videoAdStart({ video_ad_id: ad.id });
+        session = response.data;
+    } catch (error) {
+        showFlash(error.message || 'Could not start this video.', 'error');
         return;
     }
-    const session = response.data;
+
     const modal = document.createElement('div');
-    modal.className = 'modal modal--ad';
+    modal.className = 'modal modal--earn-watch';
     modal.innerHTML = `
         <div class="modal__backdrop"></div>
-        <div class="modal__content modal__content--ad">
-            <button class="modal__close" aria-label="Close">×</button>
-            <h3>${escapeHtml(ad.title)}</h3>
-            <video id="video-ad-player" controls playsinline style="width:100%;max-height:320px;background:#000"></video>
-            <p class="ad-slot__countdown" id="video-ad-countdown">Watch ${session.duration_seconds}s to unlock the reward.</p>
-        </div>
+        <section class="modal__content modal__content--earn" role="dialog" aria-modal="true" aria-label="Watch video and earn">
+            <button class="modal__close" type="button" aria-label="Close">×</button>
+            <div class="earn-watch__heading"><span class="earn-watch__icon"><i class="bi bi-play-fill"></i></span><div><span class="earn-section-kicker">WATCH & EARN</span><h2 class="earn-watch__title">${escapeHtml(ad.title || 'Sponsored video')}</h2></div></div>
+            <div class="earn-watch__player"><div class="earn-watch__loading"><span class="spinner"></span><span>Preparing your video…</span></div></div>
+            <div class="earn-watch__timer-row"><div class="earn-watch__timer-icon"><i class="bi bi-hourglass-split"></i></div><div class="earn-watch__timer-copy"><strong id="earn-watch-status">Starting your watch timer…</strong><span id="earn-watch-countdown">${Number(session.duration_seconds || 0)} seconds required</span></div></div>
+            <div class="earn-watch__progress"><span></span></div>
+            <p class="earn-watch__note">The reward button becomes available when the timer finishes. Keep this page open while you watch.</p>
+            <div class="earn-watch__actions"><button class="btn btn--ghost" type="button" data-watch-close>Close</button><button class="btn btn--primary" type="button" data-watch-claim disabled><i class="bi bi-gift-fill"></i><span>Claim reward</span><strong>৳${money(session.reward_amount ?? ad.reward_amount)}</strong></button></div>
+        </section>
     `;
     document.body.appendChild(modal);
-    const close = () => modal.remove();
-    modal.querySelector('.modal__close').addEventListener('click', close);
-    modal.querySelector('.modal__backdrop').addEventListener('click', close);
-    const player = modal.querySelector('#video-ad-player');
-    const countdown = modal.querySelector('#video-ad-countdown');
-    let claimed = false;
-    try {
-        if (String(session.stream_url || "").startsWith("https://")) {
-            player.src = session.stream_url;
-            await player.play().catch(() => {});
-        } else {
-            const res = await fetch(session.stream_url, { headers: { Authorization: "Bearer " + getAuthToken() } });
-            if (!res.ok) throw new Error("Video could not be loaded.");
-            player.src = URL.createObjectURL(await res.blob());
-            await player.play().catch(() => {});
+
+    const playerSlot = modal.querySelector('.earn-watch__player');
+    const status = modal.querySelector('#earn-watch-status');
+    const countdown = modal.querySelector('#earn-watch-countdown');
+    const progress = modal.querySelector('.earn-watch__progress > span');
+    const claimButton = modal.querySelector('[data-watch-claim]');
+    let objectUrl = null;
+    let claimInProgress = false;
+    let closed = false;
+
+    const close = () => {
+        closed = true;
+        modal.remove();
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+    modal.querySelector('[data-watch-close]')?.addEventListener('click', close);
+    modal.querySelector('.modal__close')?.addEventListener('click', close);
+    modal.querySelector('.modal__backdrop')?.addEventListener('click', close);
+
+    const streamUrl = String(session.stream_url || '');
+    const source = classifyVideoSource(streamUrl);
+    if (source.kind === 'local') {
+        try {
+            const response = await fetch(streamUrl, { headers: { Authorization: `Bearer ${getAuthToken()}` } });
+            if (!response.ok) throw new Error('Video could not be loaded.');
+            objectUrl = URL.createObjectURL(await response.blob());
+            playerSlot.replaceChildren(createVideoElement(objectUrl));
+        } catch (error) {
+            showPlayerError(playerSlot, error.message || 'Video could not be loaded.');
         }
-    } catch (e) {
-        countdown.textContent = e.message || 'Video could not be loaded.';
-        return;
+    } else if (source.kind === 'file') {
+        const video = createVideoElement(source.url);
+        video.addEventListener('error', () => showPlayerError(playerSlot, 'This video could not be played in your browser.', source.url), { once: true });
+        playerSlot.replaceChildren(video);
+    } else if (source.kind === 'embed') {
+        const frame = document.createElement('iframe');
+        frame.src = source.embedUrl;
+        frame.title = ad.title || 'Sponsored video';
+        frame.dataset.i18nIgnore = 'true';
+        frame.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen; web-share';
+        frame.allowFullscreen = true;
+        frame.referrerPolicy = 'strict-origin-when-cross-origin';
+        playerSlot.replaceChildren(frame);
+        addExternalLink(playerSlot, source.url);
+    } else {
+        showExternalPlayer(playerSlot, source.url);
     }
-    const started = Number(session.started_at_unix || Math.floor(Date.now() / 1000)) * 1000;
-    const interval = setInterval(async () => {
-        const remaining = Math.max(0, session.duration_seconds - Math.floor((Date.now() - started) / 1000));
-        countdown.textContent = remaining > 0 ? `Reward unlocks in ${remaining}s…` : 'Claiming reward…';
-        if (remaining <= 0 && !claimed) {
-            claimed = true;
-            clearInterval(interval);
-            try {
-                const result = await api.videoAdClaim({ view_id: session.view_id });
-                showFlash(`+$${Number(result.data?.reward || 0).toFixed(4)} credited!`, 'success');
-                await refreshUser();
-                URL.revokeObjectURL(player.src);
-                close();
-                EarnPage()();
-            } catch (e) {
-                claimed = false;
-                countdown.textContent = e.message || 'Reward claim failed.';
-            }
+
+    const requiredSeconds = Math.max(1, Number(session.duration_seconds || 1));
+    const startedAt = performance.now();
+    const claimReward = async () => {
+        if (claimInProgress || claimButton.disabled) return;
+        claimInProgress = true;
+        claimButton.disabled = true;
+        claimButton.innerHTML = '<span class="spinner spinner--small"></span><span>Claiming…</span>';
+        try {
+            const result = await api.videoAdClaim({ view_id: session.view_id });
+            showFlash(`+৳${money(result.data?.reward || session.reward_amount || ad.reward_amount)} reward credited!`, 'success');
+            clearInterval(timer);
+            close();
+            await refreshUser();
+            await EarnPage()();
+        } catch (error) {
+            claimInProgress = false;
+            claimButton.disabled = false;
+            claimButton.innerHTML = '<i class="bi bi-gift-fill"></i><span>Retry claim</span>';
+            status.textContent = error.message || 'Reward claim failed.';
         }
-    }, 1000);
+    };
+    const updateTimer = () => {
+        const elapsed = (performance.now() - startedAt) / 1000;
+        const left = Math.max(0, Math.ceil(requiredSeconds - elapsed));
+        progress.style.width = `${Math.min(100, (elapsed / requiredSeconds) * 100)}%`;
+        if (left > 0) {
+            status.textContent = 'Watch time in progress';
+            countdown.textContent = `${left} seconds until you can claim`;
+            return;
+        }
+        status.textContent = 'Your reward is ready';
+        countdown.textContent = 'Claim your reward to add it to your balance.';
+        claimButton.disabled = false;
+        clearInterval(timer);
+        if (closed) claimReward();
+    };
+    const timer = setInterval(updateTimer, 250);
+    updateTimer();
+    claimButton.addEventListener('click', claimReward);
 }
 
-function openAdModal() {
-    const modal = document.createElement('div');
-    modal.className = 'modal modal--ad';
-    modal.innerHTML = `
-        <div class="modal__backdrop"></div>
-        <div class="modal__content modal__content--ad">
-            <button class="modal__close" aria-label="Close">×</button>
-            <h3>Watch the ad</h3>
-            <div class="ad-slot" id="ad-slot">
-                <div class="ad-slot__placeholder">
-                    <i class="bi bi-play-circle-fill"></i>
-                    <p>Preparing ad…</p>
-                </div>
-            </div>
-            <p class="ad-slot__countdown" id="ad-countdown">Starting…</p>
-        </div>
-    `;
-    document.body.appendChild(modal);
-    modal.querySelector('.modal__close').addEventListener('click', () => modal.remove());
-    modal.querySelector('.modal__backdrop').addEventListener('click', () => modal.remove());
+function classifyVideoSource(value) {
+    const raw = String(value || '');
+    if (raw.startsWith('/')) return { kind: 'local', url: raw };
+    let url;
+    try { url = new URL(raw); } catch { return { kind: 'external', url: '#' }; }
+    if (url.protocol !== 'https:') return { kind: 'external', url: '#' };
 
-    const startedAt = new Date().toISOString();
-    let countdown = 12;
-    const slot = modal.querySelector('#ad-slot');
-    const cdEl = modal.querySelector('#ad-countdown');
+    const host = url.hostname.toLowerCase().replace(/^www\./, '');
+    const path = url.pathname;
+    if (['youtube.com', 'm.youtube.com', 'youtu.be', 'youtube-nocookie.com'].includes(host)) {
+        const match = host === 'youtu.be'
+            ? path.match(/^\/([\w-]{6,20})/)
+            : path.match(/^\/(?:embed|shorts|live)\/([\w-]{6,20})/);
+        const id = url.searchParams.get('v') || match?.[1];
+        if (id && /^[\w-]{6,20}$/.test(id)) {
+            const embedUrl = new URL(`https://www.youtube.com/embed/${id}`);
+            embedUrl.searchParams.set('autoplay', '1');
+            embedUrl.searchParams.set('playsinline', '1');
+            embedUrl.searchParams.set('rel', '0');
+            embedUrl.searchParams.set('controls', '1');
+            return { kind: 'embed', url: raw, embedUrl: embedUrl.toString() };
+        }
+    }
 
-    setTimeout(() => {
-        slot.innerHTML = `
-            <div class="ad-slot__simulated">
-                <i class="bi bi-megaphone-fill"></i>
-                <h4>Sponsored Content</h4>
-                <p>This is a placeholder for a real ad. <br>Your reward will be credited in <strong><span id="cd-num">12</span>s</strong>.</p>
-            </div>
-        `;
-        const num = slot.querySelector('#cd-num');
-        const iv = setInterval(async () => {
-            countdown--;
-            num.textContent = countdown;
-            cdEl.textContent = `Reward in ${countdown}s…`;
-            if (countdown <= 0) {
-                clearInterval(iv);
-                await claim(modal, 'simulated', startedAt);
-            }
-        }, 1000);
-    }, 300);
+    if (['dailymotion.com', 'dai.ly', 'geo.dailymotion.com'].includes(host)) {
+        const playerMatch = path.match(/^\/player\/[^/]+\.html$/);
+        if (playerMatch && url.searchParams.has('video')) return { kind: 'embed', url: raw, embedUrl: raw };
+        const match = host === 'dai.ly' ? path.match(/^\/([\w]+)/) : path.match(/\/(?:embed\/)?video\/([a-zA-Z0-9]+)/);
+        if (match?.[1]) {
+            const embedUrl = new URL(`https://www.dailymotion.com/embed/video/${match[1]}`);
+            embedUrl.searchParams.set('autoplay', '1');
+            return { kind: 'embed', url: raw, embedUrl: embedUrl.toString() };
+        }
+    }
+
+    if (['vimeo.com', 'player.vimeo.com'].includes(host)) {
+        const match = path.match(/\/(?:video\/)?(\d+)/);
+        if (match?.[1]) {
+            return { kind: 'embed', url: raw, embedUrl: `https://player.vimeo.com/video/${match[1]}?autoplay=1` };
+        }
+    }
+
+    if (/\.(?:mp4|m4v|mov|webm|ogg|ogv|m3u8)$/i.test(path)) return { kind: 'file', url: raw };
+    return { kind: 'external', url: raw };
 }
 
-async function claim(modal, provider, startedAt) {
-    try {
-        const res = await api.reward({ provider, started_at: startedAt });
-        showFlash(`+$${parseFloat(res.data.reward).toFixed(4)} credited!`, 'success');
-        await refreshUser();
-        modal.remove();
-        EarnPage()();
-    } catch (e) {
-        showFlash(e.message || 'Reward failed', 'error');
-        modal.remove();
-    }
+function createVideoElement(url) {
+    const video = document.createElement('video');
+    video.className = 'earn-watch__video';
+    video.controls = true;
+    video.playsInline = true;
+    video.autoplay = true;
+    video.src = url;
+    video.addEventListener('loadedmetadata', () => video.play().catch(() => {}), { once: true });
+    return video;
+}
+
+function showPlayerError(slot, message, sourceUrl = '') {
+    const content = document.createElement('div');
+    content.className = 'earn-watch__fallback';
+    content.innerHTML = `<i class="bi bi-exclamation-circle"></i><strong>${escapeHtml(message)}</strong>`;
+    if (sourceUrl && sourceUrl !== '#') content.appendChild(makeExternalLink(sourceUrl));
+    slot.replaceChildren(content);
+}
+
+function showExternalPlayer(slot, sourceUrl) {
+    const content = document.createElement('div');
+    content.className = 'earn-watch__fallback';
+    content.innerHTML = '<i class="bi bi-box-arrow-up-right"></i><strong>This video is hosted on another site</strong><span>Open the original video in a new tab, then return here when the timer finishes.</span>';
+    if (sourceUrl && sourceUrl !== '#') content.appendChild(makeExternalLink(sourceUrl));
+    slot.replaceChildren(content);
+}
+
+function addExternalLink(slot, sourceUrl) {
+    const link = makeExternalLink(sourceUrl);
+    link.classList.add('earn-watch__external-link');
+    slot.appendChild(link);
+}
+
+function makeExternalLink(sourceUrl) {
+    const link = document.createElement('a');
+    link.href = sourceUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.className = 'btn btn--ghost btn--sm';
+    link.innerHTML = '<i class="bi bi-box-arrow-up-right"></i> Open video on original site';
+    return link;
+}
+
+function money(value) {
+    return Number(value || 0).toFixed(4);
 }
 
 function escapeHtml(value) {
-    return String(value ?? '').replace(/[&<>'"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[ch]));
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[ch]));
 }

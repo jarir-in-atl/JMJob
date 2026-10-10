@@ -23,13 +23,47 @@ class VideoAdController extends Controller
     {
         $user = $request->getMeta('auth.user');
         if ($guard = $this->bannedGuard($user)) return $guard;
+
+        $videoSummary = [
+            'video_views_today' => 0,
+            'today_earnings' => 0.0,
+            'total_earnings' => 0.0,
+        ];
+        try {
+            $totalSummary = Fluent::table('video_ad_views')
+                ->where('user_id', '=', $user->id)
+                ->whereNotNull('claimed_at')
+                ->select(['COUNT(*) AS total_views', 'COALESCE(SUM(reward_amount), 0) AS total_earnings'])
+                ->first() ?: [];
+            $todaySummary = Fluent::table('video_ad_views')
+                ->where('user_id', '=', $user->id)
+                ->whereNotNull('claimed_at')
+                ->where('claimed_at', '>=', date('Y-m-d 00:00:00'))
+                ->select(['COUNT(*) AS total_views', 'COALESCE(SUM(reward_amount), 0) AS total_earnings'])
+                ->first() ?: [];
+            $videoSummary = [
+                'video_views_today' => (int) ($todaySummary['total_views'] ?? 0),
+                'today_earnings' => (float) ($todaySummary['total_earnings'] ?? 0),
+                'total_earnings' => (float) ($totalSummary['total_earnings'] ?? 0),
+            ];
+        } catch (\Throwable) {
+            // Keep the video list usable during staged database migrations.
+        }
+
         if (!SettingService::advertisementSystemEnabled()
             || !SettingService::videoAdsEnabled()) {
-            return Response::json(['success' => true, 'data' => [], 'meta' => ['enabled' => false]]);
+            return Response::json(['success' => true, 'data' => [], 'meta' => [
+                'enabled' => false,
+                'ads_remaining_today' => $user->adsRemainingToday(),
+            ] + $videoSummary]);
         }
         if (!SettingService::get('watch_earn_enabled', true)
             || !SettingService::rewardSystemEnabled()) {
-            return Response::json(['success' => true, 'data' => [], 'meta' => ['enabled' => false, 'watch_earn_enabled' => false]]);
+            return Response::json(['success' => true, 'data' => [], 'meta' => [
+                'enabled' => false,
+                'watch_earn_enabled' => false,
+                'ads_remaining_today' => $user->adsRemainingToday(),
+            ] + $videoSummary]);
         }
 
         $items = [];
@@ -52,7 +86,7 @@ class VideoAdController extends Controller
                 'enabled' => true,
                 'watch_earn_enabled' => true,
                 'ads_remaining_today' => $user->adsRemainingToday(),
-            ],
+            ] + $videoSummary,
         ]);
     }
 

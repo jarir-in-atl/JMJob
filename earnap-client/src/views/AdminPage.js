@@ -395,15 +395,20 @@ async function renderVideoAds(content) {
     const items = response.data || [];
     content.innerHTML = `
         <form class="card admin-video-ad-form" id="video-ad-form">
-            <h3 class="card__title">Add sponsored video</h3>
+            <div>
+                <h3 class="card__title">Add a video earning campaign</h3>
+                <p class="muted">Upload a video file or paste a hosted video link. Choose one source for each campaign.</p>
+            </div>
             <div class="admin-row__form">
                 <label>Title <input name="title" required maxlength="160"></label>
-                <label>Video file (optional if URL is provided) <input name="video" type="file" accept="video/*"></label><label>HTTPS video URL (optional if file is provided) <input name="video_url" type="url" placeholder="https://cdn.example.com/ad.mp4"></label>
+                <label>Upload video file <input name="video" type="file" accept="video/*"></label>
+                <label>Video link (direct file or external site) <input name="video_url" type="url" placeholder="https://www.youtube.com/watch?v=…"></label>
+                <p class="admin-video-ad-help">YouTube and Dailymotion videos can be embedded when the source allows it. Likee and other sites open in a new tab. A Dailymotion player embed URL works best; direct video files should end in .mp4 or .webm.</p>
                 <label>Duration (seconds) <input name="duration_seconds" type="number" min="1" value="10" required></label>
                 <label>Reward <input name="reward_amount" type="number" min="0" step="0.0001" value="0.005" required></label>
                 <label>Daily limit (0 = unlimited) <input name="daily_limit" type="number" min="0" value="0"></label>
                 <label>Total limit (0 = unlimited) <input name="total_limit" type="number" min="0" value="0"></label>
-                <button class="btn btn--primary btn--sm" type="submit">Upload video ad</button>
+                <button class="btn btn--primary btn--sm" type="submit">Save video campaign</button>
             </div>
         </form>
         <div class="admin-list" id="video-ad-list"></div>
@@ -425,9 +430,11 @@ async function renderVideoAds(content) {
 function renderVideoAdRow(ad, list) {
     const row = document.createElement('div');
     row.className = 'admin-row admin-row--provider';
+    const sourceLabel = ad.video_url ? externalVideoSourceLabel(ad.video_url) : 'Uploaded video';
     row.innerHTML = `
         <div class="admin-row__main">
             <strong>${escapeHtml(ad.title)}</strong>
+            <span class="muted">${escapeHtml(sourceLabel)}</span>
             <span class="muted">${ad.duration_seconds}s · reward ${Number(ad.reward_amount || 0).toFixed(4)} · ${Number(ad.completed_views || 0)}/${Number(ad.total_views || 0)} completed</span>
             <span class="badge ${ad.status === 'active' ? 'badge--green' : ''}">${escapeHtml(String(ad.status || '').toUpperCase())}</span>
         </div>
@@ -454,6 +461,15 @@ function renderVideoAdRow(ad, list) {
         } catch (e) { showFlash(e.message || 'Could not delete video ad.', 'error'); }
     });
     return row;
+}
+
+function externalVideoSourceLabel(value) {
+    try {
+        const host = new URL(value).hostname.replace(/^www\./i, '');
+        return `External link · ${host}`;
+    } catch {
+        return 'External video link';
+    }
 }
 
 function escapeHtml(s) {
