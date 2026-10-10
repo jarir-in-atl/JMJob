@@ -410,6 +410,8 @@ const TRANSLATIONS = new Map(Object.entries({
     'Workers': 'কর্মী',
     'Engaged': 'নিযুক্ত',
     'Needed': 'প্রয়োজন',
+    'Tasks Given': 'কর্মীদের দেওয়া কাজ',
+    'Tasks Running': 'চলমান কাজ',
     'Awaiting Review': 'পর্যালোচনার অপেক্ষায়',
     'Slots left': 'কর্মীর পদ খালি',
     'Worker engagement': 'কর্মী নিয়োগের অগ্রগতি',

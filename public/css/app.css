@@ -1626,6 +1626,12 @@ button { font-family: inherit; cursor: pointer; }
 .poster-posted-jobs__tools { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 .poster-posted-jobs__tools .btn { white-space: nowrap; }
 .poster-posted-jobs__count { display: grid; place-items: center; min-width: 32px; height: 32px; padding: 0 8px; border-radius: 10px; color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, var(--card)); font-size: 13px; font-weight: 800; }
+.poster-task-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.poster-task-summary__tile { position: relative; min-height: 108px; justify-content: flex-end; border-top: 3px solid var(--primary); }
+.poster-task-summary__tile:nth-child(2) { border-top-color: #0ea5e9; }
+.poster-task-summary__tile:nth-child(3) { border-top-color: #10b981; }
+.poster-task-summary__tile .poster-stat-icon { top: 14px; right: 14px; }
+.poster-task-summary__tile strong { font-size: 22px; }
 .poster-posted-jobs__table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; -webkit-overflow-scrolling: touch; }
 .poster-posted-jobs__table { width: 100%; min-width: 930px; border-collapse: collapse; background: var(--card); font-size: 12px; text-align: left; }
 .poster-posted-jobs__table th, .poster-posted-jobs__table td { padding: 12px 13px; border-bottom: 1px solid var(--border); vertical-align: middle; }
@@ -1732,6 +1738,8 @@ button { font-family: inherit; cursor: pointer; }
     .poster-posted-jobs__header { gap: 10px; }
     .poster-posted-jobs__tools { justify-content: space-between; }
     .poster-posted-jobs__table { min-width: 930px; }
+    .poster-posted-jobs .poster-task-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .poster-posted-jobs .poster-task-summary__tile:last-child { grid-column: 1 / -1; }
     .poster-job-modal { padding: 8px; }
     .poster-job-modal__content { width: calc(100vw - 16px); max-height: calc(100vh - 16px); padding: 18px 13px; }
     .poster-job-modal__heading h2 { font-size: 18px; }

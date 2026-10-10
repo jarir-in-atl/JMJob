@@ -39,6 +39,23 @@ export function PostJobPage() {
                         </button>
                     </div>
                 </div>
+                <div class="stat-grid poster-task-summary">
+                    <div class="stat-tile poster-task-summary__tile">
+                        <i class="bi bi-person-check poster-stat-icon"></i>
+                        <span class="muted">Tasks Given</span>
+                        <strong data-task-summary="given">—</strong>
+                    </div>
+                    <div class="stat-tile poster-task-summary__tile">
+                        <i class="bi bi-lightning-charge poster-stat-icon"></i>
+                        <span class="muted">Tasks Running</span>
+                        <strong data-task-summary="running">—</strong>
+                    </div>
+                    <div class="stat-tile poster-task-summary__tile">
+                        <i class="bi bi-check2-circle poster-stat-icon"></i>
+                        <span class="muted">Tasks Completed</span>
+                        <strong data-task-summary="completed">—</strong>
+                    </div>
+                </div>
                 <div id="poster-posted-jobs-list"><div class="spinner"></div></div>
             </section>
 
@@ -155,6 +172,7 @@ async function loadPostedJobs(root, openWizard) {
         const response = await api.posterMyJobs();
         const jobs = Array.isArray(response.data) ? response.data : [];
         if (count) count.textContent = String(jobs.length);
+        updateTaskSummary(root, jobs);
 
         if (!jobs.length) {
             list.innerHTML = `
@@ -191,6 +209,7 @@ async function loadPostedJobs(root, openWizard) {
         });
     } catch {
         if (count) count.textContent = '—';
+        updateTaskSummary(root, null);
         list.innerHTML = `
             <div class="poster-posted-jobs__error">
                 <i class="bi bi-exclamation-circle"></i>
@@ -202,6 +221,22 @@ async function loadPostedJobs(root, openWizard) {
     } finally {
         if (refreshButton) refreshButton.disabled = false;
     }
+}
+
+function updateTaskSummary(root, jobs) {
+    const totals = { given: 0, running: 0, completed: 0 };
+    if (Array.isArray(jobs)) {
+        jobs.forEach(job => {
+            totals.given += workerCount(job.assigned_workers_count);
+            totals.running += workerCount(job.in_progress_workers);
+            totals.completed += workerCount(job.completed_workers_count);
+        });
+    }
+
+    root.querySelectorAll('[data-task-summary]').forEach(card => {
+        const key = card.dataset.taskSummary;
+        card.textContent = Array.isArray(jobs) && Object.prototype.hasOwnProperty.call(totals, key) ? String(totals[key]) : '—';
+    });
 }
 
 function renderPostedJobRow(job) {
