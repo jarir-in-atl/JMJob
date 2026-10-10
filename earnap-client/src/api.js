@@ -19,7 +19,7 @@ export function onUnauthorized(handler) {
     _onUnauthorized = handler;
 }
 
-async function request(path, { method = 'GET', body, headers = {}, signal } = {}) {
+async function request(path, { method = 'GET', body, headers = {}, signal, cache } = {}) {
     const url = path.startsWith('http') ? path : cfg.apiBase + path;
     const multipart = typeof FormData !== 'undefined' && body instanceof FormData;
     const opts = {
@@ -38,6 +38,9 @@ async function request(path, { method = 'GET', body, headers = {}, signal } = {}
     }
     if (signal) {
         opts.signal = signal;
+    }
+    if (cache) {
+        opts.cache = cache;
     }
 
     const res = await fetch(url, opts);
@@ -182,7 +185,7 @@ export const api = {
     // Poster
     posterStats:          () => request('/poster/stats'),
     posterCreateJob:      (body) => request('/poster/jobs', { method: 'POST', body }),
-    posterMyJobs:         () => request('/poster/jobs'),
+    posterMyJobs:         () => request('/poster/jobs', { cache: 'no-store' }),
     posterJobBids:        (id) => request(`/poster/jobs/${id}/bids`),
     posterAcceptBid:      (id, bidId, body = {}) => request(`/poster/jobs/${id}/accept-bid`, { method: 'POST', body: { ...body, bid_id: bidId } }),
     posterRequestRevision: (id, body = {}) => request(`/poster/jobs/${id}/request-revision`, { method: 'POST', body }),

@@ -78,6 +78,15 @@ button { font-family: inherit; cursor: pointer; }
 #app { min-height: 100vh; display: flex; flex-direction: column; width: 100%; overflow-x: hidden; }
 #app:has(.app-shell--public) { padding-bottom: 0 !important; }
 .app-shell { display: flex; flex-direction: column; flex: 1; min-height: 100vh; width: 100%; overflow-x: hidden; }
+@media (max-width: 768px) {
+    .app-shell--authed:not(.app-shell--admin):has(.view--home) {
+        overflow-x: auto;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-x: contain;
+        scrollbar-width: thin;
+    }
+}
 .app-loading {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     height: 100vh; gap: 16px; color: var(--muted);
@@ -2366,17 +2375,34 @@ button { font-family: inherit; cursor: pointer; }
         justify-content: flex-end;
         gap: 6px;
     }
-    .app-shell--admin .topbar__active-jobs-wrap,
-    .app-shell--admin .topbar__user-info {
+    .app-shell--admin .topbar__active-jobs-wrap {
         display: none;
     }
     .app-shell--admin .topbar__user {
-        gap: 0;
+        min-width: 0;
+        gap: 6px;
     }
     .app-shell--admin .topbar__user .topbar__avatar {
         flex: 0 0 32px;
         width: 32px;
         height: 32px;
+    }
+    .app-shell--admin .topbar__user-info {
+        display: block;
+        flex: 0 1 84px;
+        min-width: 0;
+        max-width: 84px;
+    }
+    .app-shell--admin .topbar__user-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11px;
+    }
+    .app-shell--admin .topbar__user-balance {
+        display: block;
+        white-space: nowrap;
+        font-size: 11px;
     }
     .app-shell--admin .topbar__right > .topbar__icon-btn {
         width: 32px;

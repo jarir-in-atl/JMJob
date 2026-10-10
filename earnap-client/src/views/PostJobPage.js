@@ -243,7 +243,7 @@ function renderPostedJobRow(job) {
     const status = String(job.status || 'unknown');
     const statusLabel = {
         pending_approval: 'Pending Approval',
-        open: 'Open to Workers',
+        open: 'Active',
         in_review: 'In Review',
         assigned: 'Assigned',
         submitted: 'Submitted',
