@@ -2,7 +2,8 @@
 # ============================================================
 #  JMJob — Local Deployment Script
 #  Deploys directly to server via FTP (no GitHub needed)
-#  Use ./deploy.sh --check for a read-only FTP comparison.
+#  Normal runs upload files changed since the last successful local deploy.
+#  Use ./deploy.sh --full to force a full sync or --check for a read-only comparison.
 # ============================================================
 
 set -e
@@ -31,10 +32,14 @@ if ! flock -n 9; then
 fi
 
 CHECK_ONLY=false
-if [ "${1:-}" = "--check" ]; then
-    CHECK_ONLY=true
-    shift
-fi
+FORCE_FULL_SYNC=false
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --check) CHECK_ONLY=true; shift ;;
+        --full) FORCE_FULL_SYNC=true; shift ;;
+        *) break ;;
+    esac
+done
 
 # Colors
 RED='\033[0;31m'
@@ -78,6 +83,8 @@ FTP_PORT=${FTP_PORT:-21}
 FTP_TIMEOUT_SECONDS=${FTP_TIMEOUT_SECONDS:-1800}
 SERVER_ROOT="/public_html"
 LOCAL_ROOT="$SCRIPT_DIR"
+cd "$LOCAL_ROOT"
+DEPLOY_STATE_FILE="$LOCAL_ROOT/.deploy-state"
 # APP_URL is commonly a local development URL; never use it as the production
 # migration target unless the deploy caller explicitly supplies SITE_URL.
 SITE_URL="${SITE_URL:-https://jmjob.xyz}"
@@ -127,14 +134,100 @@ echo ""
 # Step 2: Prepare FTP mirror script
 # ============================================================
 echo -e "${YELLOW}▶ Step 2: Uploading changed files to server...${NC}"
-echo -e "  Only files with different sizes are transferred (incremental sync)."
 echo ""
 
-# Create lftp script dynamically based on local folders.
-# Instead of one giant silent mirror, we instruct lftp to process each folder
-# individually (mirror --no-recursion). This gives us the exact synchronous
-# "Scan folder -> upload -> scan folder" output behavior you wanted without
-# the long upfront wait.
+FULL_SYNC_MODE=false
+FULL_SYNC_REASON=""
+CHANGED_FILES=()
+declare -A SEEN_CHANGED_FILES=()
+
+is_deploy_excluded() {
+    local path="$1"
+    local base_name="${path##*/}"
+
+    if [[ "$path" == public/* ]]; then
+        case "$base_name" in
+            create_missing_tables.php|index.php|index.html|*.sqlite*|*.log) return 0 ;;
+        esac
+        return 1
+    fi
+
+    case "/$path/" in
+        */.git/*|*/vendor/*|*/node_modules/*|*/storage/*|*/public/*|*/earnap-client/*|*/tests/*|*/examples/*|*/docs/*|*/.backup/*|*/.vscode/*|*/.idea/*|*/.github/*|*/.kilo/*|*/.codex/*|*/.agents/*)
+            return 0
+            ;;
+    esac
+
+    case "$base_name" in
+        .env*|.deploy-state*|*.sqlite*|*.sql|*.dump|*.log|*.md|test_*.php|verify_*.php|8)
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
+queue_changed_file() {
+    local path="$1"
+    if [ -z "$path" ] || [ -n "${SEEN_CHANGED_FILES["$path"]+present}" ]; then
+        return
+    fi
+    SEEN_CHANGED_FILES["$path"]=1
+
+    if is_deploy_excluded "$path" || [ ! -f "$LOCAL_ROOT/$path" ]; then
+        return
+    fi
+
+    CHANGED_FILES+=("$path")
+}
+
+quote_for_lftp() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//\$/\\\$}"
+    printf '"%s"' "$value"
+}
+
+if [ "$CHECK_ONLY" = true ]; then
+    # Keep --check as a full, read-only remote comparison.
+    FULL_SYNC_MODE=true
+    FULL_SYNC_REASON="read-only full-tree comparison requested"
+elif [ "$FORCE_FULL_SYNC" = true ]; then
+    FULL_SYNC_MODE=true
+    FULL_SYNC_REASON="full sync requested with --full"
+elif [ ! -s "$DEPLOY_STATE_FILE" ]; then
+    FULL_SYNC_MODE=true
+    FULL_SYNC_REASON="no successful local deploy baseline exists yet"
+else
+    LAST_DEPLOYED_COMMIT=$(head -n 1 "$DEPLOY_STATE_FILE")
+    CURRENT_HEAD=$(git rev-parse HEAD)
+    if [[ ! "$LAST_DEPLOYED_COMMIT" =~ ^[0-9a-fA-F]{40,64}$ ]] || ! git cat-file -e "${LAST_DEPLOYED_COMMIT}^{commit}" 2>/dev/null; then
+        FULL_SYNC_MODE=true
+        FULL_SYNC_REASON="saved deploy baseline is invalid or unavailable"
+    elif ! git merge-base --is-ancestor "$LAST_DEPLOYED_COMMIT" "$CURRENT_HEAD"; then
+        FULL_SYNC_MODE=true
+        FULL_SYNC_REASON="current Git history diverged from the saved deploy baseline"
+    else
+        while IFS= read -r -d '' changed_path; do
+            queue_changed_file "$changed_path"
+        done < <(git diff --name-only --no-renames --diff-filter=ACMRT -z "$LAST_DEPLOYED_COMMIT" --)
+
+        while IFS= read -r -d '' changed_path; do
+            queue_changed_file "$changed_path"
+        done < <(git ls-files --others --exclude-standard -z)
+    fi
+fi
+
+if [ "$FULL_SYNC_MODE" = true ]; then
+    echo -e "  ${YELLOW}Full FTP mirror: ${FULL_SYNC_REASON}${NC}"
+else
+    echo -e "  Incremental FTP: ${#CHANGED_FILES[@]} changed file(s); unchanged folders will not be scanned."
+fi
+echo ""
+
+# A full mirror is used for the first successful deploy, explicit --full syncs,
+# and --check. Ordinary deploys put only files in the local Git delta.
 LFTP_SCRIPT=$(mktemp /tmp/deploy_XXXXXX.lftp)
 trap 'rm -f "$LFTP_SCRIPT"' EXIT
 cat > "$LFTP_SCRIPT" << LFTP_EOF
@@ -145,38 +238,64 @@ set ftp:passive-mode yes
 open ftp://$FTP_USER:$FTP_PASS@$FTP_HOST:$FTP_PORT
 LFTP_EOF
 
-# 1. Backend files (skip public/ which is flattened later)
-find "$LOCAL_ROOT" \
-  \( -name ".git" -o -name "vendor" -o -name "node_modules" -o -name "storage" -o -name "public" -o -name "earnap-client" -o -name "tests" -o -name "examples" -o -name "docs" -o -name ".backup" -o -name ".vscode" -o -name ".idea" -o -name ".github" -o -name ".kilo" -o -name ".codex" -o -name ".agents" \) -prune \
-  -o -type d -print | sort | while read DIR; do
-    REL_DIR="${DIR#$LOCAL_ROOT/}"
-    if [ "$REL_DIR" = "$LOCAL_ROOT" ]; then REL_DIR="."; fi
-    
-    echo "echo \"FOLDER: $REL_DIR\"" >> "$LFTP_SCRIPT"
-    echo "mirror --no-recursion --reverse --verbose --no-perms --ignore-time --only-newer $MIRROR_MODE \\" >> "$LFTP_SCRIPT"
-    echo "  --exclude-glob '.env*' --exclude-glob '*.sqlite*' --exclude-glob '*.sql' --exclude-glob '*.dump' --exclude-glob '*.log' --exclude-glob '*.md' --exclude-glob 'test_*.php' --exclude-glob 'verify_*.php' --exclude-glob '8' \\" >> "$LFTP_SCRIPT"
-    if [ "$REL_DIR" = "." ]; then
-        echo "  $DIR/ $SERVER_ROOT/" >> "$LFTP_SCRIPT"
-    else
-        echo "  $DIR/ $SERVER_ROOT/$REL_DIR/" >> "$LFTP_SCRIPT"
-    fi
-done
+if [ "$FULL_SYNC_MODE" = true ]; then
+    # 1. Backend files (skip public/ which is flattened below)
+    find "$LOCAL_ROOT" \
+      \( -name ".git" -o -name "vendor" -o -name "node_modules" -o -name "storage" -o -name "public" -o -name "earnap-client" -o -name "tests" -o -name "examples" -o -name "docs" -o -name ".backup" -o -name ".vscode" -o -name ".idea" -o -name ".github" -o -name ".kilo" -o -name ".codex" -o -name ".agents" \) -prune \
+      -o -type d -print | sort | while read DIR; do
+        REL_DIR="${DIR#$LOCAL_ROOT/}"
+        if [ "$REL_DIR" = "$LOCAL_ROOT" ]; then REL_DIR="."; fi
 
-# 2. Public assets (flattened into web root)
+        echo "echo \"FOLDER: $REL_DIR\"" >> "$LFTP_SCRIPT"
+        echo "mirror --no-recursion --reverse --verbose --no-perms --ignore-time --only-newer $MIRROR_MODE \\" >> "$LFTP_SCRIPT"
+        echo "  --exclude-glob '.env*' --exclude-glob '.deploy-state*' --exclude-glob '*.sqlite*' --exclude-glob '*.sql' --exclude-glob '*.dump' --exclude-glob '*.log' --exclude-glob '*.md' --exclude-glob 'test_*.php' --exclude-glob 'verify_*.php' --exclude-glob '8' \\" >> "$LFTP_SCRIPT"
+        if [ "$REL_DIR" = "." ]; then
+            echo "  $DIR/ $SERVER_ROOT/" >> "$LFTP_SCRIPT"
+        else
+            echo "  $DIR/ $SERVER_ROOT/$REL_DIR/" >> "$LFTP_SCRIPT"
+        fi
+    done
+
+    # 2. Public assets (flattened into web root)
+    echo "cd $SERVER_ROOT" >> "$LFTP_SCRIPT"
+    find "$LOCAL_ROOT/public" -type d | sort | while read DIR; do
+        REL_DIR="${DIR#$LOCAL_ROOT/public/}"
+        if [ "$REL_DIR" = "$LOCAL_ROOT/public" ]; then REL_DIR="."; fi
+
+        echo "echo \"FOLDER: public/$REL_DIR\"" >> "$LFTP_SCRIPT"
+        echo "mirror --no-recursion --reverse --verbose --no-perms --ignore-time --only-newer $MIRROR_MODE \\" >> "$LFTP_SCRIPT"
+        echo "  --exclude-glob 'create_missing_tables.php' --exclude-glob 'index.php' --exclude-glob 'index.html' --exclude-glob '*.sqlite*' --exclude-glob '*.log' \\" >> "$LFTP_SCRIPT"
+        if [ "$REL_DIR" = "." ]; then
+            echo "  $DIR/ ./" >> "$LFTP_SCRIPT"
+        else
+            echo "  $DIR/ ./$REL_DIR/" >> "$LFTP_SCRIPT"
+        fi
+    done
+else
+    declare -A CREATED_REMOTE_DIRS=()
+    for changed_path in "${CHANGED_FILES[@]}"; do
+        if [[ "$changed_path" == public/* ]]; then
+            remote_relative_path="${changed_path#public/}"
+        else
+            remote_relative_path="$changed_path"
+        fi
+
+        remote_directory="$SERVER_ROOT"
+        if [[ "$remote_relative_path" == */* ]]; then
+            remote_directory="$SERVER_ROOT/${remote_relative_path%/*}"
+        fi
+
+        if [ -z "${CREATED_REMOTE_DIRS["$remote_directory"]+present}" ]; then
+            printf 'mkdir -p %s\n' "$(quote_for_lftp "$remote_directory")" >> "$LFTP_SCRIPT"
+            CREATED_REMOTE_DIRS["$remote_directory"]=1
+        fi
+        printf 'put -O %s %s\n' \
+            "$(quote_for_lftp "$remote_directory")" \
+            "$(quote_for_lftp "$LOCAL_ROOT/$changed_path")" >> "$LFTP_SCRIPT"
+    done
+fi
+
 echo "cd $SERVER_ROOT" >> "$LFTP_SCRIPT"
-find "$LOCAL_ROOT/public" -type d | sort | while read DIR; do
-    REL_DIR="${DIR#$LOCAL_ROOT/public/}"
-    if [ "$REL_DIR" = "$LOCAL_ROOT/public" ]; then REL_DIR="."; fi
-    
-    echo "echo \"FOLDER: public/$REL_DIR\"" >> "$LFTP_SCRIPT"
-    echo "mirror --no-recursion --reverse --verbose --no-perms --ignore-time --only-newer $MIRROR_MODE \\" >> "$LFTP_SCRIPT"
-    echo "  --exclude-glob 'create_missing_tables.php' --exclude-glob 'index.php' --exclude-glob 'index.html' --exclude-glob '*.sqlite*' --exclude-glob '*.log' \\" >> "$LFTP_SCRIPT"
-    if [ "$REL_DIR" = "." ]; then
-        echo "  $DIR/ ./" >> "$LFTP_SCRIPT"
-    else
-        echo "  $DIR/ ./$REL_DIR/" >> "$LFTP_SCRIPT"
-    fi
-done
 
 cat >> "$LFTP_SCRIPT" << LFTP_EOF
 ls -l $SERVER_ROOT/css/app-v2.css
@@ -227,9 +346,13 @@ fi
 
 echo ""
 if [ "$CHECK_ONLY" = true ]; then
-    echo -e "${GREEN}  ✅ FTP comparison complete (no files changed)${NC}"
+    echo -e "${GREEN}  ✅ Read-only FTP comparison complete${NC}"
+elif [ "$FULL_SYNC_MODE" = true ]; then
+    echo -e "${GREEN}  ✅ Full FTP mirror complete${NC}"
+elif [ "${#CHANGED_FILES[@]}" -eq 0 ]; then
+    echo -e "${GREEN}  ✅ No changed files needed uploading${NC}"
 else
-    echo -e "${GREEN}  ✅ Files uploaded${NC}"
+    echo -e "${GREEN}  ✅ Changed files uploaded${NC}"
 fi
 echo ""
 
@@ -299,6 +422,14 @@ else
     git push
     echo -e "${GREEN}  ✅ Git push complete${NC}"
 fi
+
+# Record the deployed revision only after FTP, migrations, smoke checks, and the
+# existing Git handoff all complete. Failed runs therefore retry their delta.
+DEPLOYED_COMMIT=$(git rev-parse HEAD)
+DEPLOY_STATE_TEMP="${DEPLOY_STATE_FILE}.tmp.$$"
+printf '%s\n' "$DEPLOYED_COMMIT" > "$DEPLOY_STATE_TEMP"
+mv -f "$DEPLOY_STATE_TEMP" "$DEPLOY_STATE_FILE"
+echo -e "  ${GREEN}✅ Incremental deploy baseline saved${NC}"
 echo ""
 
 # ============================================================

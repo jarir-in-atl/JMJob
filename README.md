@@ -78,6 +78,12 @@ requires explicit confirmation. Decisions are recorded in the admin audit log.
 2. The deployment uploads the code and calls the idempotent `migration_runner.php`; it runs only pending migrations.
 3. Back up the production database before schema-changing releases and verify migrations, queue/scheduler processing, and marketplace reads/writes.
 
+Routine local deploys upload the Git delta since the last successful local
+deploy, including uncommitted and deployable untracked non-ignored files. The
+baseline is stored in the ignored local `.deploy-state` file; the first deploy
+without a baseline uses a full mirror. Run `./deploy.sh --full` to force a full
+sync, or `./deploy.sh --check` for a read-only full-tree FTP comparison.
+
 Create a backup from the project root before a schema-changing release with
 `php nemesis db:dump /path/outside/the/webroot/jmjob-YYYYMMDD.sql`. The
 exporter keeps the MariaDB format used in production and also supports the

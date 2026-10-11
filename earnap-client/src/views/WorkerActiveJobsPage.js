@@ -3,6 +3,8 @@ import { api } from '../api.js';
 import { showFlash } from '../state.js';
 
 let _state = { jobs: [], submissions: [], loading: false };
+// Keep the previous card preview available for a quick restore if requested.
+const SHOW_ACTIVE_JOB_PREVIEW_DETAILS = false;
 
 export function WorkerActiveJobsPage() {
     return async () => {
@@ -53,16 +55,17 @@ function render() {
                     <div>
                         <h3 data-i18n-ignore>${escapeHtml(j.title)}</h3>
                        ${j.subtitle ? `<div class="muted" data-i18n-ignore>${escapeHtml(j.subtitle)}</div>` : ''}
-                        ${summary ? `<p class="muted" data-i18n-ignore>${escapeHtml(summary.slice(0, 180))}${summary.length > 180 ? '…' : ''}</p>` : ''}
-                        <div class="muted">Pay: ৳${parseFloat(j.cost_per_worker || j.budget || 0).toFixed(2)} · Available slots: ${remainingSlots} · Deadline: ${escapeHtml(j.deadline_at || 'None')}</div>
+                        <div class="muted">Payment: ৳${parseFloat(j.cost_per_worker || j.budget || 0).toFixed(2)}</div>
+                        ${SHOW_ACTIVE_JOB_PREVIEW_DETAILS && summary ? `<p class="muted" data-i18n-ignore>${escapeHtml(summary.slice(0, 180))}${summary.length > 180 ? '…' : ''}</p>` : ''}
+                        ${SHOW_ACTIVE_JOB_PREVIEW_DETAILS ? `<div class="muted">Available slots: ${remainingSlots} · Deadline: ${escapeHtml(j.deadline_at || 'None')}</div>` : ''}
                     </div>
-                    <span class="badge badge--status badge--${status}">${status.toUpperCase()}</span>
+                    ${SHOW_ACTIVE_JOB_PREVIEW_DETAILS ? `<span class="badge badge--status badge--${status}">${status.toUpperCase()}</span>` : ''}
                 </div>
                 <div class="active-job-card__actions">
                     <a class="btn btn--primary btn--details" href="#/jobs/${encodeURIComponent(j.id)}">View job details</a>
                 </div>
-                ${mySub ? renderExistingSubmission(mySub) : ''}
-                ${!mySub && j.assignment_id ? `<div class="active-job-card__actions"><button type="button" class="btn btn--ghost btn--sm" data-cancel-assignment="${j.assignment_id}">Request cancellation</button><small class="muted">Available before submitting work.</small></div>` : ''}
+                ${SHOW_ACTIVE_JOB_PREVIEW_DETAILS && mySub ? renderExistingSubmission(mySub) : ''}
+                ${SHOW_ACTIVE_JOB_PREVIEW_DETAILS && !mySub && j.assignment_id ? `<div class="active-job-card__actions"><button type="button" class="btn btn--ghost btn--sm" data-cancel-assignment="${j.assignment_id}">Request cancellation</button><small class="muted">Available before submitting work.</small></div>` : ''}
             </div>
         `;
     }).join('');

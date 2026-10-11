@@ -41,6 +41,7 @@ draft_*
 .ssh/
 
 # JMJob-specific
+/.deploy-state*
 /node_modules/
 /earnap-client/node_modules/
 /earnap-client/vendor/
