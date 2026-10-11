@@ -167,6 +167,43 @@ class PosterController extends Controller
         ]);
     }
 
+    public function bidProofAttachment(Request $request, int $id): Response
+    {
+        if ($guard = $this->posterGuard($request)) return $guard;
+        $user = $request->getMeta('auth.user');
+        $bid = JobBid::find($id);
+        if ($bid === null) return Response::json(['success' => false, 'message' => 'Bid not found.'], 404);
+
+        $job = $bid->job();
+        if ($job === null) return Response::json(['success' => false, 'message' => 'Job not found.'], 404);
+        if (!$user->isAdmin() && (int) $job->poster_id !== (int) $user->id) {
+            return Response::json(['success' => false, 'message' => 'You are not allowed to view this work proof.'], 403);
+        }
+
+        $proofData = json_decode((string) ($bid->work_proof_data ?? ''), true);
+        $relative = is_array($proofData) ? ltrim((string) ($proofData['attachment_path'] ?? ''), '/') : '';
+        if ($relative === '' || !str_starts_with($relative, 'job-proofs/')) {
+            return Response::json(['success' => false, 'message' => 'Work proof attachment not found.'], 404);
+        }
+
+        $root = realpath(base_path('storage/job-proofs'));
+        $path = realpath(base_path('storage/' . $relative));
+        if ($root === false || $path === false || !str_starts_with($path, $root . DIRECTORY_SEPARATOR) || !is_file($path)) {
+            return Response::json(['success' => false, 'message' => 'Work proof attachment not found.'], 404);
+        }
+
+        $mime = function_exists('mime_content_type')
+            ? (mime_content_type($path) ?: 'application/octet-stream')
+            : 'application/octet-stream';
+        return Response::stream(static function () use ($path): void {
+            readfile($path);
+        })
+            ->withHeader('Content-Type', $mime)
+            ->withHeader('Content-Length', (string) filesize($path))
+            ->withHeader('Content-Disposition', 'inline; filename="' . addslashes(basename($path)) . '"')
+            ->withHeader('X-Content-Type-Options', 'nosniff');
+    }
+
     public function acceptBid(Request $request, int $id): Response
     {
         if ($guard = $this->posterGuard($request)) return $guard;
@@ -382,6 +419,9 @@ class PosterController extends Controller
     private function serializeBid(JobBid $bid): array
     {
         $worker = $bid->worker();
+        $proofData = json_decode((string) ($bid->work_proof_data ?? ''), true);
+        $proofPath = is_array($proofData) ? ltrim((string) ($proofData['attachment_path'] ?? ''), '/') : '';
+        $hasProofAttachment = str_starts_with($proofPath, 'job-proofs/');
         return [
             'id'            => (int) $bid->id,
             'job_id'        => (int) $bid->job_id,
@@ -390,6 +430,8 @@ class PosterController extends Controller
             'currency'      => $bid->currency,
             'delivery_days' => (int) $bid->delivery_days,
             'proposal'      => $bid->proposal,
+            'proof_attachment_url' => $hasProofAttachment ? '/api/poster/bids/' . (int) $bid->id . '/attachment' : null,
+            'proof_attachment_name' => $hasProofAttachment ? (string) ($proofData['attachment_name'] ?? 'Work proof') : null,
             'status'        => $bid->status,
             'created_at'    => $bid->created_at,
             'worker'        => $worker ? [

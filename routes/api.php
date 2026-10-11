@@ -89,6 +89,7 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
         $r->add('POST', '/jobs/{id}/bid',       [JobController::class, 'bid']);
         $r->add('DELETE', '/bids/{id}',         [JobController::class, 'withdrawBid']);
         $r->get('/worker/bids',                [JobController::class, 'myBids'],       'worker.bids');
+        $r->get('/worker/work-stats',           [JobController::class, 'workStats'],    'worker.work-stats');
         $r->get('/worker/active-jobs',         [JobController::class, 'activeJobs'],   'worker.active-jobs');
         $r->add('POST', '/worker/assignments/{id}/cancel', [JobController::class, 'cancelAssignment']);
         $r->add('POST', '/jobs/{id}/submit',    [JobController::class, 'submit']);
@@ -100,6 +101,7 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
         $r->add('POST', '/poster/jobs',         [PosterController::class, 'createJob']);
         $r->get('/poster/jobs',                [PosterController::class, 'myJobs'],      'poster.jobs');
         $r->get('/poster/jobs/{id}/bids',      [PosterController::class, 'jobBids'],     'poster.job-bids');
+        $r->get('/poster/bids/{id}/attachment', [PosterController::class, 'bidProofAttachment']);
         $r->add('POST', '/poster/jobs/{id}/accept-bid', [PosterController::class, 'acceptBid']);
         $r->add('POST', '/poster/jobs/{id}/request-revision', [PosterController::class, 'requestRevision']);
         $r->add('POST', '/poster/jobs/{id}/release',    [PosterController::class, 'releasePayment']);

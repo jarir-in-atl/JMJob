@@ -19,7 +19,9 @@ export function HomePage() {
         renderDynamicBanner(root);
 
         // Section 1: user header (avatar + name + balance)
-        root.appendChild(renderUserHeader(u));
+        const userHeader = renderUserHeader(u);
+        root.appendChild(userHeader);
+        if (u) loadWorkStats(userHeader);
 
         // Section 2: 3-column icon grid. Deposit remains available behind the
         // SHOW_DEPOSIT_UI flag so it can be restored without rebuilding the UI.
@@ -144,17 +146,30 @@ function renderUserHeader(u) {
             <strong class="metric__value--primary">$${u ? parseFloat(u.balance).toFixed(2) : '0.00'}</strong>
         </div>
         <div class="user-header__stat">
-            <span class="metric__label">Total Earned</span>
-            <strong>$${u ? parseFloat(u.lifetime_earned).toFixed(2) : '0.00'}</strong>
+            <span class="metric__label">Works Attempted</span>
+            <strong data-home-work-stat="attempted">${u ? '—' : '0'}</strong>
         </div>
         <div class="user-header__stat">
-            <span class="metric__label">My Network</span>
-            <strong>${u ? (u.referral_count || 0) : 0}</strong>
+            <span class="metric__label">Works Done</span>
+            <strong data-home-work-stat="done">${u ? '—' : '0'}</strong>
         </div>
     `;
 
     card.appendChild(stats);
     return card;
+}
+
+function loadWorkStats(header) {
+    api.workerWorkStats().then(res => {
+        if (!header.isConnected) return;
+        const stats = res?.data || {};
+        const attempted = header.querySelector('[data-home-work-stat="attempted"]');
+        const done = header.querySelector('[data-home-work-stat="done"]');
+        if (attempted) attempted.textContent = String(Number(stats.works_attempted || 0));
+        if (done) done.textContent = String(Number(stats.works_done || 0));
+    }).catch(() => {
+        // Keep unavailable counts neutral instead of showing a misleading zero.
+    });
 }
 
 // ----- 2. 3-column icon grid (matches reference) -----

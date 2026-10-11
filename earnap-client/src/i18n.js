@@ -214,6 +214,8 @@ const TRANSLATIONS = new Map(Object.entries({
 
     // Home, earnings, ads, and achievements
     'Balance': 'ব্যালেন্স',
+    'Works Attempted': 'কাজের চেষ্টা',
+    'Works Done': 'সম্পন্ন কাজ',
     'Main Balance': 'মূল ব্যালেন্স',
     'Total Earned': 'মোট আয়',
     'Lifetime Earn': 'সর্বমোট আয়',
@@ -369,8 +371,12 @@ const TRANSLATIONS = new Map(Object.entries({
     'Bidding is closed for this job.': 'এই কাজের জন্য প্রস্তাব দেওয়ার সময় শেষ।',
     'Place a Bid': 'প্রস্তাব দিন',
     'Submit Bid': 'প্রস্তাব জমা দিন',
+    'Submit The Task': 'কাজটি জমা দিন',
     'Submit Work': 'কাজ জমা দিন',
     'Proposal (why you\'re a good fit)': 'প্রস্তাব (কেন আপনি এই কাজের উপযুক্ত)',
+    'Work proof attachment (optional)': 'কাজের প্রমাণ সংযুক্তি (ঐচ্ছিক)',
+    'Supported: JPG, PNG, GIF, WEBP, PDF, DOC, DOCX, MP3, WAV, OGG, FLAC, AAC, M4A, OPUS, WMA. Choose one file.': 'সমর্থিত ফাইল: JPG, PNG, GIF, WEBP, PDF, DOC, DOCX, MP3, WAV, OGG, FLAC, AAC, M4A, OPUS, WMA। একটি ফাইল বেছে নিন।',
+    'Open work proof': 'কাজের প্রমাণ খুলুন',
     'Your bid amount (৳)': 'আপনার প্রস্তাবের পরিমাণ (৳)',
     'Your Bid': 'আপনার প্রস্তাব',
     'Your submission': 'আপনার জমা দেওয়া কাজ',

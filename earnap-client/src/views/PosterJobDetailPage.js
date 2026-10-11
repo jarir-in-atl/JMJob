@@ -43,6 +43,7 @@ function render(content, job, bids, submissions) {
         ${!['completed', 'cancelled'].includes(job.status) ? '<div class="card poster-detail-actions"><button class="btn btn--danger" id="poster-detail-cancel">Cancel job</button></div>' : ''}
     `;
     content.querySelectorAll('[data-accept-bid]').forEach(button => button.addEventListener('click', () => acceptBid(job.id, button.dataset.acceptBid)));
+    content.querySelectorAll('[data-bid-proof-attachment]').forEach(button => button.addEventListener('click', () => openBidProofAttachment(button.dataset.bidProofAttachment)));
     content.querySelectorAll('[data-release-submission]').forEach(button => button.addEventListener('click', () => releasePayment(job.id, button.dataset.releaseSubmission)));
     content.querySelectorAll('[data-revision-submission]').forEach(button => button.addEventListener('click', () => requestRevision(job.id, button.dataset.revisionSubmission)));
     content.querySelectorAll('[data-proof-attachment]').forEach(button => button.addEventListener('click', () => openProofAttachment(button.dataset.proofAttachment)));
@@ -52,7 +53,7 @@ function render(content, job, bids, submissions) {
 function renderBids(job, bids) {
     if (!bids.length) return '<p class="muted">No bids yet.</p>';
     return bids.map(bid => `
-        <div class="poster-bid-row poster-bid-row--${escapeHtml(bid.status)}"><div class="poster-bid-row__main"><strong>${escapeHtml(bid.worker?.name || 'Worker')}</strong><span class="muted">${escapeHtml(bid.worker?.email || '')} · Rating ${Number(bid.worker?.rating || 0).toFixed(2)}</span><p>${escapeHtml(bid.proposal || '')}</p></div><div class="poster-bid-row__offer"><strong>৳${Number(bid.amount || 0).toFixed(2)}</strong><span>${Number(bid.delivery_days || 0)} days</span><span class="badge">${escapeHtml(String(bid.status || '').toUpperCase())}</span>${bid.status === 'pending' && ['open', 'in_review'].includes(job.status) ? `<button class="btn btn--primary btn--sm" data-accept-bid="${Number(bid.id)}">Select worker</button>` : ''}</div></div>
+        <div class="poster-bid-row poster-bid-row--${escapeHtml(bid.status)}"><div class="poster-bid-row__main"><strong>${escapeHtml(bid.worker?.name || 'Worker')}</strong><span class="muted">${escapeHtml(bid.worker?.email || '')} · Rating ${Number(bid.worker?.rating || 0).toFixed(2)}</span><p>${escapeHtml(bid.proposal || '')}</p>${bid.proof_attachment_url ? `<div class="poster-bid-proof"><button type="button" class="btn btn--ghost btn--sm" data-bid-proof-attachment="${Number(bid.id)}"><i class="bi bi-paperclip"></i> Open work proof</button><small class="muted" data-i18n-ignore>${escapeHtml(bid.proof_attachment_name || '')}</small></div>` : ''}</div><div class="poster-bid-row__offer"><strong>৳${Number(bid.amount || 0).toFixed(2)}</strong><span>${Number(bid.delivery_days || 0)} days</span><span class="badge">${escapeHtml(String(bid.status || '').toUpperCase())}</span>${bid.status === 'pending' && ['open', 'in_review'].includes(job.status) ? `<button class="btn btn--primary btn--sm" data-accept-bid="${Number(bid.id)}">Select worker</button>` : ''}</div></div>
     `).join('');
 }
 
@@ -82,6 +83,20 @@ async function openProofAttachment(id) {
     } catch (error) {
         if (popup) popup.close();
         showFlash(error.message || 'Could not open the proof attachment.', 'error');
+    }
+}
+
+async function openBidProofAttachment(id) {
+    const popup = window.open('about:blank', '_blank', 'noopener,noreferrer');
+    try {
+        const blob = await api.posterBidProofAttachment(id);
+        const url = URL.createObjectURL(blob);
+        if (popup) popup.location.href = url;
+        else window.location.href = url;
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+        if (popup) popup.close();
+        showFlash(error.message || 'Could not open the work proof attachment.', 'error');
     }
 }
 

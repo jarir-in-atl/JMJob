@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use Nemesis\Core\Controller;
+use Nemesis\Core\Database;
 use Nemesis\Core\Fluent;
 use Nemesis\Http\Request;
 use Nemesis\Http\Response;
@@ -149,11 +150,12 @@ class JobController extends Controller
         $amount        = (float)  ($body['amount'] ?? 0);
         $deliveryDays  = (int)    ($body['delivery_days'] ?? 7);
         $proposal      = (string) ($body['proposal'] ?? '');
+        $proofFile     = $request->file('proof_attachment');
 
         if ($amount <= 0 || trim($proposal) === '') {
             return Response::json(['success' => false, 'message' => 'amount and proposal are required.'], 422);
         }
-        $result = $this->jobService->placeBid($user, $id, $amount, $deliveryDays, $proposal);
+        $result = $this->jobService->placeBid($user, $id, $amount, $deliveryDays, $proposal, $proofFile);
         if (!$result['success']) return Response::json($result, 422);
         return Response::json(['success' => true, 'message' => $result['message'], 'data' => $this->serializeBid($result['bid'])]);
     }
@@ -173,6 +175,68 @@ class JobController extends Controller
         $user = $request->getMeta('auth.user');
         $bids = JobBid::byWorker((int) $user->id, 100);
         return Response::json(['success' => true, 'data' => array_map(fn($b) => $this->serializeBid($b, true), $bids)]);
+    }
+
+    public function workStats(Request $request): Response
+    {
+        if ($guard = $this->workerGuard($request)) return $guard;
+        $user = $request->getMeta('auth.user');
+        $workerId = (int) $user->id;
+        $db = Database::connect();
+
+        $attemptedStmt = $db->prepare('SELECT COUNT(DISTINCT job_id) FROM job_bids WHERE worker_id = :worker_id');
+        $attemptedStmt->execute(['worker_id' => $workerId]);
+        $worksAttempted = (int) $attemptedStmt->fetchColumn();
+
+        if (JobAssignment::isAvailable()) {
+            $completedStmt = $db->prepare(
+                'SELECT COUNT(*) FROM job_assignments
+                 WHERE worker_id = :worker_id AND status = :completed AND payment_status = :released'
+            );
+            $completedStmt->execute([
+                'worker_id' => $workerId,
+                'completed' => JobAssignment::STATUS_COMPLETED,
+                'released' => JobAssignment::PAYMENT_RELEASED,
+            ]);
+            $worksDone = (int) $completedStmt->fetchColumn();
+
+            // Include older single-worker jobs completed before assignment rows existed.
+            $legacyCompletedStmt = $db->prepare(
+                'SELECT COUNT(DISTINCT b.job_id)
+                 FROM job_bids b
+                 INNER JOIN jobs j ON j.id = b.job_id
+                 LEFT JOIN job_assignments a ON a.bid_id = b.id
+                 WHERE b.worker_id = :worker_id AND b.status = :accepted
+                   AND j.status = :completed AND a.id IS NULL'
+            );
+            $legacyCompletedStmt->execute([
+                'worker_id' => $workerId,
+                'accepted' => JobBid::STATUS_ACCEPTED,
+                'completed' => Job::STATUS_COMPLETED,
+            ]);
+            $worksDone += (int) $legacyCompletedStmt->fetchColumn();
+        } else {
+            $completedStmt = $db->prepare(
+                'SELECT COUNT(DISTINCT b.job_id)
+                 FROM job_bids b
+                 INNER JOIN jobs j ON j.id = b.job_id
+                 WHERE b.worker_id = :worker_id AND b.status = :accepted AND j.status = :completed'
+            );
+            $completedStmt->execute([
+                'worker_id' => $workerId,
+                'accepted' => JobBid::STATUS_ACCEPTED,
+                'completed' => Job::STATUS_COMPLETED,
+            ]);
+            $worksDone = (int) $completedStmt->fetchColumn();
+        }
+
+        return Response::json([
+            'success' => true,
+            'data' => [
+                'works_attempted' => $worksAttempted,
+                'works_done' => $worksDone,
+            ],
+        ]);
     }
 
     // -------------------------------------------------------------------

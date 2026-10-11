@@ -25,7 +25,7 @@ class JobBid extends Model
 
     protected $fillable = [
         'job_id', 'worker_id', 'amount', 'currency', 'delivery_days',
-        'proposal', 'status', 'decided_at', 'decided_by',
+        'proposal', 'work_proof_data', 'status', 'decided_at', 'decided_by',
     ];
 
     public function job(): ?Job

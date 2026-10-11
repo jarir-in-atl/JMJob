@@ -100,7 +100,7 @@ function render(job, bids, bidCount, myBid, mySubmission, user) {
                                         <div style="margin-top:8px;">
                                             <span class="muted" style="font-size:12px; display:block; margin-bottom:4px;">Sample reference image:</span>
                                             <a href="${escapeHtml(proofImg)}" target="_blank" rel="noopener noreferrer">
-                                                <img src="${escapeHtml(proofImg)}" alt="Proof sample" style="max-height:120px; max-width:100%; border-radius:4px; border:1px solid #cbd5e1; object-fit:contain;" />
+                                                <img src="${escapeHtml(proofImg)}" alt="Proof sample" class="job-proof-sample-image" />
                                             </a>
                                         </div>
                                     ` : ''}
@@ -268,7 +268,12 @@ function renderBidSection(job, bids, myBid, user, isOpen, isOwnJob) {
                     Proposal (why you're a good fit)
                     <textarea name="proposal" rows="4" required placeholder="Describe your experience, approach, timeline…"></textarea>
                 </label>
-                <button type="submit" class="btn btn--primary btn--xl" id="bid-submit-btn">Submit Bid</button>
+                <label class="bid-form__label">
+                    Work proof attachment (optional)
+                    <input name="proof_attachment" type="file" accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.mp3,.wav,.ogg,.flac,.aac,.m4a,.opus,.wma,image/jpeg,image/png,image/gif,image/webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,audio/mpeg,audio/wav,audio/x-wav,audio/ogg,audio/flac,audio/aac,audio/mp4,audio/x-m4a,audio/opus,audio/x-ms-wma">
+                    <small class="muted">Supported: JPG, PNG, GIF, WEBP, PDF, DOC, DOCX, MP3, WAV, OGG, FLAC, AAC, M4A, OPUS, WMA. Choose one file.</small>
+                </label>
+                <button type="submit" class="btn btn--primary btn--xl" id="bid-submit-btn">Submit The Task</button>
             </form>
         </div>
         <div class="card">
@@ -315,17 +320,19 @@ function wireBidForm(job, myBid, user) {
         const btn = document.getElementById('bid-submit-btn');
         btn.disabled = true; btn.textContent = 'Submitting…';
         try {
-            await api.placeBid(job.id, {
-                amount: parseFloat(fd.get('amount')),
-                delivery_days: parseInt(fd.get('delivery_days'), 10),
-                proposal: String(fd.get('proposal') || '').trim(),
-            });
+            const payload = new FormData();
+            payload.append('amount', String(parseFloat(fd.get('amount'))));
+            payload.append('delivery_days', String(parseInt(fd.get('delivery_days'), 10)));
+            payload.append('proposal', String(fd.get('proposal') || '').trim());
+            const proofFile = fd.get('proof_attachment');
+            if (proofFile && proofFile.size > 0) payload.append('proof_attachment', proofFile);
+            await api.placeBid(job.id, payload);
             showFlash('Bid placed!', 'success');
             navigate(`/jobs/${job.id}`);
         } catch (err) {
             showFlash(err.message || 'Failed to place bid.', 'error');
         } finally {
-            btn.disabled = false; btn.textContent = 'Submit Bid';
+            btn.disabled = false; btn.textContent = 'Submit The Task';
         }
     });
 }

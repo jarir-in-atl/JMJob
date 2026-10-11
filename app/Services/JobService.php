@@ -1144,7 +1144,14 @@ class JobService
      *   - worker hasn't already bid on this job
      *   - bid amount > 0
      */
-    public function placeBid(User $worker, int $jobId, float $amount, int $deliveryDays, string $proposal): array
+    public function placeBid(
+        User $worker,
+        int $jobId,
+        float $amount,
+        int $deliveryDays,
+        string $proposal,
+        ?UploadedFile $proofFile = null
+    ): array
     {
         if (!$worker->isWorker()) {
             return ['success' => false, 'message' => 'Worker access is required to place bids.'];
@@ -1159,6 +1166,46 @@ class JobService
         }
 
         $db = Database::connect();
+        $workProofData = null;
+        $proofAbsolutePath = null;
+        if ($proofFile !== null) {
+            $extension = strtolower($proofFile->getClientOriginalExtension());
+            $imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+            $documentExtensions = ['pdf', 'doc', 'docx'];
+            $audioExtensions = ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'opus', 'wma'];
+            $uploadType = match (true) {
+                in_array($extension, $imageExtensions, true) => 'image',
+                in_array($extension, $documentExtensions, true) => 'document',
+                in_array($extension, $audioExtensions, true) => 'audio',
+                default => null,
+            };
+            if ($uploadType === null) {
+                return ['success' => false, 'message' => 'Work proof must be an image, PDF, DOC, DOCX, or supported audio file.'];
+            }
+
+            $proofDirectory = base_path('storage/job-proofs');
+            $upload = match ($uploadType) {
+                'image' => FileValidator::image($proofFile, $proofDirectory, (int) $worker->id, 10, 'proof_attachment'),
+                'document' => FileValidator::document($proofFile, $proofDirectory, (int) $worker->id, 20, 'proof_attachment'),
+                'audio' => FileValidator::audio($proofFile, $proofDirectory, (int) $worker->id, 50, 'proof_attachment'),
+            };
+            if ($upload->failed()) {
+                return ['success' => false, 'message' => $upload->error ?: 'Work proof upload failed.'];
+            }
+
+            $filename = basename((string) $upload->path);
+            $proofAbsolutePath = $proofDirectory . DIRECTORY_SEPARATOR . $filename;
+            $workProofData = json_encode([
+                'attachment_path' => 'job-proofs/' . $filename,
+                'attachment_name' => $proofFile->getClientOriginalName(),
+                'attachment_type' => $uploadType,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            if (!is_string($workProofData)) {
+                @unlink($proofAbsolutePath);
+                return ['success' => false, 'message' => 'Could not save the work proof details.'];
+            }
+        }
+
         try {
             $this->beginWriteTransaction($db);
 
@@ -1186,7 +1233,7 @@ class JobService
                 throw new \RuntimeException('You have already bid on this job.');
             }
 
-            $id = (int) Fluent::table('job_bids')->insert([
+            $bidData = [
                 'job_id'        => $jobId,
                 'worker_id'     => $worker->id,
                 'amount'        => round($amount, 4),
@@ -1195,13 +1242,16 @@ class JobService
                 'proposal'      => $proposal,
                 'status'        => JobBid::STATUS_PENDING,
                 'created_at'    => date('Y-m-d H:i:s'),
-            ]);
+            ];
+            if ($workProofData !== null) $bidData['work_proof_data'] = $workProofData;
+            $id = (int) Fluent::table('job_bids')->insert($bidData);
             $db->prepare(
                 'UPDATE jobs SET bid_count = COALESCE(bid_count, 0) + 1, updated_at = :updated_at WHERE id = :id'
             )->execute(['updated_at' => date('Y-m-d H:i:s'), 'id' => $jobId]);
             $this->commitWriteTransaction($db);
         } catch (\Throwable $e) {
             $this->rollbackWriteTransaction($db);
+            if ($proofAbsolutePath !== null && is_file($proofAbsolutePath)) @unlink($proofAbsolutePath);
             return ['success' => false, 'message' => 'Bid failed: ' . $e->getMessage()];
         }
         $this->notifyUser(
