@@ -49,12 +49,20 @@ function render() {
        const status = j.worker_state === 'available' ? 'available' : (j.assignment_status || j.status);
         const summary = String(j.description || '').trim();
         const remainingSlots = Number(j.remaining_workers ?? j.remaining_tasks_count ?? 0);
+        const categoryName = String(j.category?.name || j.category_name || '').trim();
+        const subcategoryName = String(j.subcategory?.name || j.subcategory_name || '').trim();
        return `
             <div class="active-job-card" data-id="${j.id}">
                 <div class="active-job-card__head">
                     <div>
                         <h3 data-i18n-ignore>${escapeHtml(j.title)}</h3>
                        ${j.subtitle ? `<div class="muted" data-i18n-ignore>${escapeHtml(j.subtitle)}</div>` : ''}
+                        ${categoryName || subcategoryName ? `
+                            <div class="muted active-job-card__classification">
+                                ${categoryName ? `<span><span>Category</span>: <span data-i18n-ignore>${escapeHtml(categoryName)}</span></span>` : ''}
+                                ${subcategoryName ? `<span><span>Subcategory</span>: <span data-i18n-ignore>${escapeHtml(subcategoryName)}</span></span>` : ''}
+                            </div>
+                        ` : ''}
                         <div class="muted">Payment: ৳${parseFloat(j.cost_per_worker || j.budget || 0).toFixed(2)}</div>
                         ${SHOW_ACTIVE_JOB_PREVIEW_DETAILS && summary ? `<p class="muted" data-i18n-ignore>${escapeHtml(summary.slice(0, 180))}${summary.length > 180 ? '…' : ''}</p>` : ''}
                         ${SHOW_ACTIVE_JOB_PREVIEW_DETAILS ? `<div class="muted">Available slots: ${remainingSlots} · Deadline: ${escapeHtml(j.deadline_at || 'None')}</div>` : ''}

@@ -12,6 +12,7 @@ use App\Models\JobBid;
 use App\Models\JobAssignment;
 use App\Models\JobSubmission;
 use App\Models\Category;
+use App\Models\Subcategory;
 use App\Models\User;
 use App\Services\JobService;
 use App\Services\SettingService;
@@ -439,10 +440,15 @@ class JobController extends Controller
             ] : null,
         ];
         if ($withDetails) {
+            $subcategory = $j->subcategory_id ? Subcategory::find((int) $j->subcategory_id) : null;
             $out['assigned_worker_id'] = (int) ($j->assigned_worker_id ?? 0);
             $out['assigned_worker'] = $j->assignedWorker() ? [
                 'id'   => (int) $j->assignedWorker()->id,
                 'name' => $j->assignedWorker()->name,
+            ] : null;
+            $out['subcategory'] = $subcategory ? [
+                'id'   => (int) $subcategory->id,
+                'name' => $subcategory->name,
             ] : null;
             $out['assignment_id'] = $j->worker_assignment_id ? (int) $j->worker_assignment_id : null;
             $out['assignment_status'] = $j->worker_assignment_status ?? null;
