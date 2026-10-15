@@ -14,10 +14,10 @@ export function LoginPage() {
             ${ref ? `<p class="auth-card__referral">Referred by <strong>${escapeHtml(ref)}</strong></p>` : ''}
             <form id="login-form" class="auth-form">
                 <label class="auth-form__label">Email
-                    <input name="email" type="email" required placeholder="you@example.com">
+                    <input name="email" type="email" required placeholder="you@example.com" autocomplete="username">
                 </label>
                 <label class="auth-form__label">Password
-                    <input name="password" type="password" required minlength="6" placeholder="••••••••">
+                    <input name="password" type="password" required minlength="6" placeholder="••••••••" autocomplete="current-password">
                 </label>
                 <button type="submit" class="btn btn--primary btn--xl">Log in</button>
             </form>
