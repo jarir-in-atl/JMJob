@@ -830,7 +830,13 @@ try {
         $jobIds['poster_multi'],
         $multiSubmissionIds[$userIds['risk']]
     );
-    $assert(($mixedRelease['success'] ?? false) === true, 'Poster could not release the other pending assignment while the job was in revision.');
+    $assert(($mixedRelease['success'] ?? true) === false, 'Poster released an assignment before admin approval while another assignment was in revision.');
+    $mixedAdminReview = $service->reviewSubmission(
+        $multiSubmissionIds[$userIds['risk']],
+        $userIds['admin'],
+        'approve'
+    );
+    $assert(($mixedAdminReview['success'] ?? false) === true, 'Admin could not approve and pay a pending assignment while the job was in revision.');
     $riskAfterReleaseBody = json_decode((new JobController())->show($riskDetailRequest, $jobIds['poster_multi'])->getContent(), true);
     $assert((int) ($riskAfterReleaseBody['data']['job']['active_workers_count'] ?? -1) === 1
         && (int) ($riskAfterReleaseBody['data']['job']['remaining_workers'] ?? -1) === 0,
@@ -902,6 +908,21 @@ try {
     $controllerSubmissionId = (int) $latestSubmissionLookup->fetchColumn();
     $submissionIds['controller_flow'] = $controllerSubmissionId;
 
+    $pendingQueueRequest = new Request();
+    $pendingQueueRequest->setMeta('auth.user', User::find($userIds['admin']));
+    $pendingQueueResponse = (new AdminController())->pendingSubmissions($pendingQueueRequest);
+    $pendingQueueBody = json_decode($pendingQueueResponse->getContent(), true);
+    $queueContainsControllerSubmission = false;
+    foreach (($pendingQueueBody['data'] ?? []) as $pendingItem) {
+        if ((int) ($pendingItem['id'] ?? 0) === $controllerSubmissionId) {
+            $queueContainsControllerSubmission = (int) ($pendingItem['assignment_id'] ?? 0) === $assignmentIds['controller_flow']
+                && abs((float) ($pendingItem['payment_amount'] ?? 0) - 100.0) < 0.0001;
+            break;
+        }
+    }
+    $assert($pendingQueueResponse->getStatus() === 200 && $queueContainsControllerSubmission,
+        'Admin pending work queue omitted the submission, assignment, or payment amount.');
+
     $_POST = [
         'submission_id' => $controllerSubmissionId,
         'note' => 'Please include one more verification detail.',
@@ -924,7 +945,13 @@ try {
     $releaseRequest = new Request();
     $releaseRequest->setMeta('auth.user', User::find($userIds['poster']));
     $releaseResponse = $posterController->releasePayment($releaseRequest, $jobIds['controller_flow']);
-    $assert($releaseResponse->getStatus() === 200, 'Poster controller payment release failed after resubmission.');
+    $assert($releaseResponse->getStatus() === 422, 'Poster released payment before admin approval after resubmission.');
+    $_POST = ['decision' => 'approve'];
+    $controllerAdminReviewRequest = new Request();
+    $controllerAdminReviewRequest->setMeta('auth.user', User::find($userIds['admin']));
+    $controllerAdminReviewResponse = (new AdminController())->reviewSubmission($controllerAdminReviewRequest, (string) $controllerResubmissionId);
+    $assert($controllerAdminReviewResponse->getStatus() === 200, 'Admin could not approve and release payment after resubmission.');
+    $_POST = [];
     $controllerAssignmentState = $db->prepare('SELECT status, payment_status FROM job_assignments WHERE id = ?');
     $controllerAssignmentState->execute([$assignmentIds['controller_flow']]);
     $controllerState = $controllerAssignmentState->fetch(PDO::FETCH_ASSOC);
@@ -1905,6 +1932,18 @@ try {
     $editResponse = (new AdminJobController())->update($editRequest, $jobIds['admin_edit']);
     $editBody = json_decode($editResponse->getContent(), true);
     $assert(($editBody['success'] ?? false) === true, 'Admin job edit failed.');
+    $_POST = ['worker_count' => 1, 'cost_per_worker' => 6];
+    $priceEditRequest = new Request();
+    $priceEditRequest->setMeta('auth.user', User::find($userIds['admin']));
+    $priceEditResponse = (new AdminJobController())->update($priceEditRequest, $jobIds['admin_edit']);
+    $priceEditBody = json_decode($priceEditResponse->getContent(), true);
+    $priceEditDetail = $priceEditBody['data']['job'] ?? [];
+    $assert(($priceEditBody['success'] ?? false) === true
+        && abs((float) ($priceEditDetail['cost_per_worker'] ?? 0) - 6.0) < 0.0001
+        && abs((float) ($priceEditDetail['system_fee_percent'] ?? 0) - 30.0) < 0.0001
+        && abs((float) ($priceEditDetail['system_fee_amount'] ?? 0) - 1.8) < 0.0001
+        && abs((float) ($priceEditDetail['total_payable_amount'] ?? 0) - 7.8) < 0.0001,
+        'Admin per-worker payment edit did not recalculate commission and total payment.');
     $editedRow = $db->prepare('SELECT title,description,requirements,status FROM jobs WHERE id = ?');
     $editedRow->execute([$jobIds['admin_edit']]);
     $edited = $editedRow->fetch(PDO::FETCH_ASSOC);

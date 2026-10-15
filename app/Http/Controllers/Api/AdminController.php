@@ -636,6 +636,9 @@ class AdminController extends Controller
                 'bidding_closes_at'    => $row['bidding_closes_at'],
                 'worker_count'         => $workerCount,
                 'cost_per_worker'      => (float) ($row['cost_per_worker'] ?: 0),
+                'system_fee_percent'  => ($row['system_fee_percent'] ?? null) !== null
+                    ? (float) $row['system_fee_percent']
+                    : (float) SettingService::get('job_system_fee_percentage', 30.00),
                 'total_payable_amount' => (float) ($row['total_payable_amount'] ?: $row['budget']),
                 'proof_requirements'   => $row['proof_requirements'] ? json_decode($row['proof_requirements'], true) : [],
                 'decline_reason'       => $row['decline_reason'],
@@ -1004,6 +1007,62 @@ class AdminController extends Controller
             'message' => $alreadyFinalized ? 'Fraud review was already recorded.' : 'Fraud review recorded.',
             'data' => ['id' => (int) $submission->id, 'risk_status' => $decision, 'user_banned' => $userBanned],
         ]);
+    }
+
+    public function pendingSubmissions(Request $request): Response
+    {
+        if ($guard = $this->adminGuard($request)) return $guard;
+
+        $sql = "SELECT s.id, s.job_id, s.worker_id, s.bid_id, s.assignment_id,
+                    s.description, s.attachment_path, s.external_link, s.status,
+                    s.attempt_number, s.submitted_at, s.created_at,
+                    s.risk_score, s.risk_status, s.risk_flags,
+                    j.title AS job_title, j.currency AS job_currency,
+                    j.cost_per_worker, j.system_fee_percent, j.total_payable_amount,
+                    w.name AS worker_name, w.email AS worker_email,
+                    w.username AS worker_username, w.phone AS worker_phone,
+                    COALESCE(a.payment_amount, b.amount, j.cost_per_worker, j.budget) AS payment_amount
+                FROM job_submissions s
+                INNER JOIN jobs j ON j.id = s.job_id
+                LEFT JOIN users w ON w.id = s.worker_id
+                LEFT JOIN job_assignments a ON a.id = s.assignment_id
+                LEFT JOIN job_bids b ON b.id = s.bid_id
+                WHERE s.status = :status
+                ORDER BY COALESCE(s.submitted_at, s.created_at) DESC, s.id DESC";
+        $stmt = Database::connect()->prepare($sql);
+        $stmt->execute(['status' => JobSubmission::STATUS_PENDING_REVIEW]);
+
+        $items = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $items[] = [
+                'id' => (int) $row['id'],
+                'job_id' => (int) $row['job_id'],
+                'job_title' => (string) $row['job_title'],
+                'currency' => (string) ($row['job_currency'] ?: SettingService::currencyCode()),
+                'worker_id' => (int) $row['worker_id'],
+                'worker_name' => (string) ($row['worker_name'] ?: 'Unknown Worker'),
+                'worker_email' => $row['worker_email'],
+                'worker_username' => $row['worker_username'],
+                'worker_phone' => $row['worker_phone'],
+                'assignment_id' => $row['assignment_id'] !== null ? (int) $row['assignment_id'] : null,
+                'payment_amount' => (float) ($row['payment_amount'] ?? 0),
+                'cost_per_worker' => (float) ($row['cost_per_worker'] ?? 0),
+                'system_fee_percent' => (float) ($row['system_fee_percent'] ?? 0),
+                'total_payable_amount' => (float) ($row['total_payable_amount'] ?? 0),
+                'description' => $row['description'],
+                'attachment_path' => $row['attachment_path'],
+                'attachment_url' => $row['attachment_path'] ? '/api/jobs/submissions/' . (int) $row['id'] . '/attachment' : null,
+                'external_link' => $row['external_link'],
+                'status' => (string) $row['status'],
+                'attempt_number' => (int) ($row['attempt_number'] ?: 1),
+                'submitted_at' => $row['submitted_at'] ?: $row['created_at'],
+                'risk_score' => (float) ($row['risk_score'] ?? 0),
+                'risk_status' => (string) ($row['risk_status'] ?? JobSubmission::RISK_CLEAR),
+                'risk_flags' => $row['risk_flags'] ? (json_decode($row['risk_flags'], true) ?: []) : [],
+            ];
+        }
+
+        return Response::json(['success' => true, 'data' => $items]);
     }
 
     public function reviewSubmission(Request $request, string $id): Response

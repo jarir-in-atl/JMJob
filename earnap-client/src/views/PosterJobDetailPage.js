@@ -38,7 +38,7 @@ function render(content, job, bids, submissions) {
         </div>
         <div class="poster-detail-grid">
             <div class="card"><div class="card__header"><div><h2 class="card__title">Bid comparison</h2><p class="muted">Choose one pending proposal to assign the job.</p></div></div><div class="poster-bid-list">${renderBids(job, bids)}</div></div>
-            <div class="card"><div class="card__header"><div><h2 class="card__title">Submission review</h2><p class="muted">Approve delivery to release payment or request changes.</p></div></div><div class="poster-submission-list">${renderSubmissions(job, submissions)}</div></div>
+            <div class="card"><div class="card__header"><div><h2 class="card__title">Submission review</h2><p class="muted">Request changes if needed. Admin approval is required before payment is released.</p></div></div><div class="poster-submission-list">${renderSubmissions(job, submissions)}</div></div>
         </div>
         ${!['completed', 'cancelled'].includes(job.status) ? '<div class="card poster-detail-actions"><button class="btn btn--danger" id="poster-detail-cancel">Cancel job</button></div>' : ''}
     `;
@@ -59,9 +59,18 @@ function renderBids(job, bids) {
 
 function renderSubmissions(job, submissions) {
     if (!submissions.length) return '<p class="muted">No work submitted yet.</p>';
-    return submissions.map(submission => `
-        <div class="poster-submission-row poster-submission-row--${escapeHtml(submission.status)}"><div><strong>${escapeHtml(submission.worker?.name || 'Worker')}</strong><span class="muted">Submitted ${formatDate(submission.created_at)} · ${escapeHtml(String(submission.status || '').replace('_', ' '))}</span><p>${escapeHtml(submission.description || '')}</p>${submission.external_link ? `<a href="${escapeHtml(submission.external_link)}" target="_blank" rel="noopener noreferrer">Open delivery link</a>` : ''}${renderProofAttachment(submission)}${submission.reviewer_note ? `<p class="muted"><strong>Revision note:</strong> ${escapeHtml(submission.reviewer_note)}</p>` : ''}</div>${submission.status === 'pending_review' && ['submitted', 'revision'].includes(job.status) ? `<div class="poster-submission-row__actions"><button class="btn btn--success btn--sm" data-release-submission="${Number(submission.id)}">Release payment</button><button class="btn btn--ghost btn--sm" data-revision-submission="${Number(submission.id)}">Request revision</button></div>` : ''}</div>
-    `).join('');
+    return submissions.map(submission => {
+        const canRequestRevision = submission.status === 'pending_review' && ['submitted', 'revision'].includes(job.status);
+        const canReleaseLegacyPayment = submission.status === 'approved'
+            && !Number(submission.assignment_id || 0)
+            && ['submitted', 'revision', 'disputed'].includes(job.status);
+        const reviewNotice = submission.status === 'pending_review'
+            ? '<p class="muted">This submission is waiting for admin approval. Payment stays on hold until it is approved.</p>'
+            : '';
+        return `
+            <div class="poster-submission-row poster-submission-row--${escapeHtml(submission.status)}"><div><strong>${escapeHtml(submission.worker?.name || 'Worker')}</strong><span class="muted">Submitted ${formatDate(submission.created_at)} · ${escapeHtml(String(submission.status || '').replace('_', ' '))}</span><p>${escapeHtml(submission.description || '')}</p>${reviewNotice}${submission.external_link ? `<a href="${escapeHtml(submission.external_link)}" target="_blank" rel="noopener noreferrer">Open delivery link</a>` : ''}${renderProofAttachment(submission)}${submission.reviewer_note ? `<p class="muted"><strong>Review note:</strong> ${escapeHtml(submission.reviewer_note)}</p>` : ''}</div>${canRequestRevision || canReleaseLegacyPayment ? `<div class="poster-submission-row__actions">${canReleaseLegacyPayment ? `<button class="btn btn--success btn--sm" data-release-submission="${Number(submission.id)}">Release payment</button>` : ''}${canRequestRevision ? `<button class="btn btn--ghost btn--sm" data-revision-submission="${Number(submission.id)}">Request revision</button>` : ''}</div>` : ''}</div>
+        `;
+    }).join('');
 }
 
 function renderProofAttachment(submission) {

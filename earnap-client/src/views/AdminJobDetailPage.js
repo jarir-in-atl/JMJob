@@ -92,9 +92,16 @@ function render(root, data, id) {
     });
     root.querySelectorAll('[data-review-id]').forEach(button => button.addEventListener('click', async () => {
         const decision = button.dataset.reviewDecision;
+        const submission = submissions.find(item => Number(item.id) === Number(button.dataset.reviewId));
+        if (decision === 'approve' && Number(submission?.assignment_id || 0) > 0
+            && !confirm('Approve this work and release the held payment to the worker?')) return;
         const note = decision === 'reject' ? prompt('Rejection reason:') : (prompt('Optional admin note:') || '');
         if (note === null || (decision === 'reject' && !note.trim())) return;
-        try { await api.adminReviewSubmission(button.dataset.reviewId, { decision, note }); showFlash('Submission reviewed.', 'success'); await load(root, id); }
+        try {
+            const response = await api.adminReviewSubmission(button.dataset.reviewId, { decision, note });
+            showFlash(response.message || 'Submission reviewed.', 'success');
+            await load(root, id);
+        }
         catch (error) { showFlash(error.message || 'Could not review submission.', 'error'); }
     }));
     root.querySelectorAll('[data-proof-attachment]').forEach(button => button.addEventListener('click', () => openProofAttachment(button.dataset.proofAttachment)));
@@ -146,7 +153,8 @@ function renderBid(bid) {
 
 function renderSubmission(submission) {
     const worker = submission.worker || {};
-    const reviewActions = submission.status === 'pending_review' ? `<button class="btn btn--success btn--sm" data-review-id="${submission.id}" data-review-decision="approve">Approve</button><button class="btn btn--danger btn--sm" data-review-id="${submission.id}" data-review-decision="reject">Reject</button>` : '';
+    const approveLabel = Number(submission.assignment_id || 0) > 0 ? 'Approve & Pay' : 'Approve';
+    const reviewActions = submission.status === 'pending_review' ? `<button class="btn btn--success btn--sm" data-review-id="${submission.id}" data-review-decision="approve">${approveLabel}</button><button class="btn btn--danger btn--sm" data-review-id="${submission.id}" data-review-decision="reject">Decline</button>` : '';
     const banAction = worker.id ? `<button class="btn ${worker.is_banned ? 'btn--success' : 'btn--danger'} btn--sm" data-ban-worker="${worker.id}" data-ban-state="${worker.is_banned ? '1' : '0'}">${worker.is_banned ? 'Unban worker' : 'Ban worker'}</button>` : '';
     const actions = reviewActions || banAction ? `<div class="admin-row__actions">${reviewActions}${banAction}</div>` : '';
     const workerContact = `User ID #${escapeHtml(submission.worker_id)} · ${escapeHtml(worker.phone || 'Phone unavailable')} · ${escapeHtml(worker.email || 'Email unavailable')}`;

@@ -132,7 +132,7 @@ function renderSubmissionSection(job, submission, assignedToCurrentUser) {
             <div class="card">
                 <h3 class="card__title">Your submission</h3>
                 <p><span class="badge badge--status badge--${status}">${status.replace('_', ' ').toUpperCase()}</span></p>
-                <p class="muted">Your work is awaiting poster review.</p>
+                <p class="muted">Your work is awaiting admin review.</p>
             </div>
         `;
     }

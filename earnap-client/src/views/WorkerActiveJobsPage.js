@@ -86,7 +86,7 @@ function renderExistingSubmission(sub) {
         <div class="active-job-card__sub">
             <strong>Submitted:</strong> ${formatDate(sub.created_at)}
             <div class="muted" data-i18n-ignore>${escapeHtml((sub.description || '').slice(0, 200))}${(sub.description || '').length > 200 ? '…' : ''}</div>
-            ${sub.status === 'pending_review' ? '<p class="muted">⏳ Awaiting poster review.</p>' : ''}
+            ${sub.status === 'pending_review' ? '<p class="muted">⏳ Awaiting admin review.</p>' : ''}
             ${sub.status === 'revision' ? '<p class="muted">🔄 Poster requested changes. Open job details to resubmit your work.</p>' : ''}
             ${sub.status === 'approved' ? '<p class="muted">✅ Approved! Payment has been released.</p>' : ''}
         </div>

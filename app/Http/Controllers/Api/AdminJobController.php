@@ -163,7 +163,10 @@ class AdminJobController extends Controller
             $update['bidding_closes_at'] = $deadline;
         }
         if (array_key_exists('worker_count', $body) || array_key_exists('cost_per_worker', $body)) {
-            $feePercent = (float) ($job->system_fee_percent ?: SettingService::get('job_system_fee_percentage', 30.00));
+            $storedFeePercent = $job->system_fee_percent ?? null;
+            $feePercent = $storedFeePercent !== null && $storedFeePercent !== ''
+                ? (float) $storedFeePercent
+                : (float) SettingService::get('job_system_fee_percentage', 30.00);
             $budget = round($workerCount * $costPerWorker, 4);
             $fee = round($budget * $feePercent / 100, 4);
             $update += [
@@ -490,6 +493,10 @@ class AdminJobController extends Controller
                 'currency' => $job->currency,
                 'worker_count' => (int) ($job->worker_count ?: 1),
                 'cost_per_worker' => (float) ($job->cost_per_worker ?: $job->budget),
+                'system_fee_percent' => ($job->system_fee_percent !== null && $job->system_fee_percent !== '')
+                    ? (float) $job->system_fee_percent
+                    : (float) SettingService::get('job_system_fee_percentage', 30.00),
+                'system_fee_amount' => (float) ($job->system_fee_amount ?? 0),
                 'total_payable_amount' => (float) ($job->total_payable_amount ?: $job->budget),
                 'deadline_at' => $job->deadline_at,
                 'created_at' => $job->created_at,

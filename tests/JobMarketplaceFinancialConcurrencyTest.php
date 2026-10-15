@@ -387,9 +387,12 @@ try {
     $paymentLedger = $db->prepare("SELECT COUNT(*) FROM transactions WHERE user_id = ? AND reference = ? AND type = 'deposit'");
     $paymentLedger->execute([$userId, 'payment:' . $paymentSubmissionId]);
     $assert((int) $paymentLedger->fetchColumn() === 1, 'Payment approval race wrote more than one deposit ledger row.');
-    $postPaymentBalance = $db->prepare('SELECT balance FROM users WHERE id = ?');
+    $postPaymentBalance = $db->prepare('SELECT balance, wallet_balance FROM users WHERE id = ?');
     $postPaymentBalance->execute([$userId]);
-    $assert(abs((float) $postPaymentBalance->fetchColumn() - 30.0) < 0.0001, 'Payment approval race credited the balance more than once.');
+    $postPaymentState = $postPaymentBalance->fetch(PDO::FETCH_ASSOC);
+    $assert(abs((float) ($postPaymentState['balance'] ?? 0) - 20.0) < 0.0001
+        && abs((float) ($postPaymentState['wallet_balance'] ?? 0) - 10.0) < 0.0001,
+        'Payment approval race credited the posting wallet more than once or changed worker earnings balance.');
     unset($postPaymentBalance, $paymentState, $paymentLedger);
 
     // One old-enough view may be claimed by two processes, but only one

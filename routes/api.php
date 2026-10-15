@@ -126,6 +126,7 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
             $r->add('POST', '/admin/assignments/{id}/cancel', [AdminJobController::class, 'cancelAssignment']);
             $r->add('POST', '/admin/assignments/{id}/reassign', [AdminJobController::class, 'reassignAssignment']);
             $r->get('/admin/jobs/{id}/submissions', [AdminController::class, 'jobSubmissions'], 'admin.job-submissions');
+            $r->get('/admin/submissions/pending', [AdminController::class, 'pendingSubmissions'], 'admin.pending-submissions');
             $r->get('/admin/fraud/submissions', [AdminController::class, 'fraudQueue'], 'admin.fraud-submissions');
             $r->add('POST', '/admin/fraud/submissions/{id}/review', [AdminController::class, 'reviewFraud']);
             $r->add('POST', '/admin/submissions/{id}/review', [AdminController::class, 'reviewSubmission']);

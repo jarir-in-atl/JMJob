@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { showFlash, currentUser, navigate } from '../state.js';
 
 const STATUSES = [
+    { value: 'work_reviews', label: 'Pending Work Reviews' },
     { value: 'pending_approval', label: 'Job Post (Pending Approval)' },
     { value: 'open', label: 'Active Job' },
     { value: 'all', label: 'All Jobs' },
@@ -58,6 +59,9 @@ export function AdminJobsPage() {
                 <button class="admin-tab ${selectedStatus === 'all' ? 'admin-tab--active' : ''}" data-status="all">
                     <i class="bi bi-list-task"></i> All Jobs Moderation
                 </button>
+                <button class="admin-tab ${selectedStatus === 'work_reviews' ? 'admin-tab--active' : ''}" data-status="work_reviews">
+                    <i class="bi bi-file-earmark-check"></i> Work Reviews <span id="admin-work-review-count"></span>
+                </button>
             </div>
 
             <div class="admin-toolbar" style="margin-bottom: 16px;">
@@ -102,11 +106,29 @@ async function load() {
     if (!list) return;
     list.innerHTML = '<div class="spinner"></div>';
     try {
+        if (selectedStatus === 'work_reviews') {
+            const response = await api.adminPendingSubmissions();
+            const submissions = Array.isArray(response.data) ? response.data : [];
+            const count = document.getElementById('admin-work-review-count');
+            if (count) count.textContent = submissions.length ? `(${submissions.length})` : '';
+            list.innerHTML = submissions.length
+                ? ''
+                : '<p class="muted card" style="padding:20px; text-align:center;">No work is waiting for admin review.</p>';
+            submissions.forEach(submission => list.appendChild(renderPendingSubmission(submission)));
+            return;
+        }
+
         const queryStatus = selectedStatus === 'all' ? '' : selectedStatus;
         const res = await api.adminJobs(queryStatus);
         const items = res.data || [];
         list.innerHTML = items.length ? '' : '<p class="muted card" style="padding:20px; text-align:center;">No jobs found for this section.</p>';
         items.forEach(job => list.appendChild(renderJob(job)));
+        api.adminPendingSubmissions().then(queueResponse => {
+            const count = document.getElementById('admin-work-review-count');
+            if (!count) return;
+            const pendingCount = Array.isArray(queueResponse.data) ? queueResponse.data.length : 0;
+            count.textContent = pendingCount ? `(${pendingCount})` : '';
+        }).catch(() => {});
     } catch (error) {
         list.innerHTML = `<p class="muted card" style="padding:20px;">Failed to load jobs: ${escapeHtml(error.message || 'unknown error')}</p>`;
     }
@@ -118,6 +140,10 @@ function renderJob(job) {
 
     const isPending = job.status === 'pending_approval';
     const isDeclined = job.status === 'declined';
+    const workerCount = Math.max(1, Number(job.worker_count || 1));
+    const workerPayment = Number(job.cost_per_worker || (Number(job.budget || 0) / workerCount));
+    const commissionRate = Number(job.system_fee_percent ?? 30);
+    const paymentWithFee = workerPayment + workerPayment * commissionRate / 100;
 
     let metricsHtml = '';
     if (!isPending && !isDeclined) {
@@ -150,7 +176,9 @@ function renderJob(job) {
             ${job.customer_phone ? `<span><strong>Phone:</strong> ${escapeHtml(job.customer_phone)}</span>` : ''}
             <span><strong>Category:</strong> ${escapeHtml(job.category_name || 'Uncategorized')}</span>
             <span><strong>Workers Needed:</strong> ${Number(job.worker_count || 1)}</span>
-            <span><strong>Cost/Worker:</strong> ${escapeHtml(job.currency || 'BDT')} ${Number(job.cost_per_worker || 0).toFixed(2)}</span>
+            <span><strong>Cost/Worker:</strong> <span data-i18n-ignore>${escapeHtml(job.currency || 'BDT')} ${workerPayment.toFixed(2)}</span></span>
+            <span><strong>Commission:</strong> ${commissionRate.toFixed(2)}%</span>
+            <span><strong>Total per worker:</strong> <span data-i18n-ignore>${escapeHtml(job.currency || 'BDT')} ${paymentWithFee.toFixed(2)}</span></span>
             ${job.decline_reason ? `<span style="color:#dc2626;"><strong>Decline Reason:</strong> ${escapeHtml(job.decline_reason)}</span>` : ''}
         </div>
 
@@ -168,6 +196,7 @@ function renderJob(job) {
     }
 
     if (isPending) {
+        actions.appendChild(actionButton('Review / adjust payment', 'btn--ghost', () => navigate(`/admin/admin-job-post?edit=${job.id}`)));
         const activateButton = actionButton('Activate Job', 'btn--success', () => approveJob(job.id, activateButton));
         if (pendingJobApprovals.has(job.id)) setActivationPending(activateButton);
         actions.appendChild(activateButton);
@@ -180,6 +209,68 @@ function renderJob(job) {
     }
 
     return row;
+}
+
+function renderPendingSubmission(submission) {
+    const row = document.createElement('article');
+    row.className = 'admin-row admin-submission-review-row';
+    const currency = escapeHtml(submission.currency || 'BDT');
+    const amount = Number(submission.payment_amount || 0).toFixed(2);
+    const risk = submission.risk_status && submission.risk_status !== 'clear'
+        ? `<span class="badge badge--warning">Risk: ${escapeHtml(String(submission.risk_status).replace(/_/g, ' '))}</span>`
+        : '';
+    const attachmentButton = submission.attachment_url
+        ? `<button type="button" class="btn btn--ghost btn--sm" data-proof-attachment="${Number(submission.id)}"><i class="bi bi-image"></i> View screenshot / proof</button>`
+        : '<span class="muted">No file attached</span>';
+
+    row.innerHTML = `
+        <div class="admin-submission-review-row__main">
+            <strong>${escapeHtml(submission.job_title || `Job #${submission.job_id}`)}</strong>
+            <span class="muted"><span>Worker:</span> ${escapeHtml(submission.worker_name || `User #${submission.worker_id}`)} · User #${Number(submission.worker_id)} · ${escapeHtml(submission.worker_phone || submission.worker_email || 'Contact unavailable')}</span>
+            <span class="muted"><span>Submitted</span> ${formatDate(submission.submitted_at)} · <span>Attempt</span> ${Number(submission.attempt_number || 1)} · ${currency} ${amount} <span>per work</span></span>
+            ${submission.description ? `<p>${escapeHtml(submission.description)}</p>` : ''}
+            ${submission.external_link ? `<a href="${escapeHtml(submission.external_link)}" target="_blank" rel="noopener noreferrer">Open delivery link</a>` : ''}
+            <div class="admin-row__actions">${attachmentButton}${risk}</div>
+        </div>
+        <div class="admin-row__actions admin-submission-review-row__actions">
+            <button type="button" class="btn btn--success btn--sm" data-review-decision="approve" data-submission-id="${Number(submission.id)}">${Number(submission.assignment_id || 0) > 0 ? 'Approve & Pay' : 'Approve'}</button>
+            <button type="button" class="btn btn--danger btn--sm" data-review-decision="reject" data-submission-id="${Number(submission.id)}">Decline</button>
+        </div>
+    `;
+
+    row.querySelector('[data-proof-attachment]')?.addEventListener('click', event => openProofAttachment(event.currentTarget.dataset.proofAttachment));
+    row.querySelectorAll('[data-review-decision]').forEach(button => button.addEventListener('click', () => reviewPendingSubmission(submission, button)));
+    return row;
+}
+
+async function reviewPendingSubmission(submission, button) {
+    const decision = button.dataset.reviewDecision;
+    const assignmentBacked = Number(submission.assignment_id || 0) > 0;
+    if (decision === 'approve' && !confirm(assignmentBacked
+        ? 'Approve this work and release the held payment to the worker?'
+        : 'Approve this work?')) return;
+
+    const note = decision === 'reject' ? prompt('Decline reason:') : (prompt('Optional admin note:') || '');
+    if (note === null) return;
+    if (decision === 'reject' && !note.trim()) {
+        showFlash('A decline reason is required.', 'error');
+        return;
+    }
+
+    button.disabled = true;
+    const sibling = button.parentElement?.querySelector(`[data-review-decision="${decision === 'approve' ? 'reject' : 'approve'}"]`);
+    if (sibling) sibling.disabled = true;
+    try {
+        const response = await api.adminReviewSubmission(submission.id, { decision, note: note.trim() });
+        showFlash(response.message || (decision === 'approve'
+            ? (assignmentBacked ? 'Work approved and payment released.' : 'Work approved.')
+            : 'Work declined.'), 'success');
+        await load();
+    } catch (error) {
+        button.disabled = false;
+        if (sibling) sibling.disabled = false;
+        showFlash(error.message || 'Could not review this work.', 'error');
+    }
 }
 
 function actionButton(label, style, handler) {
@@ -265,7 +356,7 @@ async function viewProofSubmissions(jobId, jobTitle) {
 
             const approve = document.createElement('button');
             approve.className = 'btn btn--success btn--sm';
-            approve.textContent = 'Approve for payment review';
+            approve.textContent = Number(submission.assignment_id || 0) > 0 ? 'Approve & Pay' : 'Approve';
             approve.addEventListener('click', () => reviewSubmission(submission, jobId, jobTitle, approve, reject));
 
             const reject = document.createElement('button');
@@ -297,6 +388,8 @@ async function openProofAttachment(id) {
 
 async function reviewSubmission(submission, jobId, jobTitle, button, sibling) {
     const decision = button.textContent.startsWith('Approve') ? 'approve' : 'reject';
+    if (decision === 'approve' && Number(submission.assignment_id || 0) > 0
+        && !confirm('Approve this work and release the held payment to the worker?')) return;
     const note = decision === 'reject'
         ? prompt('Rejection reason:')
         : (prompt('Optional admin note:') || '');
@@ -309,8 +402,8 @@ async function reviewSubmission(submission, jobId, jobTitle, button, sibling) {
     button.disabled = true;
     sibling.disabled = true;
     try {
-        await api.adminReviewSubmission(submission.id, { decision, note });
-        showFlash(decision === 'approve' ? 'Submission approved for payment review.' : 'Submission rejected.', 'success');
+        const response = await api.adminReviewSubmission(submission.id, { decision, note });
+        showFlash(response.message || (decision === 'approve' ? 'Submission approved.' : 'Submission declined.'), 'success');
         await viewProofSubmissions(jobId, jobTitle);
     } catch (error) {
         button.disabled = false;

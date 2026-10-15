@@ -2591,7 +2591,7 @@ class JobService
                     (int) $assignment->id,
                     (int) ($adminOverride?->id ?? $poster->id),
                     $submissionId,
-                    false
+                    true
                 );
             }
         }
@@ -2601,6 +2601,18 @@ class JobService
         $worker = User::find((int) $bid->worker_id);
         if ($worker === null) return ['success' => false, 'message' => 'Worker not found.'];
         if ($worker->isBanned()) return ['success' => false, 'message' => 'Banned workers cannot receive assignment payments.'];
+
+        $submission = $submissionId !== null
+            ? JobSubmission::find($submissionId)
+            : JobSubmission::latestForJobWorker((int) $job->id, (int) $worker->id);
+        if ($submission === null
+            || (int) $submission->job_id !== (int) $job->id
+            || (int) $submission->worker_id !== (int) $worker->id) {
+            return ['success' => false, 'message' => 'A valid work submission is required before payment.'];
+        }
+        if ($submission->status !== JobSubmission::STATUS_APPROVED) {
+            return ['success' => false, 'message' => 'An administrator must approve the submission before payment.'];
+        }
 
         $bidAmount = (float) $bid->amount;
         $escrowHeld = SettingService::escrowAmount($bidAmount);
@@ -2644,20 +2656,8 @@ class JobService
                 ->where('id', '=', $job->id)
                 ->update(['status' => Job::STATUS_COMPLETED, 'updated_at' => date('Y-m-d H:i:s')]);
 
-            // 4. Mark the submission approved (if provided)
-            if ($submissionId) {
-                Fluent::table('job_submissions')
-                    ->where('id', '=', $submissionId)
-                    ->where('job_id', '=', $job->id)
-                    ->update([
-                        'status'       => JobSubmission::STATUS_APPROVED,
-                        'reviewed_at'  => date('Y-m-d H:i:s'),
-                        'reviewed_by'  => $poster->id,
-                        'updated_at'   => date('Y-m-d H:i:s'),
-                    ]);
-            }
-
-            // 5. Log transactions
+            // 4. Log transactions; the submission approval belongs to the
+            // administrator and was recorded before this payment step.
             self::logTransaction(
                 $worker->id, $job->id, Transaction::TYPE_ESCROW_RELEASE,
                 $workerReceives, $job->currency, $wNewBalance, null,

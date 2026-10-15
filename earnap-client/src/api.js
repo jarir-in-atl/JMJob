@@ -230,6 +230,7 @@ export const api = {
     adminUpdateJob:              (id, body) => request(`/admin/jobs/${id}/edit`, { method: 'POST', body }),
     adminDeleteJob:              (id) => request(`/admin/jobs/${id}`, { method: 'DELETE' }),
     adminJobSubmissions:        (id) => request(`/admin/jobs/${id}/submissions`),
+    adminPendingSubmissions:    () => request('/admin/submissions/pending'),
     adminFraudSubmissions:      () => request('/admin/fraud/submissions'),
     adminReviewFraud:           (id, body = {}) => request(`/admin/fraud/submissions/${id}/review`, { method: 'POST', body }),
     adminReviewSubmission:      (id, body = {}) => request(`/admin/submissions/${id}/review`, { method: 'POST', body }),

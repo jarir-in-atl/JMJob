@@ -15,16 +15,21 @@ export function AdminJobPostPage() {
         const editId = Number(params.get('edit') || 0);
         root.innerHTML = '<div class="card"><p class="muted">Loading job form…</p></div>';
         try {
-            const categoriesResponse = await api.categories();
-            const detail = editId ? (await api.adminJobDetail(editId)).data : null;
-            render(root, categoriesResponse.data || [], detail?.job || null, editId);
+            const [categoriesResponse, detailResponse, settingsResponse] = await Promise.all([
+                api.categories(),
+                editId ? api.adminJobDetail(editId) : Promise.resolve(null),
+                api.adminSettings(),
+            ]);
+            const settings = Object.values(settingsResponse.data || {}).flat();
+            const configuredFee = settings.find(setting => setting.key === 'job_system_fee_percentage')?.value;
+            render(root, categoriesResponse.data || [], detailResponse?.data?.job || null, editId, Number(configuredFee ?? 30));
         } catch (error) {
             root.innerHTML = `<div class="card"><p class="muted">Could not load job form: ${escapeHtml(error.message || 'unknown error')}</p></div>`;
         }
     };
 }
 
-function render(root, categories, job, editId) {
+function render(root, categories, job, editId, defaultFeePercentage = 30) {
     let proofRequirements = [];
     if (Array.isArray(job?.proof_requirements) && job.proof_requirements.length > 0) {
         proofRequirements = job.proof_requirements.map(item => ({
@@ -39,6 +44,7 @@ function render(root, categories, job, editId) {
     const selectedCategory = categories.find(category => Number(category.id) === selectedCategoryId);
     const subcategories = selectedCategory?.subcategories || [];
     const selectedSubcategoryId = job?.subcategory_id ? Number(job.subcategory_id) : '';
+    const feePercentage = Number(job?.system_fee_percent ?? defaultFeePercentage);
 
     const currentThumbnail = job?.attachment_url || (job?.attachment_path ? (job.attachment_path.startsWith('http') ? job.attachment_path : `/storage/${job.attachment_path}`) : null);
     let newThumbnailBase64 = null;
@@ -76,6 +82,15 @@ function render(root, categories, job, editId) {
             <div class="poster-form__grid">
                 <label>Workers required <input name="worker_count" type="number" min="1" value="${Number(job?.worker_count || 1)}" required></label>
                 <label>Payment per worker <input name="cost_per_worker" type="number" min="0.01" step="0.0001" value="${Number(job?.cost_per_worker || 0)}" required></label>
+            </div>
+            <div class="fee-calculation-box" id="admin-job-pricing" style="margin: 1rem 0; padding: 1rem; background: var(--card-bg, #f9fafb); border: 1px solid var(--border-color, #e5e7eb); border-radius: 8px;">
+                <h3 style="margin:0 0 0.75rem; font-size:1rem;">Payment and commission</h3>
+                <p class="muted" style="margin:0 0 0.75rem;">Change the worker payment before activation. The commission and total update automatically.</p>
+                <div class="admin-job-price-line"><span>Payment per worker</span><strong id="admin-price-per-worker">৳0.00</strong></div>
+                <div class="admin-job-price-line"><span><span>Commission per worker</span> (${feePercentage}%)</span><strong id="admin-fee-per-worker">৳0.00</strong></div>
+                <div class="admin-job-price-line"><span>Workers × payment per worker</span><strong id="admin-price-subtotal">৳0.00</strong></div>
+                <div class="admin-job-price-line"><span><span>Total commission</span> (${feePercentage}%)</span><strong id="admin-price-fee">৳0.00</strong></div>
+                <div class="admin-job-price-line admin-job-price-line--total"><span>Total payment</span><strong id="admin-price-total">৳0.00</strong></div>
             </div>
             <label>Deadline <input name="deadline_at" type="datetime-local" value="${toLocalInput(job?.deadline_at)}"></label>
             <label>Job Screenshot / Thumbnail (Optional)
@@ -120,6 +135,22 @@ function render(root, categories, job, editId) {
     const subcategorySelect = root.querySelector('#admin-subcategory-select');
     const thumbnailInput = root.querySelector('#admin-thumbnail-input');
     const thumbnailPreview = root.querySelector('#admin-thumbnail-preview');
+
+    const updatePricing = () => {
+        const workers = Math.max(1, Number(root.querySelector('[name="worker_count"]')?.value || 1));
+        const payment = Math.max(0, Number(root.querySelector('[name="cost_per_worker"]')?.value || 0));
+        const subtotal = workers * payment;
+        const fee = subtotal * feePercentage / 100;
+        const symbol = '৳';
+        root.querySelector('#admin-price-per-worker').textContent = `${symbol}${payment.toFixed(2)}`;
+        root.querySelector('#admin-fee-per-worker').textContent = `${symbol}${(payment * feePercentage / 100).toFixed(2)}`;
+        root.querySelector('#admin-price-subtotal').textContent = `${symbol}${subtotal.toFixed(2)}`;
+        root.querySelector('#admin-price-fee').textContent = `${symbol}${fee.toFixed(2)}`;
+        root.querySelector('#admin-price-total').textContent = `${symbol}${(subtotal + fee).toFixed(2)}`;
+    };
+    root.querySelector('[name="worker_count"]')?.addEventListener('input', updatePricing);
+    root.querySelector('[name="cost_per_worker"]')?.addEventListener('input', updatePricing);
+    updatePricing();
 
     function saveProofRows() {
         const rows = root.querySelectorAll('.admin-proof-row');
