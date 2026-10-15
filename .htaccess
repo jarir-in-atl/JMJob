@@ -1,5 +1,13 @@
 <IfModule mod_rewrite.c>
     RewriteEngine On
+
+    # Keep the application shell and its module assets on the same origin.
+    # Respect the original scheme when TLS is terminated by a reverse proxy.
+    RewriteCond %{HTTP_HOST} ^jmjob\.xyz$ [NC]
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP:X-Forwarded-Proto} !^https$ [NC]
+    RewriteRule ^ https://jmjob.xyz%{REQUEST_URI} [R=301,L,NE]
+
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteRule ^ index.php [QSA,L]
