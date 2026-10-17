@@ -421,16 +421,9 @@ class JobService
         $now = date('Y-m-d H:i:s');
         $poster = $assignmentTableAvailable ? User::find((int) $job->poster_id) : null;
         $bidAmount = (float) ($bid->amount ?: ($job->cost_per_worker ?: $job->budget));
-        $escrowAmount = SettingService::escrowAmount($bidAmount);
         if ($assignmentTableAvailable) {
             if ($poster === null) {
                 return ['success' => false, 'message' => 'Job poster not found.'];
-            }
-            if ((float) ($poster->wallet_balance ?? 0) < $escrowAmount) {
-                return [
-                    'success' => false,
-                    'message' => 'The poster does not have enough wallet balance to reserve this worker payment.',
-                ];
             }
         }
 
@@ -489,9 +482,6 @@ class JobService
                 $posterRow = $posterLock->fetch(\PDO::FETCH_ASSOC);
                 $poster = $posterRow ? new User($posterRow) : null;
                 if ($poster === null) throw new \RuntimeException('Job poster not found.');
-                if ((float) ($poster->wallet_balance ?? 0) < $escrowAmount) {
-                    throw new \RuntimeException('The poster does not have enough wallet balance to reserve this worker payment.');
-                }
             }
             // Lock the worker after the poster so approval follows the same
             // job -> bid -> poster -> worker order as the escrow paths.
@@ -516,6 +506,9 @@ class JobService
             ]);
 
             if ($assignmentTableAvailable && JobAssignment::findForBid((int) $bid->id) === null) {
+                // Admin-approved assignments may reserve escrow beyond the
+                // poster's available wallet. Keep the full amount in escrow
+                // and carry any shortfall as a negative wallet balance.
                 $posterWallet = round((float) $poster->wallet_balance - $escrowAmount, 4);
                 $posterFrozen = round((float) ($poster->frozen_balance ?? 0) + $escrowAmount, 4);
                 Fluent::table('users')->where('id', '=', $poster->id)->update([

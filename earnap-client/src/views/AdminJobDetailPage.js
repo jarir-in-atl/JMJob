@@ -2,6 +2,7 @@ import { api } from '../api.js';
 import { currentUser, navigate, showFlash } from '../state.js';
 
 const proofPreviewUrls = new Set();
+const loadedBidProofPreviews = new Set();
 
 export function AdminJobDetailPage(id) {
     return async () => {
@@ -20,6 +21,7 @@ export function AdminJobDetailPage(id) {
 async function load(root, id) {
     proofPreviewUrls.forEach(url => URL.revokeObjectURL(url));
     proofPreviewUrls.clear();
+    loadedBidProofPreviews.clear();
     try {
         const response = await api.adminJobDetail(id);
         render(root, response.data || {}, id);
@@ -115,6 +117,18 @@ function render(root, data, id) {
     root.querySelector('#admin-detail-submission-filter')?.addEventListener('change', event => {
         applyWorkerFilter(root, '#admin-detail-submissions', '#admin-detail-submissions-filter-empty', event.target.value, 'submission');
     });
+    root.querySelectorAll('[data-toggle-bid-details]').forEach(button => button.addEventListener('click', () => {
+        const bidId = Number(button.dataset.toggleBidDetails);
+        const details = root.querySelector(`#bid-details-${bidId}`);
+        if (!details) return;
+        const expanded = button.getAttribute('aria-expanded') === 'true';
+        details.hidden = expanded;
+        button.setAttribute('aria-expanded', String(!expanded));
+        button.innerHTML = expanded
+            ? '<i class="bi bi-card-text"></i> View details'
+            : '<i class="bi bi-chevron-up"></i> Hide details';
+        if (!expanded) loadBidProofPreview(root, bidId);
+    }));
     root.querySelector('#btn-add-screenshot')?.addEventListener('click', () => navigate(`/admin/admin-job-post?edit=${id}`));
     root.querySelector('#edit-job')?.addEventListener('click', () => navigate(`/admin/admin-job-post?edit=${id}`));
     root.querySelector('#delete-job')?.addEventListener('click', async () => {
@@ -196,7 +210,7 @@ function render(root, data, id) {
         try { await api.adminReassignAssignment(button.dataset.reassignAssignment, { bid_id: bidId, reason: reason.trim() }); showFlash('Worker reassigned.', 'success'); await load(root, id); }
         catch (error) { showFlash(error.message || 'Could not reassign worker.', 'error'); }
     }));
-    loadProtectedProofPreviews(root, bids, submissions);
+    loadProtectedProofPreviews(root, submissions);
 }
 
 function renderAssignment(assignment, bids) {
@@ -214,8 +228,8 @@ function renderBid(bid) {
         || /\.(jpg|jpeg|png|gif|webp)$/i.test(String(bid.proof_attachment_name || ''));
     const proofMarkup = bid.proof_attachment_url ? `
         <div style="margin-top:8px;">
-            <div data-bid-preview-message="${Number(bid.id)}" class="muted">${isImage ? 'Loading screenshot preview…' : escapeHtml(bid.proof_attachment_name || 'Work proof attached')}</div>
-            ${isImage ? `<img data-bid-proof-preview="${Number(bid.id)}" alt="Worker bid proof screenshot" hidden style="max-width:100%; max-height:220px; margin-top:8px; border:1px solid #cbd5e1; border-radius:6px; object-fit:contain;" />` : ''}
+            <span class="muted">${escapeHtml(bid.proof_attachment_name || 'Work proof attached')}</span>
+            ${isImage ? `<div data-bid-preview-message="${Number(bid.id)}" class="muted">Loading screenshot preview…</div><img data-bid-proof-preview="${Number(bid.id)}" alt="Worker bid proof screenshot" hidden style="max-width:100%; max-height:220px; margin-top:8px; border:1px solid #cbd5e1; border-radius:6px; object-fit:contain;" />` : ''}
             <button type="button" class="btn btn--ghost btn--sm" data-bid-proof-attachment="${Number(bid.id)}"><i class="bi ${isImage ? 'bi-image' : 'bi-file-earmark-text'}"></i> ${isImage ? 'Open screenshot' : 'Open work proof'}</button>
         </div>
     ` : '<p class="muted">No proof attachment provided with this bid.</p>';
@@ -227,7 +241,27 @@ function renderBid(bid) {
     ` : '';
     const bannedLabel = bid.worker?.is_banned ? '<span class="badge badge--danger">BANNED</span>' : '';
     const statusLabel = status === 'rejected' ? 'DECLINED' : status.toUpperCase();
-    return `<div class="admin-row" data-bid-filter-status="${filterStatus}"><div><strong>${escapeHtml(bid.worker?.name || `Worker #${bid.worker_id}`)}</strong><span class="muted">User ID #${escapeHtml(bid.worker_id)} · ${escapeHtml(bid.worker?.email || 'Email unavailable')} · ${escapeHtml(bid.worker?.phone || 'Phone unavailable')}</span><p>${escapeHtml(bid.proposal || '')}</p>${proofMarkup}</div><div><span class="badge ${badgeStyle ? `badge--${badgeStyle}` : ''}">${escapeHtml(statusLabel)}</span>${bannedLabel}<span class="muted"> ${formatAmount(bid.amount, bid.currency || 'BDT')} · ${Number(bid.delivery_days || 0)} days</span>${decisionActions}</div></div>`;
+    const submittedAt = bid.created_at ? formatDate(bid.created_at) : 'Unavailable';
+    return `<div class="admin-row" data-bid-filter-status="${filterStatus}">
+        <div>
+            <strong data-i18n-ignore>${escapeHtml(bid.worker?.name || `Worker #${bid.worker_id}`)}</strong>
+            <span class="muted">User ID #${escapeHtml(bid.worker_id)}</span>
+            <button type="button" class="btn btn--ghost btn--sm" data-toggle-bid-details="${Number(bid.id)}" aria-expanded="false" aria-controls="bid-details-${Number(bid.id)}"><i class="bi bi-card-text"></i> View details</button>
+            <div id="bid-details-${Number(bid.id)}" hidden style="margin-top:10px; padding:12px; background:var(--bg-secondary, #f8fafc); border:1px solid var(--border-color, #e2e8f0); border-radius:8px;">
+                <strong>Worker details</strong>
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin-top:8px;">
+                    <div><span class="muted">Email</span><br><span data-i18n-ignore>${escapeHtml(bid.worker?.email || 'Email unavailable')}</span></div>
+                    <div><span class="muted">Phone</span><br><span data-i18n-ignore>${escapeHtml(bid.worker?.phone || 'Phone unavailable')}</span></div>
+                    <div><span class="muted">Bid amount</span><br><strong data-i18n-ignore>${formatAmount(bid.amount, bid.currency || 'BDT')}</strong></div>
+                    <div><span class="muted">Delivery time</span><br><strong>${Number(bid.delivery_days || 0)} days</strong></div>
+                    <div><span class="muted">Submitted</span><br><span data-i18n-ignore>${escapeHtml(submittedAt)}</span></div>
+                </div>
+                <div style="margin-top:10px;"><strong>Proposal / work details</strong><p data-i18n-ignore style="white-space:pre-wrap; margin:4px 0 0;">${escapeHtml(bid.proposal || 'No proposal details provided.')}</p></div>
+                <div style="margin-top:10px;"><strong>Submitted proof</strong>${proofMarkup}</div>
+            </div>
+        </div>
+        <div><span class="badge ${badgeStyle ? `badge--${badgeStyle}` : ''}">${escapeHtml(statusLabel)}</span>${bannedLabel}<span class="muted"> ${formatAmount(bid.amount, bid.currency || 'BDT')} · ${Number(bid.delivery_days || 0)} days</span>${decisionActions}</div>
+    </div>`;
 }
 
 function renderSubmission(submission, currency) {
@@ -296,18 +330,7 @@ function submissionFilterStatus(status) {
     return 'revision';
 }
 
-function loadProtectedProofPreviews(root, bids, submissions) {
-    bids.forEach(bid => {
-        const isImage = bid.proof_attachment_type === 'image'
-            || /\.(jpg|jpeg|png|gif|webp)$/i.test(String(bid.proof_attachment_name || ''));
-        if (!isImage || !bid.proof_attachment_url) return;
-        const image = root.querySelector(`[data-bid-proof-preview="${Number(bid.id)}"]`);
-        const message = root.querySelector(`[data-bid-preview-message="${Number(bid.id)}"]`);
-        if (image && message) {
-            loadProtectedImagePreview(image, message, () => api.posterBidProofAttachment(bid.id));
-        }
-    });
-
+function loadProtectedProofPreviews(root, submissions) {
     submissions.forEach(submission => {
         const attachment = String(submission.attachment_path || '');
         const isImage = /\.(jpg|jpeg|png|gif|webp)(?:$|\?)/i.test(attachment);
@@ -318,6 +341,15 @@ function loadProtectedProofPreviews(root, bids, submissions) {
             loadProtectedImagePreview(image, message, () => api.proofAttachment(submission.id));
         }
     });
+}
+
+function loadBidProofPreview(root, bidId) {
+    if (loadedBidProofPreviews.has(bidId)) return;
+    const image = root.querySelector(`[data-bid-proof-preview="${bidId}"]`);
+    const message = root.querySelector(`[data-bid-preview-message="${bidId}"]`);
+    if (!image || !message) return;
+    loadedBidProofPreviews.add(bidId);
+    loadProtectedImagePreview(image, message, () => api.posterBidProofAttachment(bidId));
 }
 
 async function loadProtectedImagePreview(image, message, fetchProof) {
