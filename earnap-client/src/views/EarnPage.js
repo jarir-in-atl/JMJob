@@ -98,9 +98,17 @@ function renderVideoCard(ad, remaining) {
     const canStart = Boolean(ad.can_start) && remaining > 0;
     const campaignLimit = Number(ad.daily_limit || 0);
     const watchedToday = Number(ad.watched_today || 0);
-    const activity = campaignLimit > 0
-        ? `${watchedToday} / ${campaignLimit} today`
-        : `${watchedToday} watched today`;
+    const perUserLimit = Number(ad.per_user_limit || 0);
+    const viewsByUser = Number(ad.views_by_user || 0);
+    const dailyReached = campaignLimit > 0 && watchedToday >= campaignLimit;
+    const userLimitReached = perUserLimit > 0 && viewsByUser >= perUserLimit;
+    const activity = [
+        campaignLimit > 0 ? `${watchedToday} / ${campaignLimit} today` : `${watchedToday} watched today`,
+        ...(perUserLimit > 0 ? [`${viewsByUser} / ${perUserLimit} total for you`] : []),
+    ].join(' · ');
+    const disabledLabel = remaining <= 0 || dailyReached
+        ? 'Daily limit reached'
+        : userLimitReached ? 'View limit reached' : 'Campaign limit reached';
 
     card.innerHTML = `
         <div class="earn-video-card__top">
@@ -110,11 +118,11 @@ function renderVideoCard(ad, remaining) {
         <h3 class="earn-video-card__title">${escapeHtml(ad.title || 'Sponsored video')}</h3>
         <div class="earn-video-card__details">
             <span><i class="bi bi-clock"></i>${Number(ad.duration_seconds || 0)} sec</span>
-            <span><i class="bi bi-coin"></i>৳${money(ad.reward_amount)}</span>
+            <span><i class="bi bi-coin"></i>৳${money(ad.reward_amount)} <small>per completed view</small></span>
         </div>
         <p class="earn-video-card__limit">${escapeHtml(activity)}</p>
         <button class="btn ${canStart ? 'btn--primary' : 'btn--ghost'} earn-video-card__button" type="button" ${canStart ? '' : 'disabled'}>
-            <i class="bi ${canStart ? 'bi-play-circle-fill' : 'bi-hourglass-split'}"></i>${canStart ? 'Watch & earn' : (remaining <= 0 ? 'Daily limit reached' : 'Campaign limit reached')}
+            <i class="bi ${canStart ? 'bi-play-circle-fill' : 'bi-hourglass-split'}"></i>${canStart ? 'Watch & earn' : disabledLabel}
         </button>
     `;
     if (canStart) card.querySelector('button')?.addEventListener('click', () => openVideoAdModal(ad));
@@ -166,7 +174,7 @@ async function openVideoAdModal(ad) {
     modal.querySelector('.modal__backdrop')?.addEventListener('click', close);
 
     const streamUrl = String(session.stream_url || '');
-    const source = classifyVideoSource(streamUrl);
+    const source = await classifyVideoSource(streamUrl);
     if (source.kind === 'local') {
         try {
             const response = await fetch(streamUrl, { headers: { Authorization: `Bearer ${getAuthToken()}` } });
@@ -181,6 +189,7 @@ async function openVideoAdModal(ad) {
         video.addEventListener('error', () => showPlayerError(playerSlot, 'This video could not be played in your browser.', source.url), { once: true });
         playerSlot.replaceChildren(video);
     } else if (source.kind === 'embed') {
+        if (source.provider === 'tiktok') playerSlot.classList.add('earn-watch__player--tiktok');
         const frame = document.createElement('iframe');
         frame.src = source.embedUrl;
         frame.title = ad.title || 'Sponsored video';
@@ -235,7 +244,7 @@ async function openVideoAdModal(ad) {
     claimButton.addEventListener('click', claimReward);
 }
 
-function classifyVideoSource(value) {
+export async function classifyVideoSource(value) {
     const raw = String(value || '');
     if (raw.startsWith('/')) return { kind: 'local', url: raw };
     let url;
@@ -244,6 +253,20 @@ function classifyVideoSource(value) {
 
     const host = url.hostname.toLowerCase().replace(/^www\./, '');
     const path = url.pathname;
+    if (['tiktok.com', 'm.tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com'].includes(host)) {
+        const videoId = path.match(/^\/@[^/]+\/video\/(\d+)(?:\/|$)/)?.[1]
+            || path.match(/^\/player\/v1\/(\d+)(?:\/|$)/)?.[1]
+            || await resolveTikTokVideoId(raw);
+        if (videoId) {
+            const embedUrl = new URL(`https://www.tiktok.com/player/v1/${videoId}`);
+            embedUrl.searchParams.set('autoplay', '1');
+            embedUrl.searchParams.set('controls', '1');
+            embedUrl.searchParams.set('rel', '0');
+            return { kind: 'embed', provider: 'tiktok', url: raw, embedUrl: embedUrl.toString() };
+        }
+        return { kind: 'external', url: raw };
+    }
+
     if (['youtube.com', 'm.youtube.com', 'youtu.be', 'youtube-nocookie.com'].includes(host)) {
         const match = host === 'youtu.be'
             ? path.match(/^\/([\w-]{6,20})/)
@@ -279,6 +302,27 @@ function classifyVideoSource(value) {
 
     if (/\.(?:mp4|m4v|mov|webm|ogg|ogv|m3u8)$/i.test(path)) return { kind: 'file', url: raw };
     return { kind: 'external', url: raw };
+}
+
+async function resolveTikTokVideoId(videoUrl) {
+    const endpoint = new URL('https://www.tiktok.com/oembed');
+    endpoint.searchParams.set('url', videoUrl);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+        const response = await fetch(endpoint.toString(), {
+            headers: { Accept: 'application/json' },
+            signal: controller.signal,
+        });
+        if (!response.ok) return null;
+        const data = await response.json();
+        if (String(data.provider_url || '').replace(/\/$/, '') !== 'https://www.tiktok.com') return null;
+        return String(data.html || '').match(/\bdata-video-id=["'](\d{5,30})["']/i)?.[1] || null;
+    } catch {
+        return null;
+    } finally {
+        clearTimeout(timeout);
+    }
 }
 
 function createVideoElement(url) {

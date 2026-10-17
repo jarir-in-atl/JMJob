@@ -17,7 +17,7 @@ class SecurityHeadersMiddleware implements MiddlewareInterface
         'X-Frame-Options'           => 'SAMEORIGIN',
         'X-XSS-Protection'          => '1; mode=block',
         'Referrer-Policy'           => 'strict-origin-when-cross-origin',
-        'Content-Security-Policy'   => "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:;",
+        'Content-Security-Policy'   => "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https://www.tiktok.com; frame-src 'self' https://www.tiktok.com https://www.youtube.com https://www.youtube-nocookie.com https://www.dailymotion.com https://geo.dailymotion.com https://player.vimeo.com; media-src 'self' blob: https:;",
         'Strict-Transport-Security' => 'max-age=31536000; includeSubDomains',
         'Permissions-Policy'        => 'geolocation=(), microphone=(), camera=()',
     ];

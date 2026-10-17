@@ -58,6 +58,8 @@ class AdController extends Controller
                 'ad_network_enabled' => SettingService::adNetworkEnabled(),
                 'website_ads_enabled' => (bool) SettingService::get('website_ads_enabled', true),
                 'app_ads_enabled' => (bool) SettingService::get('app_ads_enabled', true),
+                'google_adsense_enabled' => (bool) SettingService::get('google_adsense_enabled', false),
+                'google_admob_enabled' => (bool) SettingService::get('google_admob_enabled', false),
                 'website_publisher_id' => (string) SettingService::get('website_publisher_id', ''),
                 'app_publisher_id' => (string) SettingService::get('app_publisher_id', ''),
                 'website_ad_units' => (array) SettingService::get('website_ad_units', []),

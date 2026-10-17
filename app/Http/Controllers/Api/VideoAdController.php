@@ -70,8 +70,10 @@ class VideoAdController extends Controller
         try {
             foreach (VideoAd::active() as $ad) {
                 $watchedToday = VideoAdView::countForUserToday((int) $ad->id, (int) $user->id);
+                $viewsByUser = VideoAdView::countForUser((int) $ad->id, (int) $user->id);
                 $dailyLimit = (int) ($ad->daily_limit ?? 0);
-                $items[] = $this->serializeAd($ad, $watchedToday, $dailyLimit);
+                $perUserLimit = (int) ($ad->per_user_limit ?? 0);
+                $items[] = $this->serializeAd($ad, $watchedToday, $dailyLimit, $viewsByUser, $perUserLimit);
             }
         } catch (\Throwable $e) {
             // Keep the existing provider-based ad flow available while the
@@ -115,6 +117,11 @@ class VideoAdController extends Controller
         $ad = VideoAd::find($adId);
         if ($ad === null || !$ad->isStartable()) {
             return Response::json(['success' => false, 'message' => 'Video ad not found or inactive.'], 404);
+        }
+
+        $perUserLimit = (int) ($ad->per_user_limit ?? 0);
+        if ($perUserLimit > 0 && VideoAdView::countForUser((int) $ad->id, (int) $user->id) >= $perUserLimit) {
+            return Response::json(['success' => false, 'message' => 'You have reached this video\'s view limit.'], 422);
         }
 
         $frequency = max(0, (int) SettingService::get('ad_frequency_seconds', 60));
@@ -161,6 +168,18 @@ class VideoAdController extends Controller
             if ($dailyLimit > 0 && $dailyCount >= $dailyLimit) {
                 Database::rollbackWriteTransaction($db);
                 return Response::json(['success' => false, 'message' => 'You have reached this ad\'s daily limit.'], 422);
+            }
+
+            // Reserve the per-worker allowance in the same transaction as
+            // the campaign-wide view slot so parallel starts cannot exceed it.
+            $perUserLimit = (int) ($lockedAd->per_user_limit ?? 0);
+            if ($perUserLimit > 0) {
+                $userViewCount = $db->prepare('SELECT COUNT(*) FROM video_ad_views WHERE video_ad_id = :video_ad_id AND user_id = :user_id');
+                $userViewCount->execute([':video_ad_id' => $lockedAd->id, ':user_id' => $user->id]);
+                if ((int) $userViewCount->fetchColumn() >= $perUserLimit) {
+                    Database::rollbackWriteTransaction($db);
+                    return Response::json(['success' => false, 'message' => 'You have reached this video\'s view limit.'], 422);
+                }
             }
 
             // Reserve one lifetime view atomically while the ad row is locked.
@@ -380,8 +399,10 @@ class VideoAdController extends Controller
             ->withHeader('X-Content-Type-Options', 'nosniff');
     }
 
-    private function serializeAd(VideoAd $ad, int $watchedToday = 0, int $dailyLimit = 0): array
+    private function serializeAd(VideoAd $ad, int $watchedToday = 0, int $dailyLimit = 0, int $viewsByUser = 0, int $perUserLimit = 0): array
     {
+        $dailyAvailable = $dailyLimit <= 0 || $watchedToday < $dailyLimit;
+        $userAvailable = $perUserLimit <= 0 || $viewsByUser < $perUserLimit;
         return [
             'id' => (int) $ad->id,
             'title' => (string) $ad->title,
@@ -389,7 +410,9 @@ class VideoAdController extends Controller
             'reward_amount' => (float) $ad->reward_amount,
             'daily_limit' => $dailyLimit,
             'watched_today' => $watchedToday,
-            'can_start' => $dailyLimit <= 0 || $watchedToday < $dailyLimit,
+            'per_user_limit' => $perUserLimit,
+            'views_by_user' => $viewsByUser,
+            'can_start' => $dailyAvailable && $userAvailable,
             'total_remaining' => (int) $ad->total_limit > 0 ? max(0, (int) $ad->total_limit - (int) $ad->total_views) : null,
         ];
     }

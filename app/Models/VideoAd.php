@@ -13,7 +13,7 @@ class VideoAd extends Model
 
     protected $fillable = [
         'title', 'video_path', 'video_url', 'duration_seconds', 'status', 'reward_amount',
-        'starts_at', 'ends_at', 'daily_limit', 'total_limit', 'total_views',
+        'starts_at', 'ends_at', 'daily_limit', 'per_user_limit', 'total_limit', 'total_views',
         'completed_views', 'created_by',
     ];
 

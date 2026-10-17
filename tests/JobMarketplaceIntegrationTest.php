@@ -1633,6 +1633,49 @@ try {
     $expectedDeadlineNotifications = 1 + (int) $db->query('SELECT COUNT(*) FROM users WHERE is_admin = 1')->fetchColumn();
     $assert((int) $notificationCount->fetchColumn() === $expectedDeadlineNotifications, 'Deadline reminder was not deduplicated per poster/admin recipient.');
 
+    // A multipart URL campaign includes an empty file field from the browser;
+    // that must be treated as no upload so a TikTok share link can be saved.
+    $originalUploadedFiles = $_FILES;
+    $_POST = [
+        'title' => 'TikTok share-link integration check',
+        'video_url' => 'https://vt.tiktok.com/ZSg84ERtest/',
+        'duration_seconds' => 10,
+        'reward_amount' => 0.005,
+        'daily_limit' => 0,
+        'per_user_limit' => 3,
+        'total_limit' => 0,
+    ];
+    $_FILES = [
+        'video' => [
+            'name' => '', 'type' => '', 'tmp_name' => '',
+            'error' => UPLOAD_ERR_NO_FILE, 'size' => 0,
+        ],
+    ];
+    $createTikTokRequest = new Request();
+    $createTikTokRequest->setMeta('auth.user', User::find($userIds['admin']));
+    $createTikTokResponse = (new AdminVideoAdController())->store($createTikTokRequest);
+    $createTikTokBody = json_decode($createTikTokResponse->getContent(), true);
+    $_FILES = $originalUploadedFiles;
+    $_POST = [];
+    $createdTikTokAdId = (int) ($createTikTokBody['data']['id'] ?? 0);
+    if ($createdTikTokAdId > 0) $videoAdIds[] = $createdTikTokAdId;
+    $assert($createTikTokResponse->getStatus() === 201
+        && ($createTikTokBody['data']['video_url'] ?? '') === 'https://vt.tiktok.com/ZSg84ERtest/'
+        && (int) ($createTikTokBody['data']['per_user_limit'] ?? -1) === 3,
+        'A TikTok share link with an empty file input was rejected by the admin video form: ' . (string) ($createTikTokBody['message'] ?? 'unknown error'));
+    $workerVideoAdsRequest = new Request();
+    $workerVideoAdsRequest->setMeta('auth.user', User::find($userIds['worker']));
+    $workerVideoAdsBody = json_decode((new VideoAdController())->index($workerVideoAdsRequest)->getContent(), true);
+    $listedTikTokAd = array_values(array_filter(
+        $workerVideoAdsBody['data'] ?? [],
+        static fn(array $ad): bool => (int) ($ad['id'] ?? 0) === $createdTikTokAdId
+    ))[0] ?? null;
+    $assert(is_array($listedTikTokAd)
+        && ($listedTikTokAd['can_start'] ?? false) === true
+        && (int) ($listedTikTokAd['per_user_limit'] ?? -1) === 3
+        && (int) ($listedTikTokAd['views_by_user'] ?? -1) === 0,
+        'The saved TikTok campaign was not returned as available in the worker See Ads listing.');
+
     // A lifetime ad limit is enforced at the database reservation boundary;
     // a second start cannot create another view after the final slot is used.
     $insertVideoAd = $db->prepare(
@@ -1661,10 +1704,64 @@ try {
     $videoState = $videoCounts->fetch(PDO::FETCH_ASSOC);
     $assert((int) $videoState['total_views'] === 1 && (int) $videoState['view_count'] === 1, 'The lifetime video limit did not preserve one reserved view.');
 
+    // A campaign's per-user cap is enforced at start, shown in See Ads, and
+    // each completed view still credits that campaign's configured reward.
+    $frequencySetting = $db->prepare('SELECT value FROM platform_settings WHERE setting_key = ?');
+    $frequencySetting->execute(['ad_frequency_seconds']);
+    $originalFrequencyForUserLimit = $frequencySetting->fetchColumn();
+    $db->prepare('UPDATE platform_settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE setting_key = ?')->execute(['0', 'ad_frequency_seconds']);
+    \App\Services\SettingService::clearCache();
+    $insertPerUserLimitAd = $db->prepare(
+        'INSERT INTO video_ads (title,video_path,duration_seconds,status,reward_amount,per_user_limit,created_by,created_at) VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)'
+    );
+    $insertPerUserLimitAd->execute(['Integration per-user limit ad', 'video-ads/integration-per-user.mp4', 1, 'active', 0.125, 1, $userIds['admin']]);
+    $perUserLimitAdId = (int) $db->lastInsertId();
+    $videoAdIds[] = $perUserLimitAdId;
+    $_POST = ['video_ad_id' => $perUserLimitAdId];
+    $perUserVideoRequest = new Request();
+    $perUserVideoRequest->setMeta('auth.user', User::find($userIds['risk']));
+    $perUserLimitStart = $videoController->start($perUserVideoRequest);
+    $perUserLimitStartBody = json_decode($perUserLimitStart->getContent(), true);
+    $perUserLimitViewId = (int) ($perUserLimitStartBody['data']['view_id'] ?? 0);
+    if ($perUserLimitViewId > 0) $videoViewIds[] = $perUserLimitViewId;
+    $assert($perUserLimitStart->getStatus() === 201
+        && (float) ($perUserLimitStartBody['data']['reward_amount'] ?? 0) === 0.125,
+        'The first per-user-limited view did not start with its configured reward.');
+    $db->prepare('UPDATE video_ad_views SET started_at = ? WHERE id = ?')->execute([date('Y-m-d H:i:s', time() - 2), $perUserLimitViewId]);
+    $_POST = ['view_id' => $perUserLimitViewId];
+    $perUserClaimRequest = new Request();
+    $perUserClaimRequest->setMeta('auth.user', User::find($userIds['risk']));
+    $perUserClaim = $videoController->claim($perUserClaimRequest);
+    $perUserClaimBody = json_decode($perUserClaim->getContent(), true);
+    $assert($perUserClaim->getStatus() === 200
+        && ($perUserClaimBody['success'] ?? false) === true
+        && (float) ($perUserClaimBody['data']['reward'] ?? 0) === 0.125,
+        'A completed per-user-limited view did not credit the configured reward.');
+    $perUserListingRequest = new Request();
+    $perUserListingRequest->setMeta('auth.user', User::find($userIds['risk']));
+    $perUserListingBody = json_decode((new VideoAdController())->index($perUserListingRequest)->getContent(), true);
+    $listedPerUserLimitAd = array_values(array_filter(
+        $perUserListingBody['data'] ?? [],
+        static fn(array $ad): bool => (int) ($ad['id'] ?? 0) === $perUserLimitAdId
+    ))[0] ?? null;
+    $assert(is_array($listedPerUserLimitAd)
+        && (int) ($listedPerUserLimitAd['views_by_user'] ?? -1) === 1
+        && (int) ($listedPerUserLimitAd['per_user_limit'] ?? -1) === 1
+        && ($listedPerUserLimitAd['can_start'] ?? true) === false,
+        'The See Ads listing did not show the exhausted per-user view allowance.');
+    $_POST = ['video_ad_id' => $perUserLimitAdId];
+    $perUserLimitRetry = $videoController->start($perUserVideoRequest);
+    $assert($perUserLimitRetry->getStatus() === 422,
+        'A worker was able to start more views than the campaign per-user limit.');
+    if ($originalFrequencyForUserLimit !== false) {
+        $db->prepare('UPDATE platform_settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE setting_key = ?')->execute([(string) $originalFrequencyForUserLimit, 'ad_frequency_seconds']);
+        \App\Services\SettingService::clearCache();
+    }
+    $_POST = [];
+
     // The per-user frequency control is a separate policy from an ad's
     // lifetime capacity. A second start by the same worker is rate-limited
     // even when the ad itself still has capacity.
-    $frequencySetting = $db->prepare('SELECT value FROM platform_settings WHERE setting_key = ?');
     $frequencySetting->execute(['ad_frequency_seconds']);
     $originalFrequency = $frequencySetting->fetchColumn();
     $db->prepare('UPDATE platform_settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE setting_key = ?')->execute(['3600', 'ad_frequency_seconds']);
@@ -2140,7 +2237,7 @@ try {
     foreach (($settingsListBody['data']['advertisement'] ?? []) as $setting) {
         $settingsByKey[(string) ($setting['key'] ?? '')] = true;
     }
-    foreach (['advertisement_system_enabled', 'video_ads_enabled', 'watch_earn_enabled', 'reward_system_enabled', 'ad_network_enabled'] as $settingKey) {
+    foreach (['advertisement_system_enabled', 'video_ads_enabled', 'watch_earn_enabled', 'reward_system_enabled', 'ad_network_enabled', 'google_adsense_enabled', 'google_admob_enabled'] as $settingKey) {
         $assert(isset($settingsByKey[$settingKey]), 'Admin settings omitted ' . $settingKey . '.');
     }
     foreach (['fraud_min_description_chars', 'fraud_daily_submission_velocity_limit', 'fraud_shared_identity_worker_threshold', 'fraud_review_threshold', 'fraud_ban_requires_confirmation'] as $settingKey) {
@@ -2155,7 +2252,7 @@ try {
     }
     $originalAdSettings = [];
     $readAdSetting = $db->prepare('SELECT value FROM platform_settings WHERE setting_key = ?');
-    foreach (['advertisement_system_enabled', 'video_ads_enabled', 'watch_earn_enabled', 'reward_system_enabled', 'ad_network_enabled', 'website_ads_enabled', 'website_publisher_id', 'website_ad_units', 'ad_frequency_seconds'] as $settingKey) {
+    foreach (['advertisement_system_enabled', 'video_ads_enabled', 'watch_earn_enabled', 'reward_system_enabled', 'ad_network_enabled', 'website_ads_enabled', 'app_ads_enabled', 'google_adsense_enabled', 'google_admob_enabled', 'website_publisher_id', 'website_ad_units', 'app_publisher_id', 'app_ad_units', 'ad_frequency_seconds'] as $settingKey) {
         $readAdSetting->execute([$settingKey]);
         $originalAdSettings[$settingKey] = $readAdSetting->fetchColumn();
     }
@@ -2179,8 +2276,12 @@ try {
         $assert((string) $currentFraudMinimum->fetchColumn() === '24', 'Invalid fraud policy settings partially persisted a valid field.');
 
         $_POST = [
+            'google_adsense_enabled' => true,
+            'google_admob_enabled' => true,
             'website_publisher_id' => 'pub-integration.example',
             'website_ad_units' => ['banner' => ['unit_id' => 'unit-home-banner', 'format' => 'responsive']],
+            'app_publisher_id' => 'ca-app-pub-1234567890123456~1234567890',
+            'app_ad_units' => ['banner' => 'ca-app-pub-1234567890123456/1234567890'],
         ];
         $adSettingsResponse = (new AdminSettingsController())->updateSettings($adminSettingsRequest());
         $adSettingsBody = json_decode($adSettingsResponse->getContent(), true);
@@ -2206,8 +2307,29 @@ try {
         $adUserRequest->setMeta('auth.user', User::find($userIds['worker']));
         $adConfigResponse = (new AdController())->config($adUserRequest);
         $adConfigBody = json_decode($adConfigResponse->getContent(), true);
-        $assert(($adConfigBody['data']['placements']['website']['publisher_id'] ?? '') === 'pub-integration.example'
-            && ($adConfigBody['data']['placements']['website']['ad_units']['banner']['unit_id'] ?? '') === 'unit-home-banner', 'Public ad placement contract did not expose normalized website settings.');
+        $assert(($adConfigBody['data']['placements']['website']['provider'] ?? '') === 'google_adsense'
+            && ($adConfigBody['data']['placements']['website']['enabled'] ?? false) === true
+            && ($adConfigBody['data']['placements']['website']['publisher_id'] ?? '') === 'pub-integration.example'
+            && ($adConfigBody['data']['placements']['website']['ad_units']['banner']['unit_id'] ?? '') === 'unit-home-banner', 'Public ad placement contract did not expose enabled Google AdSense settings.');
+        $assert(($adConfigBody['data']['placements']['app']['provider'] ?? '') === 'google_admob'
+            && ($adConfigBody['data']['placements']['app']['enabled'] ?? false) === true
+            && ($adConfigBody['data']['placements']['app']['publisher_id'] ?? '') === 'ca-app-pub-1234567890123456~1234567890'
+            && ($adConfigBody['data']['placements']['app']['ad_units']['banner'] ?? '') === 'ca-app-pub-1234567890123456/1234567890', 'Public ad placement contract did not expose enabled Google AdMob settings.');
+
+        $_POST = ['google_admob_enabled' => 'yes'];
+        $invalidGoogleToggle = (new AdminSettingsController())->updateSettings($adminSettingsRequest());
+        $assert($invalidGoogleToggle->getStatus() === 422, 'A non-boolean Google ad provider switch was accepted.');
+
+        $_POST = ['google_adsense_enabled' => false];
+        $googleSwitchOff = (new AdminSettingsController())->updateSettings($adminSettingsRequest());
+        $assert($googleSwitchOff->getStatus() === 200, 'Google AdSense could not be switched off.');
+        $_POST = [];
+        $googleSwitchOffConfig = json_decode((new AdController())->config($adUserRequest)->getContent(), true);
+        $assert(($googleSwitchOffConfig['data']['placements']['website']['enabled'] ?? true) === false
+            && ($googleSwitchOffConfig['data']['placements']['app']['enabled'] ?? false) === true, 'Google AdSense toggle did not disable only website placements.');
+        $_POST = ['google_adsense_enabled' => true];
+        $googleSwitchRestore = (new AdminSettingsController())->updateSettings($adminSettingsRequest());
+        $assert($googleSwitchRestore->getStatus() === 200, 'Google AdSense could not be switched back on.');
 
         $_POST = ['advertisement_system_enabled' => false];
         $masterOffResponse = (new AdminSettingsController())->updateSettings($adminSettingsRequest());

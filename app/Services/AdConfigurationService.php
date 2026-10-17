@@ -31,6 +31,12 @@ class AdConfigurationService
         'app_ad_units' => true,
     ];
 
+    /** @var array<string,true> */
+    private const ENABLE_KEYS = [
+        'google_adsense_enabled' => true,
+        'google_admob_enabled' => true,
+    ];
+
     /**
      * Validate one provider setting before it is persisted.
      *
@@ -41,9 +47,17 @@ class AdConfigurationService
      */
     public static function validate(string $key, mixed $value): ?string
     {
+        if (isset(self::ENABLE_KEYS[$key])) {
+            if (!is_bool($value) && !in_array($value, [0, 1, '0', '1'], true)) {
+                return $key . ' must be boolean.';
+            }
+            return null;
+        }
+
         if (isset(self::PUBLISHER_KEYS[$key])) {
             $publisher = trim((string) $value);
-            if ($publisher !== '' && (strlen($publisher) > self::PUBLISHER_MAX_LENGTH || !preg_match('/^[A-Za-z0-9._:-]+$/', $publisher))) {
+            // Google AdMob App IDs contain a tilde before the app-specific ID.
+            if ($publisher !== '' && (strlen($publisher) > self::PUBLISHER_MAX_LENGTH || !preg_match('/^[A-Za-z0-9._:~-]+$/', $publisher))) {
                 return $key . ' must contain only provider-safe identifier characters and be 128 characters or fewer.';
             }
             return null;
@@ -76,23 +90,31 @@ class AdConfigurationService
         $networkEnabled = SettingService::adNetworkEnabled();
         $websiteEnabled = (bool) SettingService::get('website_ads_enabled', true);
         $appEnabled = (bool) SettingService::get('app_ads_enabled', true);
+        $adsenseEnabled = (bool) SettingService::get('google_adsense_enabled', false);
+        $admobEnabled = (bool) SettingService::get('google_admob_enabled', false);
         $websitePublisher = (string) SettingService::get('website_publisher_id', '');
         $appPublisher = (string) SettingService::get('app_publisher_id', '');
         $websiteUnits = self::asArray(SettingService::get('website_ad_units', []));
         $appUnits = self::asArray(SettingService::get('app_ad_units', []));
+        $websiteConfigured = $websitePublisher !== '' && $websiteUnits !== [];
+        $appConfigured = $appPublisher !== '' && $appUnits !== [];
+        $websiteActive = $systemEnabled && $networkEnabled && $websiteEnabled && $adsenseEnabled && $websiteConfigured;
+        $appActive = $systemEnabled && $networkEnabled && $appEnabled && $admobEnabled && $appConfigured;
 
         return [
             'website' => [
-                'enabled' => $systemEnabled && $networkEnabled && $websiteEnabled,
+                'provider' => 'google_adsense',
+                'enabled' => $websiteActive,
                 'publisher_id' => $websitePublisher,
                 'ad_units' => $websiteUnits,
-                'configured' => $systemEnabled && $networkEnabled && $websiteEnabled && $websitePublisher !== '' && $websiteUnits !== [],
+                'configured' => $websiteConfigured,
             ],
             'app' => [
-                'enabled' => $systemEnabled && $networkEnabled && $appEnabled,
+                'provider' => 'google_admob',
+                'enabled' => $appActive,
                 'publisher_id' => $appPublisher,
                 'ad_units' => $appUnits,
-                'configured' => $systemEnabled && $networkEnabled && $appEnabled && $appPublisher !== '' && $appUnits !== [],
+                'configured' => $appConfigured,
             ],
         ];
     }

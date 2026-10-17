@@ -403,11 +403,13 @@ async function renderVideoAds(content) {
                 <label>Title <input name="title" required maxlength="160"></label>
                 <label>Upload video file <input name="video" type="file" accept="video/*"></label>
                 <label>Video link (direct file or external site) <input name="video_url" type="url" placeholder="https://www.youtube.com/watch?v=…"></label>
-                <p class="admin-video-ad-help">YouTube and Dailymotion videos can be embedded when the source allows it. Likee and other sites open in a new tab. A Dailymotion player embed URL works best; direct video files should end in .mp4 or .webm.</p>
+                <p class="admin-video-ad-help">YouTube, TikTok, and Dailymotion videos can play in the See Ads page when the source allows embedding. TikTok share links are supported. Other sites open in a new tab; direct video files should end in .mp4 or .webm.</p>
                 <label>Duration (seconds) <input name="duration_seconds" type="number" min="1" value="10" required></label>
-                <label>Reward <input name="reward_amount" type="number" min="0" step="0.0001" value="0.005" required></label>
+                <label>Reward per completed view <input name="reward_amount" type="number" min="0" step="0.0001" value="0.005" required></label>
                 <label>Daily limit (0 = unlimited) <input name="daily_limit" type="number" min="0" value="0"></label>
+                <label>Max views per user (0 = unlimited) <input name="per_user_limit" type="number" min="0" value="0"></label>
                 <label>Total limit (0 = unlimited) <input name="total_limit" type="number" min="0" value="0"></label>
+                <p class="admin-video-ad-help">Each completed view credits the configured reward to the worker’s balance. The per-user limit counts video starts for this campaign.</p>
                 <button class="btn btn--primary btn--sm" type="submit">Save video campaign</button>
             </div>
         </form>
@@ -435,7 +437,7 @@ function renderVideoAdRow(ad, list) {
         <div class="admin-row__main">
             <strong>${escapeHtml(ad.title)}</strong>
             <span class="muted">${escapeHtml(sourceLabel)}</span>
-            <span class="muted">${ad.duration_seconds}s · reward ${Number(ad.reward_amount || 0).toFixed(4)} · ${Number(ad.completed_views || 0)}/${Number(ad.total_views || 0)} completed</span>
+            <span class="muted">${ad.duration_seconds}s · reward ${Number(ad.reward_amount || 0).toFixed(4)} · max ${Number(ad.per_user_limit || 0) || 'unlimited'} per user · ${Number(ad.completed_views || 0)}/${Number(ad.total_views || 0)} completed</span>
             <span class="badge ${ad.status === 'active' ? 'badge--green' : ''}">${escapeHtml(String(ad.status || '').toUpperCase())}</span>
         </div>
         <div class="admin-row__actions">

@@ -21,6 +21,12 @@ const SETTING_LABELS = {
     registration_otp_enabled: 'Registration OTP Verification',
 };
 
+const GOOGLE_AD_SETTING_KEYS = new Set([
+    'google_adsense_enabled', 'google_admob_enabled',
+    'website_publisher_id', 'website_ad_units',
+    'app_publisher_id', 'app_ad_units',
+]);
+
 export function AdminSettingsPage() {
     return async () => {
         const root = document.querySelector('[data-view]');
@@ -65,14 +71,19 @@ function render() {
     if (!c) return;
 
     const cats = Object.keys(_state.grouped);
-    let html = cats.map(cat => `
+    let html = googleAdsSettingsCard();
+    html += cats.map(cat => {
+        const visibleSettings = _state.grouped[cat].filter(setting => !GOOGLE_AD_SETTING_KEYS.has(setting.key));
+        if (!visibleSettings.length) return '';
+        return `
         <div class="card settings-group">
             <h3 class="card__title">${escapeHtml(cat.charAt(0).toUpperCase() + cat.slice(1))}</h3>
             <div class="settings-group__rows">
-                ${_state.grouped[cat].map(s => settingRow(cat, s)).join('')}
+                ${visibleSettings.map(s => settingRow(cat, s)).join('')}
             </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
 
     // Dynamic Image Banner Setting section
     const nd = _state.noticesData;
@@ -187,6 +198,71 @@ function render() {
     document.getElementById('settings-save-btn').addEventListener('click', saveAll);
     document.getElementById('add-notice-btn').addEventListener('click', addNoticeRow);
     wireNoticeUploadAndButtons();
+}
+
+function googleAdsSettingsCard() {
+    const websiteUnits = settingValue('website_ad_units', {});
+    const appUnits = settingValue('app_ad_units', {});
+    const unitValue = (units, placement) => {
+        const value = units && typeof units === 'object' ? units[placement] : '';
+        return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+    };
+    return `
+        <div class="card settings-group">
+            <h3 class="card__title"><i class="bi bi-google"></i> Google Ads Setup</h3>
+            <p class="muted">Configure Google publisher/app IDs and ad unit IDs. These are public client identifiers; do not enter Google passwords, API secrets, or service-account keys.</p>
+            <div class="settings-group__rows">
+                <h4>Google AdSense — Website</h4>
+                <div class="settings-row">
+                    <label for="google-adsense-enabled" class="settings-row__label">
+                        <strong>Enable Google AdSense</strong>
+                        <span class="muted">Website ads require the global ad, ad network, and website switches, plus a publisher ID and at least one ad unit.</span>
+                    </label>
+                    <div class="settings-row__control"><label class="settings-row__check"><input type="checkbox" id="google-adsense-enabled" ${settingValue('google_adsense_enabled', false) ? 'checked' : ''}></label></div>
+                </div>
+                <div class="settings-row">
+                    <label for="google-adsense-publisher-id" class="settings-row__label"><strong>AdSense Publisher ID</strong><span class="muted">Example: ca-pub-1234567890123456</span></label>
+                    <div class="settings-row__control"><input type="text" id="google-adsense-publisher-id" value="${escapeHtml(settingValue('website_publisher_id', ''))}" placeholder="ca-pub-…" class="settings-row__input" autocomplete="off"></div>
+                </div>
+                ${adUnitInput('adsense-unit-display', 'Display ad unit ID', unitValue(websiteUnits, 'display'))}
+                ${adUnitInput('adsense-unit-in-article', 'In-article ad unit ID', unitValue(websiteUnits, 'in_article'))}
+                ${adUnitInput('adsense-unit-multiplex', 'Multiplex ad unit ID', unitValue(websiteUnits, 'multiplex'))}
+
+                <h4 style="margin-top:18px;">Google AdMob — Android App</h4>
+                <div class="settings-row">
+                    <label for="google-admob-enabled" class="settings-row__label">
+                        <strong>Enable Google AdMob</strong>
+                        <span class="muted">App ads require the global ad, ad network, and Android app switches, plus an app ID and at least one ad unit.</span>
+                    </label>
+                    <div class="settings-row__control"><label class="settings-row__check"><input type="checkbox" id="google-admob-enabled" ${settingValue('google_admob_enabled', false) ? 'checked' : ''}></label></div>
+                </div>
+                <div class="settings-row">
+                    <label for="google-admob-app-id" class="settings-row__label"><strong>AdMob App ID</strong><span class="muted">Example: ca-app-pub-1234567890123456~1234567890</span></label>
+                    <div class="settings-row__control"><input type="text" id="google-admob-app-id" value="${escapeHtml(settingValue('app_publisher_id', ''))}" placeholder="ca-app-pub-…~…" class="settings-row__input" autocomplete="off"></div>
+                </div>
+                ${adUnitInput('admob-unit-banner', 'Banner ad unit ID', unitValue(appUnits, 'banner'))}
+                ${adUnitInput('admob-unit-interstitial', 'Interstitial ad unit ID', unitValue(appUnits, 'interstitial'))}
+                ${adUnitInput('admob-unit-rewarded', 'Rewarded ad unit ID', unitValue(appUnits, 'rewarded'))}
+            </div>
+        </div>
+    `;
+}
+
+function adUnitInput(id, label, value) {
+    return `
+        <div class="settings-row">
+            <label for="${id}" class="settings-row__label"><strong>${escapeHtml(label)}</strong><span class="muted">Leave blank if this placement is not used.</span></label>
+            <div class="settings-row__control"><input type="text" id="${id}" value="${escapeHtml(value)}" class="settings-row__input" autocomplete="off"></div>
+        </div>
+    `;
+}
+
+function settingValue(key, fallback) {
+    for (const category of Object.keys(_state.grouped)) {
+        const setting = _state.grouped[category].find(item => item.key === key);
+        if (setting) return setting.value ?? fallback;
+    }
+    return fallback;
 }
 
 function messageInputRow(num, item = { image: '', text: '' }) {
@@ -334,6 +410,21 @@ async function saveAll() {
         }
     }
 
+    updates.google_adsense_enabled = !!document.getElementById('google-adsense-enabled')?.checked;
+    updates.google_admob_enabled = !!document.getElementById('google-admob-enabled')?.checked;
+    updates.website_publisher_id = document.getElementById('google-adsense-publisher-id')?.value.trim() || '';
+    updates.app_publisher_id = document.getElementById('google-admob-app-id')?.value.trim() || '';
+    updates.website_ad_units = mergeAdUnits(settingValue('website_ad_units', {}), {
+        display: document.getElementById('adsense-unit-display')?.value,
+        in_article: document.getElementById('adsense-unit-in-article')?.value,
+        multiplex: document.getElementById('adsense-unit-multiplex')?.value,
+    });
+    updates.app_ad_units = mergeAdUnits(settingValue('app_ad_units', {}), {
+        banner: document.getElementById('admob-unit-banner')?.value,
+        interstitial: document.getElementById('admob-unit-interstitial')?.value,
+        rewarded: document.getElementById('admob-unit-rewarded')?.value,
+    });
+
     const socialUpdates = {
         facebook: document.getElementById('social-facebook')?.value || '',
         instagram: document.getElementById('social-instagram')?.value || '',
@@ -368,6 +459,18 @@ async function saveAll() {
     } finally {
         btn.disabled = false; btn.textContent = 'Save All Changes';
     }
+}
+
+function mergeAdUnits(existing, editableUnits) {
+    const units = existing && typeof existing === 'object' && !Array.isArray(existing)
+        ? { ...existing }
+        : {};
+    for (const [placement, rawValue] of Object.entries(editableUnits)) {
+        const value = String(rawValue || '').trim();
+        if (value) units[placement] = value;
+        else delete units[placement];
+    }
+    return units;
 }
 
 function escapeHtml(s) {

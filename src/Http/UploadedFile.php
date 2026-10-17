@@ -41,10 +41,16 @@ class UploadedFile
 
         // Normalise single-file entry
         if (!is_array($f['name'])) {
+            if ((int) ($f['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                return null;
+            }
             return new self($f);
         }
 
         // Multiple files — return the first one only
+        if ((int) ($f['error'][0] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            return null;
+        }
         return new self([
             'name'     => $f['name'][0],
             'type'     => $f['type'][0],

@@ -110,7 +110,7 @@ class AdminVideoAdController extends Controller
         }
         if (isset($body["duration_seconds"]) && ((int) $body["duration_seconds"] < 1 || (int) $body["duration_seconds"] > 86400)) return "duration_seconds must be between 1 and 86400.";
         if (isset($body["reward_amount"]) && ((float) $body["reward_amount"] < 0 || (float) $body["reward_amount"] > 1000000)) return "reward_amount is invalid.";
-        foreach (["daily_limit", "total_limit"] as $key) {
+        foreach (["daily_limit", "per_user_limit", "total_limit"] as $key) {
             if (isset($body[$key]) && (int) $body[$key] < 0) return $key . " cannot be negative.";
         }
         if (isset($body["status"]) && !in_array((string) $body["status"], [VideoAd::STATUS_ACTIVE, VideoAd::STATUS_PAUSED], true)) return "status must be active or paused.";
@@ -126,7 +126,7 @@ class AdminVideoAdController extends Controller
         foreach (["title", "status"] as $key) {
             if ($create || array_key_exists($key, $body)) $fields[$key] = trim((string) ($body[$key] ?? ($key === "status" ? VideoAd::STATUS_ACTIVE : "")));
         }
-        foreach (["duration_seconds", "daily_limit", "total_limit"] as $key) {
+        foreach (["duration_seconds", "daily_limit", "per_user_limit", "total_limit"] as $key) {
             if ($create || array_key_exists($key, $body)) $fields[$key] = (int) ($body[$key] ?? ($key === "duration_seconds" ? 10 : 0));
         }
         if ($create || array_key_exists("reward_amount", $body)) $fields["reward_amount"] = (float) ($body["reward_amount"] ?? 0);
@@ -176,6 +176,7 @@ class AdminVideoAdController extends Controller
             'starts_at' => $get('starts_at'),
             'ends_at' => $get('ends_at'),
             'daily_limit' => (int) $get('daily_limit', 0),
+            'per_user_limit' => (int) $get('per_user_limit', 0),
             'total_limit' => (int) $get('total_limit', 0),
             'total_views' => (int) $get('total_views', 0),
             'completed_views' => (int) $get('completed_views', 0),

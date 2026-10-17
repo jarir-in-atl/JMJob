@@ -608,6 +608,8 @@ button { font-family: inherit; cursor: pointer; }
 .earn-watch__icon { display: grid; place-items: center; width: 42px; height: 42px; flex: 0 0 42px; border-radius: 13px; color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, var(--card)); font-size: 22px; }
 .earn-watch__player { position: relative; overflow: hidden; width: 100%; min-height: 230px; aspect-ratio: 16 / 9; border-radius: 14px; color: #fff; background: #080b12; }
 .earn-watch__player iframe, .earn-watch__video { display: block; width: 100%; height: 100%; min-height: 230px; border: 0; object-fit: contain; background: #080b12; }
+.earn-watch__player--tiktok { width: min(100%, 360px); height: min(62vh, 620px); min-height: 300px; margin-inline: auto; aspect-ratio: 9 / 16; }
+.earn-watch__player--tiktok iframe { min-height: 0; }
 .earn-watch__loading, .earn-watch__fallback { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; width: 100%; min-height: 230px; padding: 20px; color: rgba(255,255,255,.75); text-align: center; }
 .earn-watch__loading .spinner { margin: 0; }
 .earn-watch__fallback > i { color: #a5b4fc; font-size: 28px; }
@@ -1529,6 +1531,20 @@ button { font-family: inherit; cursor: pointer; }
 .admin-video-ad-help { grid-column: 1 / -1; margin: -3px 0 2px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .admin-row__form input[type=text], .admin-row__form input[type=number] {
     padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px;
+}
+.admin-video-ad-form { width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; }
+.admin-video-ad-form .admin-row__form { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; min-width: 0; }
+.admin-video-ad-form .admin-row__form > *, .admin-video-ad-form .admin-row__form label { min-width: 0; }
+.admin-video-ad-form .admin-row__form input:not([type=checkbox]) {
+    display: block; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box;
+    padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); background: var(--card); font: inherit; font-size: 13px;
+}
+.admin-video-ad-form .admin-row__form input[type=file] { padding: 6px; font-size: 12px; }
+.admin-video-ad-form .admin-row__form > button { grid-column: 1 / -1; justify-self: start; min-width: 240px; }
+@media (max-width: 640px) {
+    .admin-video-ad-form .admin-row__form { grid-template-columns: minmax(0, 1fr); }
+    .admin-video-ad-form .admin-row__form > button { width: 100%; min-width: 0; }
 }
 .checkbox-label { flex-direction: row !important; align-items: center; gap: 6px; }
 .admin-select {

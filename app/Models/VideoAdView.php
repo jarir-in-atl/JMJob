@@ -29,4 +29,12 @@ class VideoAdView extends Model
             ->whereBetween('started_at', $start, $end)
             ->count();
     }
+
+    public static function countForUser(int $videoAdId, int $userId): int
+    {
+        return Fluent::table('video_ad_views')
+            ->where('video_ad_id', '=', $videoAdId)
+            ->where('user_id', '=', $userId)
+            ->count();
+    }
 }
