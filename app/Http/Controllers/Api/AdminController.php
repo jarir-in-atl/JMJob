@@ -10,6 +10,7 @@ use App\Models\Withdrawal;
 use App\Models\User;
 use App\Models\Job;
 use App\Models\JobAssignment;
+use App\Models\JobBid;
 use App\Models\JobSubmission;
 use App\Models\UserBanHistory;
 use App\Models\AdminActionLog;
@@ -1156,6 +1157,27 @@ class AdminController extends Controller
             'success' => true,
             'message' => $result['message'],
             'data'    => ['bid_id' => (int) $bidId, 'status' => 'accepted'],
+        ]);
+    }
+
+    public function declineApplication(Request $request, string $bidId): Response
+    {
+        if ($guard = $this->adminGuard($request)) return $guard;
+        $admin = $request->getMeta('auth.user');
+        $body = (array) $this->readJson($request);
+        $reason = trim((string) ($body['reason'] ?? ''));
+        $result = $this->jobService->declineWorkerApplication((int) $bidId, (int) $admin->id, $reason);
+        if (!$result['success']) {
+            return Response::json($result, 422);
+        }
+        $this->auditAdminAction($admin, 'application.decline', 'bid', (int) $bidId, [
+            'status' => JobBid::STATUS_REJECTED,
+            'reason' => $reason,
+        ]);
+        return Response::json([
+            'success' => true,
+            'message' => $result['message'],
+            'data' => ['bid_id' => (int) $bidId, 'status' => JobBid::STATUS_REJECTED],
         ]);
     }
 

@@ -133,6 +133,7 @@ $router->group(['prefix' => 'api', 'middleware' => 'cors'], function (Router $r)
             $r->add('POST', '/admin/jobs/{id}/approve', [AdminController::class, 'approveJob']);
             $r->add('POST', '/admin/jobs/{id}/decline', [AdminController::class, 'declineJob']);
             $r->add('POST', '/admin/applications/{id}/approve', [AdminController::class, 'approveApplication']);
+            $r->add('POST', '/admin/applications/{id}/decline', [AdminController::class, 'declineApplication']);
             $r->add('POST', '/admin/jobs/{id}/dispute', [AdminController::class, 'flagDispute']);
             $r->add('POST', '/admin/jobs/{id}/resolve',  [AdminController::class, 'resolveJob']);
             $r->get('/admin/stats',                 [AdminController::class, 'stats'],     'admin.stats');

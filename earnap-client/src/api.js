@@ -239,6 +239,7 @@ export const api = {
     adminApproveJob:            (id, body = {}) => request(`/admin/jobs/${id}/approve`, { method: 'POST', body }),
     adminDeclineJob:            (id, body = {}) => request(`/admin/jobs/${id}/decline`, { method: 'POST', body }),
     adminApproveApplication:    (id, body = {}) => request(`/admin/applications/${id}/approve`, { method: 'POST', body }),
+    adminDeclineApplication:    (id, body = {}) => request(`/admin/applications/${id}/decline`, { method: 'POST', body }),
     adminFlagJobDispute:        (id) => request(`/admin/jobs/${id}/dispute`, { method: 'POST' }),
     adminResolveJob:             (id, body) => request(`/admin/jobs/${id}/resolve`, { method: 'POST', body }),
     adminTransactions:          (params = {}) => {

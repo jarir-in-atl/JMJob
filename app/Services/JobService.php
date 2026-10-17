@@ -584,6 +584,62 @@ class JobService
         return ['success' => true, 'message' => 'Worker application approved and assigned to job.'];
     }
 
+    /** Admin flow: decline a still-pending worker application. */
+    public function declineWorkerApplication(int $bidId, int $adminId, ?string $reason = null): array
+    {
+        if (!$this->isAdminId($adminId)) {
+            return ['success' => false, 'message' => 'Administrator access is required.'];
+        }
+
+        $db = Database::connect();
+        try {
+            $this->beginWriteTransaction($db);
+
+            $bidSql = 'SELECT * FROM job_bids WHERE id = :id LIMIT 1';
+            if (Database::getDriverName() !== 'sqlite') $bidSql .= ' FOR UPDATE';
+            $bidStmt = $db->prepare($bidSql);
+            $bidStmt->execute(['id' => $bidId]);
+            $bidRow = $bidStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$bidRow) throw new \RuntimeException('Application bid not found.');
+            $bid = new JobBid($bidRow);
+            if (!$bid->isPending()) throw new \RuntimeException('Application has already been reviewed.');
+
+            $now = date('Y-m-d H:i:s');
+            $updated = $db->prepare(
+                'UPDATE job_bids
+                 SET status = :status, decided_at = :decided_at, decided_by = :decided_by, updated_at = :updated_at
+                 WHERE id = :id AND status = :pending'
+            );
+            $updated->execute([
+                'status' => JobBid::STATUS_REJECTED,
+                'decided_at' => $now,
+                'decided_by' => $adminId,
+                'updated_at' => $now,
+                'id' => $bidId,
+                'pending' => JobBid::STATUS_PENDING,
+            ]);
+            if ($updated->rowCount() !== 1) throw new \RuntimeException('Application has already been reviewed.');
+
+            $this->commitWriteTransaction($db);
+        } catch (\Throwable $e) {
+            $this->rollbackWriteTransaction($db);
+            return ['success' => false, 'message' => 'Application decline failed: ' . $e->getMessage()];
+        }
+
+        $job = Job::find((int) $bid->job_id);
+        $this->notifyUser(
+            User::find((int) $bid->worker_id),
+            'Worker application declined',
+            'Your application for “' . ($job?->title ?? 'the job') . '” was declined.'
+                . (trim((string) $reason) !== '' ? ' Reason: ' . trim((string) $reason) : ''),
+            'warning',
+            'bi-x-circle',
+            '/jobs/' . (int) $bid->job_id
+        );
+
+        return ['success' => true, 'message' => 'Worker application declined.'];
+    }
+
     /**
      * Cancel one held assignment and refund only that worker's escrow.
      *

@@ -170,6 +170,43 @@ try {
     $disputedAssignmentCount->execute([$jobIds['disputed_approval']]);
     $assert((int) $disputedAssignmentCount->fetchColumn() === 0, 'Disputed-job approval created an assignment or escrow hold.');
 
+    $insertJob->execute([$userIds['poster'], "Admin bid decline {$suffix}", "admin-bid-decline-{$suffix}", 'A job used to verify admin worker-bid decline.', 10, 'BDT', Job::STATUS_OPEN, 1, 10, null, null]);
+    $jobIds['admin_bid_decline'] = (int) $db->lastInsertId();
+    $insertBid->execute([$jobIds['admin_bid_decline'], $userIds['worker'], 10, 'BDT', 1, 'Bid to decline', JobBid::STATUS_PENDING]);
+    $bidIds['admin_bid_decline'] = (int) $db->lastInsertId();
+    $db->prepare('UPDATE job_bids SET work_proof_data = ? WHERE id = ?')->execute([
+        json_encode(['attachment_path' => 'job-proofs/test-bid-proof.png', 'attachment_name' => 'work-screenshot.png', 'attachment_type' => 'image']),
+        $bidIds['admin_bid_decline'],
+    ]);
+    $adminJobDetailRequest = new Request();
+    $adminJobDetailRequest->setMeta('auth.user', User::find($userIds['admin']));
+    $adminJobDetailResponse = (new AdminJobController())->show($adminJobDetailRequest, $jobIds['admin_bid_decline']);
+    $adminJobDetailBody = json_decode($adminJobDetailResponse->getContent(), true);
+    $adminBid = $adminJobDetailBody['data']['bids'][0] ?? [];
+    $assert($adminJobDetailResponse->getStatus() === 200
+        && ($adminBid['proof_attachment_name'] ?? '') === 'work-screenshot.png'
+        && ($adminBid['proof_attachment_type'] ?? '') === 'image'
+        && ($adminBid['proof_attachment_url'] ?? '') === '/api/poster/bids/' . $bidIds['admin_bid_decline'] . '/attachment',
+        'Admin job detail did not expose the protected worker bid proof metadata.');
+    $_POST = ['reason' => 'The job is already assigned.'];
+    $declineApplicationRequest = new Request();
+    $declineApplicationRequest->setMeta('auth.user', User::find($userIds['admin']));
+    $declineApplicationResponse = (new AdminController())->declineApplication($declineApplicationRequest, (string) $bidIds['admin_bid_decline']);
+    $_POST = [];
+    $declineApplicationBody = json_decode($declineApplicationResponse->getContent(), true);
+    $declinedBidState = $db->prepare('SELECT status, decided_by, decided_at FROM job_bids WHERE id = ?');
+    $declinedBidState->execute([$bidIds['admin_bid_decline']]);
+    $declinedBid = $declinedBidState->fetch(PDO::FETCH_ASSOC);
+    $assert($declineApplicationResponse->getStatus() === 200
+        && ($declineApplicationBody['data']['status'] ?? '') === JobBid::STATUS_REJECTED
+        && ($declinedBid['status'] ?? '') === JobBid::STATUS_REJECTED
+        && (int) ($declinedBid['decided_by'] ?? 0) === $userIds['admin']
+        && !empty($declinedBid['decided_at']),
+        'Admin worker-bid decline did not record a final rejected decision.');
+    $repeatApplicationDecline = $service->declineWorkerApplication($bidIds['admin_bid_decline'], $userIds['admin']);
+    $assert(($repeatApplicationDecline['success'] ?? true) === false,
+        'A worker bid could be declined more than once.');
+
     $declineFixture = $service->createWorkflowJob(
         User::find($userIds['poster']),
         1,
@@ -2241,6 +2278,7 @@ try {
     }
     if ($bidIds) {
         $placeholders = implode(',', array_fill(0, count($bidIds), '?'));
+        $db->prepare("DELETE FROM admin_action_logs WHERE entity_type = 'bid' AND entity_id IN ({$placeholders})")->execute(array_values($bidIds));
         $db->prepare("DELETE FROM job_bids WHERE id IN ({$placeholders})")->execute(array_values($bidIds));
     }
     if ($jobIds) {

@@ -387,8 +387,19 @@ class AdminJobController extends Controller
     {
         $job = Job::find($id);
         if ($job === null) return [];
+        $assignmentModels = JobAssignment::forJob($id);
+        $bidModels = JobBid::forJob($id);
+        $assignmentsById = [];
+        foreach ($assignmentModels as $assignment) {
+            $assignmentsById[(int) $assignment->id] = $assignment;
+        }
+        $bidsById = [];
+        foreach ($bidModels as $bid) {
+            $bidsById[(int) $bid->id] = $bid;
+        }
+
         $assignments = [];
-        foreach (JobAssignment::forJob($id) as $assignment) {
+        foreach ($assignmentModels as $assignment) {
             $worker = $assignment->worker();
             $latest = JobSubmission::latestForAssignment((int) $assignment->id);
             $assignments[] = [
@@ -416,9 +427,19 @@ class AdminJobController extends Controller
         $submissions = [];
         foreach (JobSubmission::forJob($id) as $submission) {
             $worker = $submission->worker();
+            $submissionAssignment = $submission->assignment_id
+                ? ($assignmentsById[(int) $submission->assignment_id] ?? null)
+                : null;
+            $submissionBid = $submission->bid_id
+                ? ($bidsById[(int) $submission->bid_id] ?? null)
+                : null;
             $submissions[] = [
                 'id' => (int) $submission->id,
                 'assignment_id' => $submission->assignment_id ? (int) $submission->assignment_id : null,
+                'bid_id' => $submission->bid_id ? (int) $submission->bid_id : null,
+                'bid_amount' => $submissionBid ? (float) $submissionBid->amount : null,
+                'assignment_payment_amount' => $submissionAssignment ? (float) $submissionAssignment->payment_amount : null,
+                'payment_status' => $submissionAssignment?->payment_status,
                 'worker_id' => (int) $submission->worker_id,
                 'status' => $submission->status,
                 'description' => $submission->description,
@@ -447,16 +468,27 @@ class AdminJobController extends Controller
             ];
         }
         $bids = [];
-        foreach (JobBid::forJob($id) as $bid) {
+        foreach ($bidModels as $bid) {
             $worker = $bid->worker();
+            $decodedProofData = is_string($bid->work_proof_data ?? null)
+                ? json_decode((string) $bid->work_proof_data, true)
+                : ($bid->work_proof_data ?? []);
+            $proofData = is_array($decodedProofData) ? $decodedProofData : [];
+            $proofPath = ltrim((string) ($proofData['attachment_path'] ?? ''), '/');
+            $hasProofAttachment = str_starts_with($proofPath, 'job-proofs/');
             $bids[] = [
                 'id' => (int) $bid->id,
                 'worker_id' => (int) $bid->worker_id,
                 'amount' => (float) $bid->amount,
                 'currency' => $bid->currency,
+                'delivery_days' => (int) ($bid->delivery_days ?? 0),
                 'proposal' => $bid->proposal,
                 'status' => $bid->status,
                 'created_at' => $bid->created_at,
+                'decided_at' => $bid->decided_at ?? null,
+                'proof_attachment_url' => $hasProofAttachment ? '/api/poster/bids/' . (int) $bid->id . '/attachment' : null,
+                'proof_attachment_name' => $hasProofAttachment ? (string) ($proofData['attachment_name'] ?? 'Work proof') : null,
+                'proof_attachment_type' => $hasProofAttachment ? (string) ($proofData['attachment_type'] ?? '') : null,
                 'worker' => $worker ? [
                     'id' => (int) $worker->id,
                     'name' => $worker->name,
