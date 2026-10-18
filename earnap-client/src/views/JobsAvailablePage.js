@@ -1,6 +1,7 @@
 // JobsAvailablePage — workers browse, filter, sort, and page through open jobs.
 import { api } from '../api.js';
 import { navigate } from '../state.js';
+import { createGoogleAdSlot } from '../components/google-ad-slot.js';
 
 let _state = {
     jobs: [],
@@ -77,6 +78,7 @@ export function JobsAvailablePage() {
             <nav class="jobs-pagination" id="jobs-pagination" aria-label="Job pages"></nav>
         `;
 
+        root.querySelector('.jobs-filters')?.after(createGoogleAdSlot('in_article'));
         if (_state.categories.length === 0) {
             try {
                 const response = await api.categories();

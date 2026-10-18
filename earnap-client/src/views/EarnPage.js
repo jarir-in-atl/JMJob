@@ -1,5 +1,6 @@
 import { api, getAuthToken } from '../api.js';
 import { currentUser, showFlash, refreshUser } from '../state.js';
+import { createGoogleAdSlot } from '../components/google-ad-slot.js';
 
 export function EarnPage() {
     return async () => {
@@ -83,6 +84,7 @@ export function EarnPage() {
                 </section>
             `;
 
+            root.querySelector('.earn-progress-card')?.after(createGoogleAdSlot('multiplex'));
             const list = root.querySelector('.earn-video-grid');
             items.forEach(ad => list.appendChild(renderVideoCard(ad, remaining)));
         } catch (error) {
@@ -163,9 +165,11 @@ async function openVideoAdModal(ad) {
     let objectUrl = null;
     let claimInProgress = false;
     let closed = false;
+    let cleanupFullscreenControl = null;
 
     const close = () => {
         closed = true;
+        cleanupFullscreenControl?.();
         modal.remove();
         if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
@@ -201,6 +205,9 @@ async function openVideoAdModal(ad) {
         addExternalLink(playerSlot, source.url);
     } else {
         showExternalPlayer(playerSlot, source.url);
+    }
+    if (!closed && playerSlot.querySelector('video, iframe')) {
+        cleanupFullscreenControl = attachFullscreenControl(playerSlot);
     }
 
     const requiredSeconds = Math.max(1, Number(session.duration_seconds || 1));
@@ -242,6 +249,78 @@ async function openVideoAdModal(ad) {
     const timer = setInterval(updateTimer, 250);
     updateTimer();
     claimButton.addEventListener('click', claimReward);
+}
+
+function attachFullscreenControl(playerSlot) {
+    const button = document.createElement('button');
+    button.className = 'earn-watch__fullscreen';
+    button.type = 'button';
+    button.setAttribute('aria-label', 'Full screen');
+    button.title = 'Full screen';
+
+    const icon = document.createElement('i');
+    icon.className = 'bi bi-fullscreen';
+    icon.setAttribute('aria-hidden', 'true');
+    const label = document.createElement('span');
+    button.append(icon, label);
+
+    const fullscreenElement = () => document.fullscreenElement || document.webkitFullscreenElement || null;
+    const syncLabel = () => {
+        const activeElement = fullscreenElement();
+        const active = activeElement === playerSlot
+            || Boolean(activeElement && playerSlot.contains(activeElement))
+            || playerSlot.classList.contains('earn-watch__player--fullscreen-fallback');
+        const text = active ? 'Exit full screen' : 'Full screen';
+        label.textContent = text;
+        button.setAttribute('aria-label', text);
+        button.title = text;
+        icon.className = active ? 'bi bi-fullscreen-exit' : 'bi bi-fullscreen';
+    };
+    const onFullscreenChange = () => syncLabel();
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+
+    button.addEventListener('click', async () => {
+        const activeElement = fullscreenElement();
+        const fallbackActive = playerSlot.classList.contains('earn-watch__player--fullscreen-fallback');
+        if (activeElement === playerSlot || (activeElement && playerSlot.contains(activeElement))) {
+            const exit = document.exitFullscreen || document.webkitExitFullscreen;
+            if (exit) {
+                try { await exit.call(document); } catch { /* keep the exit control available */ }
+            }
+            playerSlot.classList.remove('earn-watch__player--fullscreen-fallback');
+        } else if (fallbackActive) {
+            playerSlot.classList.remove('earn-watch__player--fullscreen-fallback');
+        } else {
+            const request = playerSlot.requestFullscreen || playerSlot.webkitRequestFullscreen;
+            if (request) {
+                try {
+                    await request.call(playerSlot);
+                } catch {
+                    playerSlot.classList.add('earn-watch__player--fullscreen-fallback');
+                }
+            } else {
+                playerSlot.classList.add('earn-watch__player--fullscreen-fallback');
+            }
+        }
+        syncLabel();
+    });
+
+    playerSlot.appendChild(button);
+    syncLabel();
+    return () => {
+        document.removeEventListener('fullscreenchange', onFullscreenChange);
+        document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
+        const activeElement = fullscreenElement();
+        if (activeElement === playerSlot || (activeElement && playerSlot.contains(activeElement))) {
+            const exit = document.exitFullscreen || document.webkitExitFullscreen;
+            if (exit) {
+                try { Promise.resolve(exit.call(document)).catch(() => {}); } catch { /* the modal can still close */ }
+            }
+        }
+        playerSlot.classList.remove('earn-watch__player--fullscreen-fallback');
+        button.remove();
+    };
 }
 
 export async function classifyVideoSource(value) {

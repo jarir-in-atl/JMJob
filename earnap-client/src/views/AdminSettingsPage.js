@@ -210,13 +210,13 @@ function googleAdsSettingsCard() {
     return `
         <div class="card settings-group">
             <h3 class="card__title"><i class="bi bi-google"></i> Google Ads Setup</h3>
-            <p class="muted">Configure Google publisher/app IDs and ad unit IDs. These are public client identifiers; do not enter Google passwords, API secrets, or service-account keys.</p>
+            <p class="muted">Configure Google publisher/app IDs and ad unit IDs for future use. This build keeps Google ad placements hidden until ad delivery is implemented. These are public client identifiers; do not enter Google passwords, API secrets, or service-account keys.</p>
             <div class="settings-group__rows">
                 <h4>Google AdSense — Website</h4>
                 <div class="settings-row">
                     <label for="google-adsense-enabled" class="settings-row__label">
                         <strong>Enable Google AdSense</strong>
-                        <span class="muted">Website ads require the global ad, ad network, and website switches, plus a publisher ID and at least one ad unit.</span>
+                        <span class="muted">Website placements are reserved for later; page slots stay hidden until ad delivery is implemented and a publisher ID plus at least one ad unit are configured.</span>
                     </label>
                     <div class="settings-row__control"><label class="settings-row__check"><input type="checkbox" id="google-adsense-enabled" ${settingValue('google_adsense_enabled', false) ? 'checked' : ''}></label></div>
                 </div>
@@ -232,7 +232,7 @@ function googleAdsSettingsCard() {
                 <div class="settings-row">
                     <label for="google-admob-enabled" class="settings-row__label">
                         <strong>Enable Google AdMob</strong>
-                        <span class="muted">App ads require the global ad, ad network, and Android app switches, plus an app ID and at least one ad unit.</span>
+                        <span class="muted">Android placements are reserved for later; they stay inactive until app ad delivery is implemented and an app ID plus at least one ad unit are configured.</span>
                     </label>
                     <div class="settings-row__control"><label class="settings-row__check"><input type="checkbox" id="google-admob-enabled" ${settingValue('google_admob_enabled', false) ? 'checked' : ''}></label></div>
                 </div>

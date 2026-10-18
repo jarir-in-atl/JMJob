@@ -1837,7 +1837,7 @@ class JobService
 
             $id = (int) Fluent::table('job_submissions')->insert($submissionData);
             if ($assignment !== null) {
-                $this->refreshJobProgress($job->id, $now);
+                $this->refreshJobProgress((int) $job->id, $now);
             }
             $this->commitWriteTransaction($db);
         } catch (\Throwable $e) {
@@ -2302,7 +2302,7 @@ class JobService
                 );
             }
 
-            $this->refreshJobProgress($job->id, $now);
+            $this->refreshJobProgress((int) $job->id, $now);
             $this->commitWriteTransaction($db);
 
             $this->notifyUser(

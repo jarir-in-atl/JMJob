@@ -4,6 +4,7 @@
 import { currentUser, route, navigate, showFlash, refreshUser } from '../state.js';
 import { api } from '../api.js';
 import { SHOW_DEPOSIT_UI } from '../features.js';
+import { createGoogleAdSlot } from '../components/google-ad-slot.js';
 
 export function HomePage() {
     return async () => {
@@ -26,6 +27,7 @@ export function HomePage() {
         // Section 2: 3-column icon grid. Deposit remains available behind the
         // SHOW_DEPOSIT_UI flag so it can be restored without rebuilding the UI.
         root.appendChild(renderIconGrid());
+        root.appendChild(createGoogleAdSlot('display'));
 
         // Section 3: Quick action cards (Daily Mission) — hidden as requested
         // root.appendChild(renderDailyMission(u));
