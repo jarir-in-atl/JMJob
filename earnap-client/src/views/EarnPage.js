@@ -132,15 +132,6 @@ function renderVideoCard(ad, remaining) {
 }
 
 async function openVideoAdModal(ad) {
-    let session;
-    try {
-        const response = await api.videoAdStart({ video_ad_id: ad.id });
-        session = response.data;
-    } catch (error) {
-        showFlash(error.message || 'Could not start this video.', 'error');
-        return;
-    }
-
     const modal = document.createElement('div');
     modal.className = 'modal modal--earn-watch';
     modal.innerHTML = `
@@ -149,10 +140,10 @@ async function openVideoAdModal(ad) {
             <button class="modal__close" type="button" aria-label="Close">×</button>
             <div class="earn-watch__heading"><span class="earn-watch__icon"><i class="bi bi-play-fill"></i></span><div><span class="earn-section-kicker">WATCH & EARN</span><h2 class="earn-watch__title">${escapeHtml(ad.title || 'Sponsored video')}</h2></div></div>
             <div class="earn-watch__player"><div class="earn-watch__loading"><span class="spinner"></span><span>Preparing your video…</span></div></div>
-            <div class="earn-watch__timer-row"><div class="earn-watch__timer-icon"><i class="bi bi-hourglass-split"></i></div><div class="earn-watch__timer-copy"><strong id="earn-watch-status">Starting your watch timer…</strong><span id="earn-watch-countdown">${Number(session.duration_seconds || 0)} seconds required</span></div></div>
+            <div class="earn-watch__timer-row"><div class="earn-watch__timer-icon"><i class="bi bi-hourglass-split"></i></div><div class="earn-watch__timer-copy"><strong id="earn-watch-status">Starting your watch timer…</strong><span id="earn-watch-countdown">Preparing your video…</span></div></div>
             <div class="earn-watch__progress"><span></span></div>
-            <p class="earn-watch__note">The reward button becomes available when the timer finishes. Keep this page open while you watch.</p>
-            <div class="earn-watch__actions"><button class="btn btn--ghost" type="button" data-watch-close>Close</button><button class="btn btn--primary" type="button" data-watch-claim disabled><i class="bi bi-gift-fill"></i><span>Claim reward</span><strong>৳${money(session.reward_amount ?? ad.reward_amount)}</strong></button></div>
+            <p class="earn-watch__note">The video starts automatically, muted. Use the player controls for sound. Press Esc or Close to leave fullscreen.</p>
+            <div class="earn-watch__actions"><button class="btn btn--ghost" type="button" data-watch-close>Close</button><button class="btn btn--primary" type="button" data-watch-claim disabled><i class="bi bi-gift-fill"></i><span>Claim reward</span><strong>৳${money(ad.reward_amount)}</strong></button></div>
         </section>
     `;
     document.body.appendChild(modal);
@@ -168,8 +159,16 @@ async function openVideoAdModal(ad) {
     let cleanupFullscreenControl = null;
 
     const close = () => {
+        if (closed) return;
         closed = true;
         cleanupFullscreenControl?.();
+        const activeElement = document.fullscreenElement || document.webkitFullscreenElement || null;
+        if (activeElement === modal || (activeElement && modal.contains(activeElement))) {
+            const exit = document.exitFullscreen || document.webkitExitFullscreen;
+            if (exit) {
+                try { Promise.resolve(exit.call(document)).catch(() => {}); } catch { /* the modal can still close */ }
+            }
+        }
         modal.remove();
         if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
@@ -177,16 +176,42 @@ async function openVideoAdModal(ad) {
     modal.querySelector('.modal__close')?.addEventListener('click', close);
     modal.querySelector('.modal__backdrop')?.addEventListener('click', close);
 
+    // Request fullscreen directly from the Watch & Earn click, before any network await
+    // consumes the browser's transient user activation.
+    const requestFullscreen = modal.requestFullscreen || modal.webkitRequestFullscreen;
+    if (requestFullscreen) {
+        try { Promise.resolve(requestFullscreen.call(modal)).catch(() => {}); } catch { /* the viewport-sized modal remains available */ }
+    }
+
+    let session;
+    try {
+        const response = await api.videoAdStart({ video_ad_id: ad.id });
+        session = response.data;
+    } catch (error) {
+        if (!closed) {
+            showFlash(error.message || 'Could not start this video.', 'error');
+            close();
+        }
+        return;
+    }
+    if (closed) return;
+
+    countdown.textContent = `${Number(session.duration_seconds || 0)} seconds required`;
+    claimButton.querySelector('strong').textContent = `৳${money(session.reward_amount ?? ad.reward_amount)}`;
+
     const streamUrl = String(session.stream_url || '');
     const source = await classifyVideoSource(streamUrl);
+    if (closed) return;
     if (source.kind === 'local') {
         try {
             const response = await fetch(streamUrl, { headers: { Authorization: `Bearer ${getAuthToken()}` } });
             if (!response.ok) throw new Error('Video could not be loaded.');
-            objectUrl = URL.createObjectURL(await response.blob());
+            const blob = await response.blob();
+            if (closed) return;
+            objectUrl = URL.createObjectURL(blob);
             playerSlot.replaceChildren(createVideoElement(objectUrl));
         } catch (error) {
-            showPlayerError(playerSlot, error.message || 'Video could not be loaded.');
+            if (!closed) showPlayerError(playerSlot, error.message || 'Video could not be loaded.');
         }
     } else if (source.kind === 'file') {
         const video = createVideoElement(source.url);
@@ -207,7 +232,7 @@ async function openVideoAdModal(ad) {
         showExternalPlayer(playerSlot, source.url);
     }
     if (!closed && playerSlot.querySelector('video, iframe')) {
-        cleanupFullscreenControl = attachFullscreenControl(playerSlot);
+        cleanupFullscreenControl = attachFullscreenControl(playerSlot, modal);
     }
 
     const requiredSeconds = Math.max(1, Number(session.duration_seconds || 1));
@@ -251,7 +276,7 @@ async function openVideoAdModal(ad) {
     claimButton.addEventListener('click', claimReward);
 }
 
-function attachFullscreenControl(playerSlot) {
+function attachFullscreenControl(playerSlot, fullscreenTarget = playerSlot) {
     const button = document.createElement('button');
     button.className = 'earn-watch__fullscreen';
     button.type = 'button';
@@ -267,9 +292,9 @@ function attachFullscreenControl(playerSlot) {
     const fullscreenElement = () => document.fullscreenElement || document.webkitFullscreenElement || null;
     const syncLabel = () => {
         const activeElement = fullscreenElement();
-        const active = activeElement === playerSlot
-            || Boolean(activeElement && playerSlot.contains(activeElement))
-            || playerSlot.classList.contains('earn-watch__player--fullscreen-fallback');
+        const active = activeElement === fullscreenTarget
+            || Boolean(activeElement && fullscreenTarget.contains(activeElement))
+            || fullscreenTarget.classList.contains('earn-watch__player--fullscreen-fallback');
         const text = active ? 'Exit full screen' : 'Full screen';
         label.textContent = text;
         button.setAttribute('aria-label', text);
@@ -279,28 +304,35 @@ function attachFullscreenControl(playerSlot) {
     const onFullscreenChange = () => syncLabel();
     document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+    const onEscape = event => {
+        if (event.key === 'Escape' && fullscreenTarget.classList.contains('earn-watch__player--fullscreen-fallback')) {
+            fullscreenTarget.classList.remove('earn-watch__player--fullscreen-fallback');
+            syncLabel();
+        }
+    };
+    document.addEventListener('keydown', onEscape);
 
     button.addEventListener('click', async () => {
         const activeElement = fullscreenElement();
-        const fallbackActive = playerSlot.classList.contains('earn-watch__player--fullscreen-fallback');
-        if (activeElement === playerSlot || (activeElement && playerSlot.contains(activeElement))) {
+        const fallbackActive = fullscreenTarget.classList.contains('earn-watch__player--fullscreen-fallback');
+        if (activeElement === fullscreenTarget || (activeElement && fullscreenTarget.contains(activeElement))) {
             const exit = document.exitFullscreen || document.webkitExitFullscreen;
             if (exit) {
                 try { await exit.call(document); } catch { /* keep the exit control available */ }
             }
-            playerSlot.classList.remove('earn-watch__player--fullscreen-fallback');
+            fullscreenTarget.classList.remove('earn-watch__player--fullscreen-fallback');
         } else if (fallbackActive) {
-            playerSlot.classList.remove('earn-watch__player--fullscreen-fallback');
+            fullscreenTarget.classList.remove('earn-watch__player--fullscreen-fallback');
         } else {
-            const request = playerSlot.requestFullscreen || playerSlot.webkitRequestFullscreen;
+            const request = fullscreenTarget.requestFullscreen || fullscreenTarget.webkitRequestFullscreen;
             if (request) {
                 try {
-                    await request.call(playerSlot);
+                    await request.call(fullscreenTarget);
                 } catch {
-                    playerSlot.classList.add('earn-watch__player--fullscreen-fallback');
+                    fullscreenTarget.classList.add('earn-watch__player--fullscreen-fallback');
                 }
             } else {
-                playerSlot.classList.add('earn-watch__player--fullscreen-fallback');
+                fullscreenTarget.classList.add('earn-watch__player--fullscreen-fallback');
             }
         }
         syncLabel();
@@ -311,14 +343,15 @@ function attachFullscreenControl(playerSlot) {
     return () => {
         document.removeEventListener('fullscreenchange', onFullscreenChange);
         document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
+        document.removeEventListener('keydown', onEscape);
         const activeElement = fullscreenElement();
-        if (activeElement === playerSlot || (activeElement && playerSlot.contains(activeElement))) {
+        if (activeElement === fullscreenTarget || (activeElement && fullscreenTarget.contains(activeElement))) {
             const exit = document.exitFullscreen || document.webkitExitFullscreen;
             if (exit) {
                 try { Promise.resolve(exit.call(document)).catch(() => {}); } catch { /* the modal can still close */ }
             }
         }
-        playerSlot.classList.remove('earn-watch__player--fullscreen-fallback');
+        fullscreenTarget.classList.remove('earn-watch__player--fullscreen-fallback');
         button.remove();
     };
 }
@@ -357,17 +390,23 @@ export async function classifyVideoSource(value) {
             embedUrl.searchParams.set('playsinline', '1');
             embedUrl.searchParams.set('rel', '0');
             embedUrl.searchParams.set('controls', '1');
+            embedUrl.searchParams.set('mute', '1');
             return { kind: 'embed', url: raw, embedUrl: embedUrl.toString() };
         }
     }
 
     if (['dailymotion.com', 'dai.ly', 'geo.dailymotion.com'].includes(host)) {
         const playerMatch = path.match(/^\/player\/[^/]+\.html$/);
-        if (playerMatch && url.searchParams.has('video')) return { kind: 'embed', url: raw, embedUrl: raw };
+        if (playerMatch && url.searchParams.has('video')) {
+            url.searchParams.set('autoplay', '1');
+            url.searchParams.set('mute', '1');
+            return { kind: 'embed', url: raw, embedUrl: url.toString() };
+        }
         const match = host === 'dai.ly' ? path.match(/^\/([\w]+)/) : path.match(/\/(?:embed\/)?video\/([a-zA-Z0-9]+)/);
         if (match?.[1]) {
             const embedUrl = new URL(`https://www.dailymotion.com/embed/video/${match[1]}`);
             embedUrl.searchParams.set('autoplay', '1');
+            embedUrl.searchParams.set('mute', '1');
             return { kind: 'embed', url: raw, embedUrl: embedUrl.toString() };
         }
     }
@@ -375,7 +414,7 @@ export async function classifyVideoSource(value) {
     if (['vimeo.com', 'player.vimeo.com'].includes(host)) {
         const match = path.match(/\/(?:video\/)?(\d+)/);
         if (match?.[1]) {
-            return { kind: 'embed', url: raw, embedUrl: `https://player.vimeo.com/video/${match[1]}?autoplay=1` };
+            return { kind: 'embed', url: raw, embedUrl: `https://player.vimeo.com/video/${match[1]}?autoplay=1&muted=1` };
         }
     }
 
@@ -409,9 +448,11 @@ function createVideoElement(url) {
     video.className = 'earn-watch__video';
     video.controls = true;
     video.playsInline = true;
+    video.muted = true;
     video.autoplay = true;
     video.src = url;
-    video.addEventListener('loadedmetadata', () => video.play().catch(() => {}), { once: true });
+    video.addEventListener('canplay', () => video.play().catch(() => {}), { once: true });
+    video.play().catch(() => {});
     return video;
 }
 
